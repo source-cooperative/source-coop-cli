@@ -22,7 +22,7 @@ mod defaults {
 }
 
 #[derive(Parser)]
-#[command(name = "source-coop", about = "Source Cooperative CLI")]
+#[command(name = "source-coop", about = "Source Cooperative CLI", version)]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
     #[arg(short, long, global = true)]
@@ -73,6 +73,10 @@ struct LoginArgs {
     /// Local callback port (0 for random available port)
     #[arg(long, default_value = "0")]
     port: u16,
+
+    /// Skip caching credentials (just print to stdout)
+    #[arg(long)]
+    no_cache: bool,
 }
 
 #[derive(Parser)]
@@ -132,8 +136,12 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             .await?;
 
     // 4. Cache credentials
-    let location = cache::write_credentials(&args.role_arn, &creds)?;
-    eprintln!("Credentials cached to {location}");
+    if args.no_cache {
+        eprintln!("Skipping credential cache (--no-cache)");
+    } else {
+        let location = cache::write_credentials(&args.role_arn, &creds)?;
+        eprintln!("Credentials cached to {location}");
+    }
 
     // 5. Output
     match args.format {

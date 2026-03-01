@@ -53,6 +53,12 @@ aws s3 ls s3://my-bucket/ --profile source-coop
 
 When credentials expire, run `source-coop login` again.
 
+### Checking the CLI version
+
+```bash
+source-coop --version
+```
+
 ### Setting credentials on the environment
 
 After logging in, you can export cached credentials as environment variables:
