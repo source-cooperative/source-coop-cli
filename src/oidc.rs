@@ -14,15 +14,23 @@ pub struct OidcEndpoints {
 }
 
 /// Fetch OIDC discovery document and extract endpoints.
-pub async fn discover(issuer: &str) -> Result<OidcEndpoints, String> {
+pub async fn discover(issuer: &str, verbose: bool) -> Result<OidcEndpoints, String> {
     let discovery_url = format!(
         "{}/.well-known/openid-configuration",
         issuer.trim_end_matches('/')
     );
 
+    if verbose {
+        eprintln!("[verbose] GET {discovery_url}");
+    }
+
     let resp = reqwest::get(&discovery_url)
         .await
         .map_err(|e| format!("Failed to fetch OIDC discovery document: {e}"))?;
+
+    if verbose {
+        eprintln!("[verbose] Response: {}", resp.status());
+    }
 
     if !resp.status().is_success() {
         return Err(format!("OIDC discovery returned status {}", resp.status()));
@@ -43,6 +51,11 @@ pub async fn discover(issuer: &str) -> Result<OidcEndpoints, String> {
         .ok_or("Missing token_endpoint in discovery document")?
         .to_string();
 
+    if verbose {
+        eprintln!("[verbose] Authorization endpoint: {authorization_endpoint}");
+        eprintln!("[verbose] Token endpoint: {token_endpoint}");
+    }
+
     Ok(OidcEndpoints {
         authorization_endpoint,
         token_endpoint,
@@ -57,6 +70,7 @@ pub async fn login(
     client_id: &str,
     scope: &str,
     port: u16,
+    verbose: bool,
 ) -> Result<String, String> {
     let pkce = generate_pkce();
     let state: String = URL_SAFE_NO_PAD.encode(rand::thread_rng().gen::<[u8; 16]>());
@@ -71,6 +85,11 @@ pub async fn login(
         .map_err(|e| format!("Failed to get local address: {e}"))?;
     let redirect_uri = format!("http://127.0.0.1:{}/callback", local_addr.port());
 
+    if verbose {
+        eprintln!("[verbose] Callback server listening on {local_addr}");
+        eprintln!("[verbose] Redirect URI: {redirect_uri}");
+    }
+
     // Build authorization URL
     let mut auth_url = Url::parse(&endpoints.authorization_endpoint)
         .map_err(|e| format!("Invalid authorization endpoint URL: {e}"))?;
@@ -84,6 +103,10 @@ pub async fn login(
         .append_pair("code_challenge_method", "S256")
         .append_pair("state", &state);
 
+    if verbose {
+        eprintln!("[verbose] Authorization URL: {auth_url}");
+    }
+
     eprintln!("Opening browser for authentication...");
     if open::that(auth_url.as_str()).is_err() {
         eprintln!(
@@ -94,6 +117,10 @@ pub async fn login(
 
     // Wait for callback
     let (code, received_state) = wait_for_callback(&listener).await?;
+
+    if verbose {
+        eprintln!("[verbose] Received authorization code callback");
+    }
 
     if received_state != state {
         return Err("State mismatch — possible CSRF attack".to_string());
@@ -106,6 +133,7 @@ pub async fn login(
         &redirect_uri,
         client_id,
         &pkce.verifier,
+        verbose,
     )
     .await
 }
@@ -177,7 +205,15 @@ async fn exchange_code(
     redirect_uri: &str,
     client_id: &str,
     code_verifier: &str,
+    verbose: bool,
 ) -> Result<String, String> {
+    if verbose {
+        eprintln!("[verbose] POST {token_endpoint}");
+        eprintln!("[verbose]   grant_type=authorization_code");
+        eprintln!("[verbose]   redirect_uri={redirect_uri}");
+        eprintln!("[verbose]   client_id={client_id}");
+    }
+
     let client = reqwest::Client::new();
     let resp = client
         .post(token_endpoint)
@@ -192,6 +228,10 @@ async fn exchange_code(
         .await
         .map_err(|e| format!("Token exchange request failed: {e}"))?;
 
+    if verbose {
+        eprintln!("[verbose] Response: {}", resp.status());
+    }
+
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
@@ -202,6 +242,14 @@ async fn exchange_code(
         .json()
         .await
         .map_err(|e| format!("Failed to parse token response: {e}"))?;
+
+    if verbose {
+        let keys: Vec<&str> = body
+            .as_object()
+            .map(|o| o.keys().map(|k| k.as_str()).collect())
+            .unwrap_or_default();
+        eprintln!("[verbose] Token response keys: {}", keys.join(", "));
+    }
 
     body["id_token"]
         .as_str()

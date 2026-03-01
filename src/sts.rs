@@ -15,6 +15,7 @@ pub async fn assume_role(
     role_arn: &str,
     web_identity_token: &str,
     duration_seconds: Option<u64>,
+    verbose: bool,
 ) -> Result<Credentials, String> {
     let mut url = url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
 
@@ -28,15 +29,41 @@ pub async fn assume_role(
             .append_pair("DurationSeconds", &duration.to_string());
     }
 
+    if verbose {
+        // Log the URL without the WebIdentityToken to avoid leaking secrets
+        let mut redacted_url = url::Url::parse(proxy_url)
+            .map_err(|e| format!("Invalid proxy URL: {e}"))?;
+        redacted_url
+            .query_pairs_mut()
+            .append_pair("Action", "AssumeRoleWithWebIdentity")
+            .append_pair("RoleArn", role_arn)
+            .append_pair("WebIdentityToken", "<redacted>");
+        if let Some(duration) = duration_seconds {
+            redacted_url
+                .query_pairs_mut()
+                .append_pair("DurationSeconds", &duration.to_string());
+        }
+        eprintln!("[verbose] GET {redacted_url}");
+    }
+
     let resp = reqwest::get(url.as_str())
         .await
         .map_err(|e| format!("STS request failed: {e}"))?;
 
     let status = resp.status();
+
+    if verbose {
+        eprintln!("[verbose] Response: {status}");
+    }
+
     let body = resp
         .text()
         .await
         .map_err(|e| format!("Failed to read STS response: {e}"))?;
+
+    if verbose {
+        eprintln!("[verbose] Response body:\n{body}");
+    }
 
     if !status.is_success() {
         // Try to parse error XML for a better message

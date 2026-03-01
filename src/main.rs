@@ -24,6 +24,10 @@ mod defaults {
 #[derive(Parser)]
 #[command(name = "source-coop", about = "Source Cooperative CLI")]
 struct Cli {
+    /// Enable verbose output to see HTTP requests and responses
+    #[arg(short, long, global = true)]
+    verbose: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -90,9 +94,11 @@ enum OutputFormat {
 async fn main() {
     let cli = Cli::parse();
 
+    let verbose = cli.verbose;
+
     match cli.command {
         Commands::Login(args) => {
-            if let Err(e) = run_login(args).await {
+            if let Err(e) = run_login(args, verbose).await {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -106,18 +112,20 @@ async fn main() {
     }
 }
 
-async fn run_login(args: LoginArgs) -> Result<(), String> {
+async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     // 1. OIDC Discovery
     eprintln!("Discovering OIDC endpoints...");
-    let endpoints = oidc::discover(&args.issuer).await?;
+    let endpoints = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Browser-based OIDC login
-    let id_token = oidc::login(&endpoints, &args.client_id, &args.scope, args.port).await?;
+    let id_token = oidc::login(&endpoints, &args.client_id, &args.scope, args.port, verbose).await?;
     eprintln!("Authentication successful.");
 
     // 3. STS credential exchange
     eprintln!("Exchanging token for credentials...");
-    let creds = sts::assume_role(&args.proxy_url, &args.role_arn, &id_token, args.duration).await?;
+    let creds =
+        sts::assume_role(&args.proxy_url, &args.role_arn, &id_token, args.duration, verbose)
+            .await?;
 
     // 4. Cache credentials
     let path = cache::write_credentials(&args.role_arn, &creds)?;
