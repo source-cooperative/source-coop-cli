@@ -29,7 +29,7 @@ cargo install --git https://github.com/source-cooperative/source-coop-cli
 
 ## Usage
 
-### Recommended: login + credential-process
+### Using with AWS credential_process
 
 1. Log in once (opens browser, caches credentials to the OS keyring):
 
@@ -41,7 +41,7 @@ source-coop login
 
 ```ini
 [profile source-coop]
-credential_process = source-coop credential-process
+credential_process = source-coop creds
 endpoint_url = https://data.source.coop
 ```
 
@@ -53,6 +53,16 @@ aws s3 ls s3://my-bucket/ --profile source-coop
 
 When credentials expire, run `source-coop login` again.
 
+### Setting credentials on the environment
+
+After logging in, you can export cached credentials as environment variables:
+
+```bash
+eval $(source-coop creds --format env)
+```
+
+This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` in your current shell.
+
 ### Multiple roles
 
 Each role's credentials are cached separately:
@@ -62,13 +72,15 @@ source-coop login --role-arn reader-role
 source-coop login --role-arn admin-role
 ```
 
+Use `creds` with `--role-arn` to select which role to output:
+
 ```ini
 [profile source-coop]
-credential_process = source-coop credential-process --role-arn reader-role
+credential_process = source-coop creds --role-arn reader-role
 endpoint_url = https://data.source.coop
 
 [profile source-coop-admin]
-credential_process = source-coop credential-process --role-arn admin-role
+credential_process = source-coop creds --role-arn admin-role
 endpoint_url = https://data.source.coop
 ```
 
@@ -84,26 +96,27 @@ endpoint_url = https://data.source.coop
 | `--duration` | | | Session duration in seconds |
 | `--scope` | | `openid` | OAuth2 scopes |
 | `--port` | | `0` (random) | Local callback port |
+| `--no-cache` | | | Skip caching credentials (just print to stdout) |
 
 ### Output formats
 
-In addition to caching, `login` prints credentials to stdout:
+Both `login` and `creds` support `--format` to control output:
 
 **credential-process** (default) — AWS credential_process JSON:
 
 ```bash
-source-coop login
+source-coop creds
 ```
 
 **env** — shell export statements:
 
 ```bash
-eval $(source-coop login --format env)
+eval $(source-coop creds --format env)
 ```
 
 ## Credential storage
 
-The CLI caches temporary STS credentials so that tools like `credential-process` can read them without re-authenticating.
+The CLI caches temporary STS credentials so that `creds` can output them without re-authenticating.
 
 ### OS keyring (default)
 

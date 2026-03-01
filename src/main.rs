@@ -36,8 +36,8 @@ struct Cli {
 enum Commands {
     /// Authenticate via OIDC and obtain temporary S3 credentials
     Login(LoginArgs),
-    /// Output cached credentials for AWS credential_process
-    CredentialProcess(CredentialProcessArgs),
+    /// Output cached credentials as credential_process JSON or shell env vars
+    Creds(CredsArgs),
 }
 
 #[derive(Parser)]
@@ -76,10 +76,14 @@ struct LoginArgs {
 }
 
 #[derive(Parser)]
-struct CredentialProcessArgs {
+struct CredsArgs {
     /// Role ARN to read cached credentials for
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
+
+    /// Output format
+    #[arg(long, default_value = "credential-process")]
+    format: OutputFormat,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -103,8 +107,8 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::CredentialProcess(args) => {
-            if let Err(e) = run_credential_process(args) {
+        Commands::Creds(args) => {
+            if let Err(e) = run_creds(args) {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -140,7 +144,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn run_credential_process(args: CredentialProcessArgs) -> Result<(), String> {
+fn run_creds(args: CredsArgs) -> Result<(), String> {
     let creds = cache::read_credentials(&args.role_arn)?
         .ok_or("No cached credentials found. Run 'source-coop login' first.")?;
 
@@ -150,6 +154,9 @@ fn run_credential_process(args: CredentialProcessArgs) -> Result<(), String> {
         );
     }
 
-    output::print_credential_process(&creds);
+    match args.format {
+        OutputFormat::CredentialProcess => output::print_credential_process(&creds),
+        OutputFormat::Env => output::print_env(&creds),
+    }
     Ok(())
 }
