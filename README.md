@@ -31,7 +31,7 @@ cargo install --git https://github.com/source-cooperative/source-coop-cli
 
 ### Recommended: login + credential-process
 
-1. Log in once (opens browser, caches credentials to `~/.source-coop/credentials/`):
+1. Log in once (opens browser, caches credentials to the OS keyring):
 
 ```bash
 source-coop login
@@ -100,6 +100,32 @@ source-coop login
 ```bash
 eval $(source-coop login --format env)
 ```
+
+## Credential storage
+
+The CLI caches temporary STS credentials so that tools like `credential-process` can read them without re-authenticating.
+
+### OS keyring (default)
+
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN:
+
+| Platform | Backend |
+|----------|---------|
+| macOS | Keychain (`security` / Keychain Access) |
+| Windows | Credential Manager |
+| Linux | Secret Service API (GNOME Keyring, KDE Wallet) via D-Bus |
+
+### File fallback
+
+When the OS keyring is unavailable (headless servers, containers, CI), the CLI falls back to JSON files in the OS cache directory with `0600` permissions on Unix:
+
+| Platform | Path |
+|----------|------|
+| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` |
+| Linux | `~/.cache/source-coop/credentials/<role>.json` |
+| Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
+
+The fallback is automatic — no configuration is needed.
 
 ## OIDC provider setup
 

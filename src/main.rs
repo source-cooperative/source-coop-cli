@@ -128,8 +128,8 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             .await?;
 
     // 4. Cache credentials
-    let path = cache::write_credentials(&args.role_arn, &creds)?;
-    eprintln!("Credentials cached to {}", path.display());
+    let location = cache::write_credentials(&args.role_arn, &creds)?;
+    eprintln!("Credentials cached to {location}");
 
     // 5. Output
     match args.format {
