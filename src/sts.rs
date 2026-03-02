@@ -31,8 +31,8 @@ pub async fn assume_role(
 
     if verbose {
         // Log the URL without the WebIdentityToken to avoid leaking secrets
-        let mut redacted_url = url::Url::parse(proxy_url)
-            .map_err(|e| format!("Invalid proxy URL: {e}"))?;
+        let mut redacted_url =
+            url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
         redacted_url
             .query_pairs_mut()
             .append_pair("Action", "AssumeRoleWithWebIdentity")

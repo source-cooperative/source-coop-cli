@@ -126,14 +126,20 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let endpoints = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Browser-based OIDC login
-    let id_token = oidc::login(&endpoints, &args.client_id, &args.scope, args.port, verbose).await?;
+    let id_token =
+        oidc::login(&endpoints, &args.client_id, &args.scope, args.port, verbose).await?;
     eprintln!("Authentication successful.");
 
     // 3. STS credential exchange
     eprintln!("Exchanging token for credentials...");
-    let creds =
-        sts::assume_role(&args.proxy_url, &args.role_arn, &id_token, args.duration, verbose)
-            .await?;
+    let creds = sts::assume_role(
+        &args.proxy_url,
+        &args.role_arn,
+        &id_token,
+        args.duration,
+        verbose,
+    )
+    .await?;
 
     // 4. Cache credentials
     if args.no_cache {
