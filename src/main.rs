@@ -10,7 +10,7 @@ mod defaults {
     pub const ISSUER: &str = "https://auth.staging.source.coop";
     pub const CLIENT_ID: &str = "c445cc61-9884-44a8-b051-8d8f7273ffc1";
     pub const PROXY_URL: &str = "https://staging.data.source.coop";
-    pub const ROLE_ARN: &str = "source-coop-user";
+    pub const ROLE_ARN: &str = "default";
 }
 
 #[cfg(not(feature = "staging"))]
@@ -18,7 +18,7 @@ mod defaults {
     pub const ISSUER: &str = "https://auth.source.coop";
     pub const CLIENT_ID: &str = "d037d00b-09c7-4815-ac39-2a0b9fae40c6";
     pub const PROXY_URL: &str = "https://data.source.coop";
-    pub const ROLE_ARN: &str = "source-coop-user";
+    pub const ROLE_ARN: &str = "default";
 }
 
 #[derive(Parser)]
