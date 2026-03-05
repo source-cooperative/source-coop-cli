@@ -26,3 +26,7 @@ formula = "cli"
 publish-jobs = ["homebrew"]
 # Allow CI file to be manually customized
 allow-dirty = ["ci"]
+
+[dist.dependencies.apt]
+libdbus-1-dev = { version = "*", targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] }
+pkg-config = { version = "*", targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] }
