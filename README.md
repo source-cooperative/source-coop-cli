@@ -21,6 +21,12 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.ps1 | iex"
 ```
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install source-cooperative/tap/cli
+```
+
 ### From source
 
 ```bash

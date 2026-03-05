@@ -20,6 +20,7 @@ install-updater = false
 # Whether dist should create a Github Release or use an existing draft
 create-release = false
 # A GitHub repo to push Homebrew formulas to
-tap = "source-cooperative/homebrew"
+tap = "source-cooperative/homebrew-tap"
+formula = "cli"
 # Publish jobs to run in CI
 publish-jobs = ["homebrew"]
