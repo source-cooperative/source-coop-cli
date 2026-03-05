@@ -131,6 +131,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     eprintln!("Authentication successful.");
 
     // 3. STS credential exchange
+    if verbose {
+        eprintln!("[verbose] Assuming role: {}", args.role_arn);
+    }
     eprintln!("Exchanging token for credentials...");
     let creds = sts::assume_role(
         &args.proxy_url,
