@@ -292,7 +292,7 @@ jobs:
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
-          app-id: ${{ secrets.SC_RELEASE_BOT_ID }}
+          app-id: ${{ vars.SC_RELEASE_BOT_ID }}
           private-key: ${{ secrets.SC_RELEASE_BOT_PRIVATE_KEY }}
           owner: source-cooperative
           repositories: homebrew-tap
