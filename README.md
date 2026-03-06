@@ -24,7 +24,7 @@ powershell -ExecutionPolicy ByPass -c "irm https://github.com/source-cooperative
 ### Homebrew (macOS / Linux)
 
 ```bash
-brew install source-cooperative/tap/cli
+brew install source-cooperative/tap/source-coop
 ```
 
 ### From source

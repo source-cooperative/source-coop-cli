@@ -21,7 +21,7 @@ install-updater = false
 create-release = false
 # A GitHub repo to push Homebrew formulas to
 tap = "source-cooperative/homebrew-tap"
-formula = "cli"
+formula = "source-coop"
 # Publish jobs to run in CI
 publish-jobs = ["homebrew"]
 # Allow CI file to be manually customized
