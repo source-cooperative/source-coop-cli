@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.0...v0.1.1) (2026-03-06)
+
+
+### Bug Fixes
+
+* rename formula to avoid conflicts ([53982ac](https://github.com/source-cooperative/source-coop-cli/commit/53982ac50ea0a823fbea62e0754d990d287e1f50))
+
 ## 0.1.0 (2026-03-05)
 
 
