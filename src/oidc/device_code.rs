@@ -87,17 +87,19 @@ pub async fn login(
     eprintln!("Then enter the code:\n  {}", device_auth.user_code);
     eprintln!();
 
-    // Step 3: Try to open verification_uri_complete in browser
-    if let Some(ref uri_complete) = device_auth.verification_uri_complete {
-        if verbose {
-            eprintln!("[verbose] Opening {uri_complete} in browser");
-        }
-        if open::that(uri_complete).is_err() {
-            if verbose {
-                eprintln!("[verbose] Could not open browser automatically");
-            }
-        }
+    // Step 3: Try to open browser
+    let browser_url = device_auth
+        .verification_uri_complete
+        .as_deref()
+        .unwrap_or(&device_auth.verification_uri);
+    if verbose {
+        eprintln!("[verbose] Opening {browser_url} in browser");
     }
+    if open::that(browser_url).is_err() {
+        eprintln!("Could not open browser automatically.");
+    }
+
+    eprintln!("Waiting for authentication...");
 
     // Step 4: Poll token endpoint
     let deadline = Instant::now() + Duration::from_secs(device_auth.expires_in);
