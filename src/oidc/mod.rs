@@ -16,6 +16,7 @@ pub enum FlowType {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 pub struct OidcDiscovery {
     pub issuer: String,
     pub authorization_endpoint: String,
@@ -42,6 +43,7 @@ impl OidcDiscovery {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TokenResponse {
     pub id_token: Option<String>,
     pub refresh_token: Option<String>,
