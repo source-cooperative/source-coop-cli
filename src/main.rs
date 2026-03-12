@@ -38,6 +38,8 @@ enum Commands {
     Login(LoginArgs),
     /// Output cached credentials as credential_process JSON or shell env vars
     Creds(CredsArgs),
+    /// Clear cached credentials and revoke refresh token
+    Logout(LogoutArgs),
 }
 
 #[derive(Parser)]
@@ -106,6 +108,21 @@ struct CredsArgs {
     proxy_url: String,
 }
 
+#[derive(Parser)]
+struct LogoutArgs {
+    /// OIDC issuer URL
+    #[arg(long, env = "SOURCE_OIDC_ISSUER", default_value = defaults::ISSUER)]
+    issuer: String,
+
+    /// OAuth2 client ID
+    #[arg(long, env = "SOURCE_OIDC_CLIENT_ID", default_value = defaults::CLIENT_ID)]
+    client_id: String,
+
+    /// Role ARN to clear cached credentials for
+    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
+    role_arn: String,
+}
+
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// AWS credential_process JSON format
@@ -129,6 +146,12 @@ async fn main() {
         }
         Commands::Creds(args) => {
             if let Err(e) = run_creds(args, verbose).await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Logout(args) => {
+            if let Err(e) = run_logout(args, verbose).await {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -328,5 +351,46 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         OutputFormat::Env => output::print_env(&new_creds),
     }
 
+    Ok(())
+}
+
+async fn run_logout(args: LogoutArgs, verbose: bool) -> Result<(), String> {
+    // 1. Try to revoke the refresh token at the provider (best-effort)
+    match cache::read_refresh_token(&args.issuer)? {
+        Some(refresh_data) => {
+            match oidc::discover(&args.issuer, verbose).await {
+                Ok(discovery) => {
+                    if let Err(e) = oidc::refresh::revoke(
+                        &discovery,
+                        &refresh_data.client_id,
+                        &refresh_data.refresh_token,
+                        verbose,
+                    )
+                    .await
+                    {
+                        eprintln!("Warning: could not revoke refresh token: {e}");
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Warning: could not discover OIDC endpoints for revocation: {e}");
+                }
+            }
+        }
+        None => {
+            if verbose {
+                eprintln!("[verbose] No cached refresh token found; skipping revocation");
+            }
+        }
+    }
+
+    // 2. Delete cached refresh token
+    cache::delete_refresh_token(&args.issuer)?;
+    eprintln!("Refresh token cleared.");
+
+    // 3. Delete cached AWS credentials
+    cache::delete_credentials(&args.role_arn)?;
+    eprintln!("Cached credentials cleared.");
+
+    eprintln!("Logged out successfully.");
     Ok(())
 }
