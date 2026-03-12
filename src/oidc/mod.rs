@@ -1,5 +1,6 @@
 pub mod auth_code;
 pub mod device_code;
+pub mod refresh;
 
 use clap::ValueEnum;
 use serde::Deserialize;
