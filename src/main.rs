@@ -178,6 +178,25 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         .ok_or("No id_token in token response")?;
     eprintln!("Authentication successful.");
 
+    // Cache refresh token if present
+    if let Some(ref refresh_token) = token_response.refresh_token {
+        let data = cache::RefreshTokenData {
+            refresh_token: refresh_token.clone(),
+            issuer: args.issuer.clone(),
+            client_id: args.client_id.clone(),
+        };
+        match cache::write_refresh_token(&data) {
+            Ok(location) => {
+                if verbose {
+                    eprintln!("[verbose] Refresh token cached to {location}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: could not cache refresh token: {e}");
+            }
+        }
+    }
+
     // 3. STS credential exchange
     if verbose {
         eprintln!("[verbose] Assuming role: {}", args.role_arn);
