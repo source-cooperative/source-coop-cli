@@ -1,4 +1,5 @@
 pub mod auth_code;
+pub mod device_code;
 
 use serde::Deserialize;
 
