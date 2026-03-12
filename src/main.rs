@@ -66,11 +66,15 @@ struct LoginArgs {
     #[arg(long)]
     duration: Option<u64>,
 
+    /// Authentication flow to use
+    #[arg(long, default_value = "auto")]
+    flow: oidc::FlowType,
+
     /// OAuth2 scopes
-    #[arg(long, default_value = "openid")]
+    #[arg(long, default_value = "openid offline_access")]
     scope: String,
 
-    /// Local callback port (0 for random available port)
+    /// Local callback port for auth-code flow (0 for random available port)
     #[arg(long, default_value = "0")]
     port: u16,
 
@@ -125,10 +129,50 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     eprintln!("Discovering OIDC endpoints...");
     let discovery = oidc::discover(&args.issuer, verbose).await?;
 
-    // 2. Browser-based OIDC login
-    let token_response =
-        oidc::auth_code::login(&discovery, &args.client_id, &args.scope, args.port, verbose)
-            .await?;
+    // 2. Select and execute auth flow
+    let flow = match args.flow {
+        oidc::FlowType::Auto => {
+            if discovery.supports_device_code()
+                && discovery.device_authorization_endpoint.is_some()
+            {
+                if verbose {
+                    eprintln!("[verbose] Auto-selected device code flow");
+                }
+                oidc::FlowType::DeviceCode
+            } else {
+                if verbose {
+                    eprintln!("[verbose] Auto-selected authorization code flow");
+                }
+                oidc::FlowType::AuthCode
+            }
+        }
+        explicit => explicit,
+    };
+
+    let token_response = match flow {
+        oidc::FlowType::DeviceCode => {
+            if !discovery.supports_device_code()
+                || discovery.device_authorization_endpoint.is_none()
+            {
+                return Err(
+                    "Provider does not support device code flow. Use --flow auth-code.".to_string(),
+                );
+            }
+            oidc::device_code::login(&discovery, &args.client_id, &args.scope, verbose).await?
+        }
+        oidc::FlowType::AuthCode => {
+            oidc::auth_code::login(
+                &discovery,
+                &args.client_id,
+                &args.scope,
+                args.port,
+                verbose,
+            )
+            .await?
+        }
+        oidc::FlowType::Auto => unreachable!(),
+    };
+
     let id_token = token_response
         .id_token
         .ok_or("No id_token in token response")?;

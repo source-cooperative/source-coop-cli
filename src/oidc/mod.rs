@@ -1,7 +1,18 @@
 pub mod auth_code;
 pub mod device_code;
 
+use clap::ValueEnum;
 use serde::Deserialize;
+
+#[derive(Debug, Clone, ValueEnum)]
+pub enum FlowType {
+    /// Automatically select the best available flow
+    Auto,
+    /// Device code flow (works everywhere including headless/SSH)
+    DeviceCode,
+    /// Authorization code + PKCE flow (requires browser on same machine)
+    AuthCode,
+}
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct OidcDiscovery {
