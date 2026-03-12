@@ -92,6 +92,18 @@ struct CredsArgs {
     /// Output format
     #[arg(long, default_value = "credential-process")]
     format: OutputFormat,
+
+    /// Do not attempt to refresh expired credentials automatically
+    #[arg(long)]
+    no_refresh: bool,
+
+    /// OIDC issuer URL (used for auto-refresh)
+    #[arg(long, env = "SOURCE_OIDC_ISSUER", default_value = defaults::ISSUER)]
+    issuer: String,
+
+    /// S3 proxy URL for STS (used for auto-refresh)
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -116,7 +128,7 @@ async fn main() {
             }
         }
         Commands::Creds(args) => {
-            if let Err(e) = run_creds(args) {
+            if let Err(e) = run_creds(args, verbose).await {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -228,19 +240,93 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn run_creds(args: CredsArgs) -> Result<(), String> {
-    let creds = cache::read_credentials(&args.role_arn)?
-        .ok_or("No cached credentials found. Run 'source-coop login' first.")?;
+async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
+    let creds = cache::read_credentials(&args.role_arn)?;
 
-    if cache::is_expired(&creds)? {
+    // If we have valid (non-expired) cached credentials, output them directly
+    if let Some(ref c) = creds {
+        if !cache::is_expired(c)? {
+            match args.format {
+                OutputFormat::CredentialProcess => output::print_credential_process(c),
+                OutputFormat::Env => output::print_env(c),
+            }
+            return Ok(());
+        }
+    }
+
+    // Credentials are missing or expired
+    if args.no_refresh {
         return Err(
             "Cached credentials have expired. Run 'source-coop login' to refresh.".to_string(),
         );
     }
 
-    match args.format {
-        OutputFormat::CredentialProcess => output::print_credential_process(&creds),
-        OutputFormat::Env => output::print_env(&creds),
+    // Attempt auto-refresh using cached refresh token
+    let refresh_data = cache::read_refresh_token(&args.issuer)?
+        .ok_or("Cached credentials have expired and no refresh token is available. Run 'source-coop login' to re-authenticate.")?;
+
+    eprintln!("Credentials expired. Refreshing...");
+
+    // 1. OIDC Discovery
+    if verbose {
+        eprintln!("[verbose] Discovering OIDC endpoints for auto-refresh...");
     }
+    let discovery = oidc::discover(&refresh_data.issuer, verbose).await?;
+
+    // 2. Refresh the token
+    let token_response = oidc::refresh::refresh(
+        &discovery,
+        &refresh_data.client_id,
+        &refresh_data.refresh_token,
+        verbose,
+    )
+    .await?;
+
+    let id_token = token_response
+        .id_token
+        .ok_or("No id_token in refresh response")?;
+
+    // 3. Cache rotated refresh token if present
+    if let Some(ref new_refresh_token) = token_response.refresh_token {
+        let new_data = cache::RefreshTokenData {
+            refresh_token: new_refresh_token.clone(),
+            issuer: refresh_data.issuer.clone(),
+            client_id: refresh_data.client_id.clone(),
+        };
+        match cache::write_refresh_token(&new_data) {
+            Ok(location) => {
+                if verbose {
+                    eprintln!("[verbose] Rotated refresh token cached to {location}");
+                }
+            }
+            Err(e) => {
+                eprintln!("Warning: could not cache rotated refresh token: {e}");
+            }
+        }
+    }
+
+    // 4. STS credential exchange
+    if verbose {
+        eprintln!("[verbose] Assuming role: {}", args.role_arn);
+    }
+    let new_creds = sts::assume_role(
+        &args.proxy_url,
+        &args.role_arn,
+        &id_token,
+        None,
+        verbose,
+    )
+    .await?;
+
+    // 5. Cache new credentials
+    let location = cache::write_credentials(&args.role_arn, &new_creds)?;
+    eprintln!("Credentials refreshed and cached to {location}");
+
+    // 6. Output
+    match args.format {
+        OutputFormat::CredentialProcess => output::print_credential_process(&new_creds),
+        OutputFormat::Env => output::print_env(&new_creds),
+    }
+
     Ok(())
 }
