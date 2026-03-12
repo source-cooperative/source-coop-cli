@@ -123,11 +123,11 @@ async fn main() {
 async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     // 1. OIDC Discovery
     eprintln!("Discovering OIDC endpoints...");
-    let endpoints = oidc::discover(&args.issuer, verbose).await?;
+    let discovery = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Browser-based OIDC login
     let token_response =
-        oidc::auth_code::login(&endpoints, &args.client_id, &args.scope, args.port, verbose)
+        oidc::auth_code::login(&discovery, &args.client_id, &args.scope, args.port, verbose)
             .await?;
     let id_token = token_response
         .id_token
