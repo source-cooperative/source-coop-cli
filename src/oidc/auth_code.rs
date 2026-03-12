@@ -7,71 +7,18 @@ use std::io::{BufRead, BufReader, Write};
 use tokio::net::TcpListener;
 use url::Url;
 
-#[derive(Debug)]
-pub struct OidcEndpoints {
-    pub authorization_endpoint: String,
-    pub token_endpoint: String,
-}
-
-/// Fetch OIDC discovery document and extract endpoints.
-pub async fn discover(issuer: &str, verbose: bool) -> Result<OidcEndpoints, String> {
-    let discovery_url = format!(
-        "{}/.well-known/openid-configuration",
-        issuer.trim_end_matches('/')
-    );
-
-    if verbose {
-        eprintln!("[verbose] GET {discovery_url}");
-    }
-
-    let resp = reqwest::get(&discovery_url)
-        .await
-        .map_err(|e| format!("Failed to fetch OIDC discovery document: {e}"))?;
-
-    if verbose {
-        eprintln!("[verbose] Response: {}", resp.status());
-    }
-
-    if !resp.status().is_success() {
-        return Err(format!("OIDC discovery returned status {}", resp.status()));
-    }
-
-    let doc: serde_json::Value = resp
-        .json()
-        .await
-        .map_err(|e| format!("Failed to parse OIDC discovery document: {e}"))?;
-
-    let authorization_endpoint = doc["authorization_endpoint"]
-        .as_str()
-        .ok_or("Missing authorization_endpoint in discovery document")?
-        .to_string();
-
-    let token_endpoint = doc["token_endpoint"]
-        .as_str()
-        .ok_or("Missing token_endpoint in discovery document")?
-        .to_string();
-
-    if verbose {
-        eprintln!("[verbose] Authorization endpoint: {authorization_endpoint}");
-        eprintln!("[verbose] Token endpoint: {token_endpoint}");
-    }
-
-    Ok(OidcEndpoints {
-        authorization_endpoint,
-        token_endpoint,
-    })
-}
+use super::{OidcDiscovery, TokenResponse};
 
 /// Run the browser-based OAuth2 Authorization Code flow with PKCE.
 /// Opens the user's browser to the OIDC provider, waits for the callback,
-/// and returns the `id_token`.
+/// and returns a `TokenResponse`.
 pub async fn login(
-    endpoints: &OidcEndpoints,
+    discovery: &OidcDiscovery,
     client_id: &str,
     scope: &str,
     port: u16,
     verbose: bool,
-) -> Result<String, String> {
+) -> Result<TokenResponse, String> {
     let pkce = generate_pkce();
     let state: String = URL_SAFE_NO_PAD.encode(rand::thread_rng().gen::<[u8; 16]>());
 
@@ -91,7 +38,7 @@ pub async fn login(
     }
 
     // Build authorization URL
-    let mut auth_url = Url::parse(&endpoints.authorization_endpoint)
+    let mut auth_url = Url::parse(&discovery.authorization_endpoint)
         .map_err(|e| format!("Invalid authorization endpoint URL: {e}"))?;
     auth_url
         .query_pairs_mut()
@@ -128,7 +75,7 @@ pub async fn login(
 
     // Exchange code for tokens
     exchange_code(
-        &endpoints.token_endpoint,
+        &discovery.token_endpoint,
         &code,
         &redirect_uri,
         client_id,
@@ -198,7 +145,7 @@ async fn wait_for_callback(listener: &TcpListener) -> Result<(String, String), S
     Ok((code, received_state))
 }
 
-/// Exchange authorization code for tokens, return the `id_token`.
+/// Exchange authorization code for tokens, return a `TokenResponse`.
 async fn exchange_code(
     token_endpoint: &str,
     code: &str,
@@ -206,7 +153,7 @@ async fn exchange_code(
     client_id: &str,
     code_verifier: &str,
     verbose: bool,
-) -> Result<String, String> {
+) -> Result<TokenResponse, String> {
     if verbose {
         eprintln!("[verbose] POST {token_endpoint}");
         eprintln!("[verbose]   grant_type=authorization_code");
@@ -238,23 +185,21 @@ async fn exchange_code(
         return Err(format!("Token exchange failed (HTTP {status}): {body}"));
     }
 
-    let body: serde_json::Value = resp
+    let token_response: TokenResponse = resp
         .json()
         .await
         .map_err(|e| format!("Failed to parse token response: {e}"))?;
 
     if verbose {
-        let keys: Vec<&str> = body
-            .as_object()
-            .map(|o| o.keys().map(|k| k.as_str()).collect())
-            .unwrap_or_default();
-        eprintln!("[verbose] Token response keys: {}", keys.join(", "));
+        eprintln!(
+            "[verbose] Token response contains: id_token={}, refresh_token={}, access_token={}",
+            token_response.id_token.is_some(),
+            token_response.refresh_token.is_some(),
+            token_response.access_token.is_some(),
+        );
     }
 
-    body["id_token"]
-        .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "No id_token in token response".to_string())
+    Ok(token_response)
 }
 
 struct Pkce {

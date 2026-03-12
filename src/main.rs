@@ -126,8 +126,12 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let endpoints = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Browser-based OIDC login
-    let id_token =
-        oidc::login(&endpoints, &args.client_id, &args.scope, args.port, verbose).await?;
+    let token_response =
+        oidc::auth_code::login(&endpoints, &args.client_id, &args.scope, args.port, verbose)
+            .await?;
+    let id_token = token_response
+        .id_token
+        .ok_or("No id_token in token response")?;
     eprintln!("Authentication successful.");
 
     // 3. STS credential exchange
