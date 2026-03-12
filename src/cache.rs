@@ -20,8 +20,8 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
 }
 
 /// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
-fn sanitize_role_arn(role_arn: &str) -> String {
-    role_arn
+fn sanitize_for_filename(s: &str) -> String {
+    s
         .chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
@@ -38,7 +38,7 @@ fn sanitize_role_arn(role_arn: &str) -> String {
 /// `~/.cache` on Linux, `%LocalAppData%` on Windows).
 fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
-    let sanitized = sanitize_role_arn(role_arn);
+    let sanitized = sanitize_for_filename(role_arn);
     Ok(cache_dir
         .join("source-coop")
         .join("credentials")
@@ -170,7 +170,7 @@ pub struct RefreshTokenData {
 
 /// Produce a filesystem-safe key from an issuer URL.
 fn issuer_key(issuer: &str) -> String {
-    sanitize_role_arn(issuer)
+    sanitize_for_filename(issuer)
 }
 
 /// Full path to the refresh-token cache file for a given issuer.
@@ -300,7 +300,11 @@ pub fn delete_refresh_token(issuer: &str) -> Result<(), String> {
     // Try deleting from file
     let path = refresh_cache_path(issuer)?;
     match fs::remove_file(&path) {
-        Ok(()) | Err(_) => {} // ignore file-not-found or other errors
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => {
+            eprintln!("Warning: could not delete {}: {e}", path.display());
+        }
     }
 
     Ok(())
@@ -322,7 +326,11 @@ pub fn delete_credentials(role_arn: &str) -> Result<(), String> {
     // Try deleting from file
     let path = cache_path(role_arn)?;
     match fs::remove_file(&path) {
-        Ok(()) | Err(_) => {} // ignore file-not-found or other errors
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => {
+            eprintln!("Warning: could not delete {}: {e}", path.display());
+        }
     }
 
     Ok(())
@@ -343,20 +351,20 @@ mod tests {
 
     #[test]
     fn sanitize_simple_name() {
-        assert_eq!(sanitize_role_arn("source-coop-user"), "source-coop-user");
+        assert_eq!(sanitize_for_filename("source-coop-user"), "source-coop-user");
     }
 
     #[test]
     fn sanitize_arn_with_special_chars() {
         assert_eq!(
-            sanitize_role_arn("arn:aws:iam::123:role/Foo"),
+            sanitize_for_filename("arn:aws:iam::123:role/Foo"),
             "arn_aws_iam__123_role_Foo"
         );
     }
 
     #[test]
     fn sanitize_preserves_underscores() {
-        assert_eq!(sanitize_role_arn("my_role-name"), "my_role-name");
+        assert_eq!(sanitize_for_filename("my_role-name"), "my_role-name");
     }
 
     #[test]
