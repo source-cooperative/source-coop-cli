@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 mod defaults {
     pub const ISSUER: &str = "https://auth.staging.source.coop";
     pub const CLIENT_ID: &str = "c445cc61-9884-44a8-b051-8d8f7273ffc1";
-    pub const PROXY_URL: &str = "https://staging.data.source.coop";
+    pub const PROXY_URL: &str = "https://staging.data.source.coop/.sts";
     pub const ROLE_ARN: &str = "default";
 }
 
@@ -17,7 +17,7 @@ mod defaults {
 mod defaults {
     pub const ISSUER: &str = "https://auth.source.coop";
     pub const CLIENT_ID: &str = "d037d00b-09c7-4815-ac39-2a0b9fae40c6";
-    pub const PROXY_URL: &str = "https://data.source.coop";
+    pub const PROXY_URL: &str = "https://data.source.coop/.sts";
     pub const ROLE_ARN: &str = "default";
 }
 
@@ -165,21 +165,14 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let discovery = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Select and execute auth flow
+    // Auto defaults to auth-code because device-code requires per-client
+    // grant configuration that the discovery document doesn't reflect.
     let flow = match args.flow {
         oidc::FlowType::Auto => {
-            if discovery.supports_device_code()
-                && discovery.device_authorization_endpoint.is_some()
-            {
-                if verbose {
-                    eprintln!("[verbose] Auto-selected device code flow");
-                }
-                oidc::FlowType::DeviceCode
-            } else {
-                if verbose {
-                    eprintln!("[verbose] Auto-selected authorization code flow");
-                }
-                oidc::FlowType::AuthCode
+            if verbose {
+                eprintln!("[verbose] Auto-selected authorization code flow");
             }
+            oidc::FlowType::AuthCode
         }
         explicit => explicit,
     };
@@ -219,6 +212,8 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             refresh_token: refresh_token.clone(),
             issuer: args.issuer.clone(),
             client_id: args.client_id.clone(),
+            proxy_url: Some(args.proxy_url.clone()),
+            role_arn: Some(args.role_arn.clone()),
         };
         match cache::write_refresh_token(&data) {
             Ok(location) => {
@@ -264,7 +259,20 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
 }
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    let creds = cache::read_credentials(&args.role_arn)?;
+    // Load refresh data early so we can resolve the role_arn and proxy_url
+    // from the original login session (falling back to CLI args/defaults).
+    let refresh_data = cache::read_refresh_token(&args.issuer)?;
+
+    let role_arn = refresh_data
+        .as_ref()
+        .and_then(|r| r.role_arn.clone())
+        .unwrap_or_else(|| args.role_arn.clone());
+    let proxy_url = refresh_data
+        .as_ref()
+        .and_then(|r| r.proxy_url.clone())
+        .unwrap_or_else(|| args.proxy_url.clone());
+
+    let creds = cache::read_credentials(&role_arn)?;
 
     // If we have valid (non-expired) cached credentials, output them directly
     if let Some(ref c) = creds {
@@ -284,8 +292,7 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         );
     }
 
-    // Attempt auto-refresh using cached refresh token
-    let refresh_data = cache::read_refresh_token(&args.issuer)?
+    let refresh_data = refresh_data
         .ok_or("Cached credentials have expired and no refresh token is available. Run 'source-coop login' to re-authenticate.")?;
 
     eprintln!("Credentials expired. Refreshing...");
@@ -315,6 +322,8 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
             refresh_token: new_refresh_token.clone(),
             issuer: refresh_data.issuer.clone(),
             client_id: refresh_data.client_id.clone(),
+            proxy_url: refresh_data.proxy_url.clone(),
+            role_arn: refresh_data.role_arn.clone(),
         };
         match cache::write_refresh_token(&new_data) {
             Ok(location) => {
@@ -330,11 +339,11 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 
     // 4. STS credential exchange
     if verbose {
-        eprintln!("[verbose] Assuming role: {}", args.role_arn);
+        eprintln!("[verbose] Assuming role: {role_arn}");
     }
     let new_creds = sts::assume_role(
-        &args.proxy_url,
-        &args.role_arn,
+        &proxy_url,
+        &role_arn,
         &id_token,
         None,
         verbose,
@@ -342,7 +351,7 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     .await?;
 
     // 5. Cache new credentials
-    let location = cache::write_credentials(&args.role_arn, &new_creds)?;
+    let location = cache::write_credentials(&role_arn, &new_creds)?;
     eprintln!("Credentials refreshed and cached to {location}");
 
     // 6. Output

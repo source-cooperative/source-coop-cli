@@ -166,6 +166,10 @@ pub struct RefreshTokenData {
     pub refresh_token: String,
     pub issuer: String,
     pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_arn: Option<String>,
 }
 
 /// Produce a filesystem-safe key from an issuer URL.
