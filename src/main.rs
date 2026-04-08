@@ -206,6 +206,21 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         .ok_or("No id_token in token response")?;
     eprintln!("Authentication successful.");
 
+    if verbose {
+        // Decode and display the JWT claims (header.payload.signature)
+        if let Some(payload) = id_token.split('.').nth(1) {
+            use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+            use base64::Engine;
+            match URL_SAFE_NO_PAD.decode(payload) {
+                Ok(bytes) => match String::from_utf8(bytes) {
+                    Ok(json) => eprintln!("[verbose] ID token claims: {json}"),
+                    Err(_) => eprintln!("[verbose] Could not decode ID token payload as UTF-8"),
+                },
+                Err(_) => eprintln!("[verbose] Could not base64-decode ID token payload"),
+            }
+        }
+    }
+
     // Cache refresh token if present
     if let Some(ref refresh_token) = token_response.refresh_token {
         let data = cache::RefreshTokenData {
