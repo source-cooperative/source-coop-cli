@@ -171,15 +171,10 @@ pub struct RefreshTokenData {
     pub role_arn: Option<String>,
 }
 
-/// Produce a filesystem-safe key from an issuer URL.
-fn issuer_key(issuer: &str) -> String {
-    sanitize_for_filename(issuer)
-}
-
 /// Full path to the refresh-token cache file for a given issuer.
 fn refresh_cache_path(issuer: &str) -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
-    let key = issuer_key(issuer);
+    let key = sanitize_for_filename(issuer);
     Ok(cache_dir
         .join("source-coop")
         .join("refresh")
@@ -241,7 +236,7 @@ pub fn write_refresh_token(data: &RefreshTokenData) -> Result<String, String> {
     let json = serde_json::to_string(data)
         .map_err(|e| format!("Failed to serialize refresh token data: {e}"))?;
 
-    let key = issuer_key(&data.issuer);
+    let key = sanitize_for_filename(&data.issuer);
     let entry = keyring::Entry::new(REFRESH_KEYRING_SERVICE, &key)
         .map_err(|e| format!("Failed to create keyring entry: {e}"));
 
@@ -265,7 +260,7 @@ pub fn write_refresh_token(data: &RefreshTokenData) -> Result<String, String> {
 /// Read a refresh token, trying the OS keyring first with file fallback.
 /// Returns `None` if no cached refresh token is found in either location.
 pub fn read_refresh_token(issuer: &str) -> Result<Option<RefreshTokenData>, String> {
-    let key = issuer_key(issuer);
+    let key = sanitize_for_filename(issuer);
     let entry = keyring::Entry::new(REFRESH_KEYRING_SERVICE, &key)
         .map_err(|e| format!("Failed to create keyring entry: {e}"));
 
@@ -291,58 +286,37 @@ pub fn read_refresh_token(issuer: &str) -> Result<Option<RefreshTokenData>, Stri
     read_refresh_token_file(issuer)
 }
 
-/// Delete a refresh token from both keyring and file cache.
-pub fn delete_refresh_token(issuer: &str) -> Result<(), String> {
-    let key = issuer_key(issuer);
-
-    // Try deleting from keyring
-    if let Ok(entry) = keyring::Entry::new(REFRESH_KEYRING_SERVICE, &key) {
+/// Delete a keyring entry (ignoring "not found") and its file-cache fallback.
+fn delete_entry(service: &str, key: &str, path: &PathBuf) -> Result<(), String> {
+    if let Ok(entry) = keyring::Entry::new(service, key) {
         match entry.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(ref e) if is_keyring_unavailable(e) => {}
-            Err(e) => {
-                return Err(format!("Failed to delete refresh token from keyring: {e}"));
-            }
+            Err(e) => return Err(format!("Failed to delete from keyring: {e}")),
         }
     }
 
-    // Try deleting from file
-    let path = refresh_cache_path(issuer)?;
-    match fs::remove_file(&path) {
+    match fs::remove_file(path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => {
-            eprintln!("Warning: could not delete {}: {e}", path.display());
-        }
+        Err(e) => eprintln!("Warning: could not delete {}: {e}", path.display()),
     }
 
     Ok(())
 }
 
+/// Delete a refresh token from both keyring and file cache.
+pub fn delete_refresh_token(issuer: &str) -> Result<(), String> {
+    delete_entry(
+        REFRESH_KEYRING_SERVICE,
+        &sanitize_for_filename(issuer),
+        &refresh_cache_path(issuer)?,
+    )
+}
+
 /// Delete credentials from both keyring and file cache (for logout).
 pub fn delete_credentials(role_arn: &str) -> Result<(), String> {
-    // Try deleting from keyring
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, role_arn) {
-        match entry.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(ref e) if is_keyring_unavailable(e) => {}
-            Err(e) => {
-                return Err(format!("Failed to delete credentials from keyring: {e}"));
-            }
-        }
-    }
-
-    // Try deleting from file
-    let path = cache_path(role_arn)?;
-    match fs::remove_file(&path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => {
-            eprintln!("Warning: could not delete {}: {e}", path.display());
-        }
-    }
-
-    Ok(())
+    delete_entry(KEYRING_SERVICE, role_arn, &cache_path(role_arn)?)
 }
 
 #[cfg(test)]

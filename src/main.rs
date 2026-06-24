@@ -69,7 +69,7 @@ struct LoginArgs {
     duration: Option<u64>,
 
     /// Authentication flow to use
-    #[arg(long, default_value = "auto")]
+    #[arg(long, default_value = "auth-code")]
     flow: oidc::FlowType,
 
     /// OAuth2 scopes
@@ -165,19 +165,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let discovery = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Select and execute auth flow
-    // Auto defaults to auth-code because device-code requires per-client
-    // grant configuration that the discovery document doesn't reflect.
-    let flow = match args.flow {
-        oidc::FlowType::Auto => {
-            if verbose {
-                eprintln!("[verbose] Auto-selected authorization code flow");
-            }
-            oidc::FlowType::AuthCode
-        }
-        explicit => explicit,
-    };
-
-    let token_response = match flow {
+    let token_response = match args.flow {
         oidc::FlowType::DeviceCode => {
             if !discovery.supports_device_code()
                 || discovery.device_authorization_endpoint.is_none()
@@ -192,28 +180,12 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             oidc::auth_code::login(&discovery, &args.client_id, &args.scope, args.port, verbose)
                 .await?
         }
-        oidc::FlowType::Auto => unreachable!(),
     };
 
     let id_token = token_response
         .id_token
         .ok_or("No id_token in token response")?;
     eprintln!("Authentication successful.");
-
-    if verbose {
-        // Decode and display the JWT claims (header.payload.signature)
-        if let Some(payload) = id_token.split('.').nth(1) {
-            use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-            use base64::Engine;
-            match URL_SAFE_NO_PAD.decode(payload) {
-                Ok(bytes) => match String::from_utf8(bytes) {
-                    Ok(json) => eprintln!("[verbose] ID token claims: {json}"),
-                    Err(_) => eprintln!("[verbose] Could not decode ID token payload as UTF-8"),
-                },
-                Err(_) => eprintln!("[verbose] Could not base64-decode ID token payload"),
-            }
-        }
-    }
 
     // Cache refresh token if present
     if let Some(ref refresh_token) = token_response.refresh_token {

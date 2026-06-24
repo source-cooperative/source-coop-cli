@@ -7,8 +7,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone, ValueEnum)]
 pub enum FlowType {
-    /// Automatically select the best available flow
-    Auto,
     /// Device code flow (works everywhere including headless/SSH)
     DeviceCode,
     /// Authorization code + PKCE flow (requires browser on same machine)
@@ -24,12 +22,10 @@ pub struct OidcDiscovery {
     pub device_authorization_endpoint: Option<String>,
     pub revocation_endpoint: Option<String>,
     pub grant_types_supported: Option<Vec<String>>,
-    pub scopes_supported: Option<Vec<String>>,
-    pub code_challenge_methods_supported: Option<Vec<String>>,
 }
 
 impl OidcDiscovery {
-    pub fn supports_grant_type(&self, grant_type: &str) -> bool {
+    fn supports_grant_type(&self, grant_type: &str) -> bool {
         self.grant_types_supported
             .as_ref()
             .map(|types| types.iter().any(|t| t == grant_type))
@@ -37,19 +33,18 @@ impl OidcDiscovery {
     }
 
     pub fn supports_device_code(&self) -> bool {
+        // Source Coop advertises the short form `device_code`; the RFC 8628
+        // registered name is the URN. Accept either.
         self.supports_grant_type("urn:ietf:params:oauth:grant-type:device_code")
             || self.supports_grant_type("device_code")
     }
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 pub struct TokenResponse {
     pub id_token: Option<String>,
     pub refresh_token: Option<String>,
     pub access_token: Option<String>,
-    pub token_type: Option<String>,
-    pub expires_in: Option<u64>,
 }
 
 /// Fetch OIDC discovery document and deserialize into OidcDiscovery.
