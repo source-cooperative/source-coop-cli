@@ -172,9 +172,7 @@ pub async fn login(
             "slow_down" => {
                 interval += 5;
                 if verbose {
-                    eprintln!(
-                        "[verbose] Received slow_down, increasing interval to {interval}s"
-                    );
+                    eprintln!("[verbose] Received slow_down, increasing interval to {interval}s");
                 }
             }
             "expired_token" => {

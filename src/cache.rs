@@ -21,8 +21,7 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
 
 /// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
 fn sanitize_for_filename(s: &str) -> String {
-    s
-        .chars()
+    s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                 c
@@ -192,14 +191,22 @@ fn write_refresh_token_file(data: &RefreshTokenData) -> Result<String, String> {
     let path = refresh_cache_path(&data.issuer)?;
     let dir = path.parent().unwrap();
 
-    fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create refresh cache directory {}: {e}", dir.display()))?;
+    fs::create_dir_all(dir).map_err(|e| {
+        format!(
+            "Failed to create refresh cache directory {}: {e}",
+            dir.display()
+        )
+    })?;
 
     let json = serde_json::to_string_pretty(data)
         .map_err(|e| format!("Failed to serialize refresh token data: {e}"))?;
 
-    fs::write(&path, &json)
-        .map_err(|e| format!("Failed to write refresh token cache {}: {e}", path.display()))?;
+    fs::write(&path, &json).map_err(|e| {
+        format!(
+            "Failed to write refresh token cache {}: {e}",
+            path.display()
+        )
+    })?;
 
     #[cfg(unix)]
     {
@@ -294,9 +301,7 @@ pub fn delete_refresh_token(issuer: &str) -> Result<(), String> {
             Ok(()) | Err(keyring::Error::NoEntry) => {}
             Err(ref e) if is_keyring_unavailable(e) => {}
             Err(e) => {
-                return Err(format!(
-                    "Failed to delete refresh token from keyring: {e}"
-                ));
+                return Err(format!("Failed to delete refresh token from keyring: {e}"));
             }
         }
     }
@@ -355,7 +360,10 @@ mod tests {
 
     #[test]
     fn sanitize_simple_name() {
-        assert_eq!(sanitize_for_filename("source-coop-user"), "source-coop-user");
+        assert_eq!(
+            sanitize_for_filename("source-coop-user"),
+            "source-coop-user"
+        );
     }
 
     #[test]

@@ -189,14 +189,8 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             oidc::device_code::login(&discovery, &args.client_id, &args.scope, verbose).await?
         }
         oidc::FlowType::AuthCode => {
-            oidc::auth_code::login(
-                &discovery,
-                &args.client_id,
-                &args.scope,
-                args.port,
-                verbose,
-            )
-            .await?
+            oidc::auth_code::login(&discovery, &args.client_id, &args.scope, args.port, verbose)
+                .await?
         }
         oidc::FlowType::Auto => unreachable!(),
     };
@@ -356,14 +350,7 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     if verbose {
         eprintln!("[verbose] Assuming role: {role_arn}");
     }
-    let new_creds = sts::assume_role(
-        &proxy_url,
-        &role_arn,
-        &id_token,
-        None,
-        verbose,
-    )
-    .await?;
+    let new_creds = sts::assume_role(&proxy_url, &role_arn, &id_token, None, verbose).await?;
 
     // 5. Cache new credentials
     let location = cache::write_credentials(&role_arn, &new_creds)?;
@@ -381,25 +368,23 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 async fn run_logout(args: LogoutArgs, verbose: bool) -> Result<(), String> {
     // 1. Try to revoke the refresh token at the provider (best-effort)
     match cache::read_refresh_token(&args.issuer)? {
-        Some(refresh_data) => {
-            match oidc::discover(&args.issuer, verbose).await {
-                Ok(discovery) => {
-                    if let Err(e) = oidc::refresh::revoke(
-                        &discovery,
-                        &refresh_data.client_id,
-                        &refresh_data.refresh_token,
-                        verbose,
-                    )
-                    .await
-                    {
-                        eprintln!("Warning: could not revoke refresh token: {e}");
-                    }
-                }
-                Err(e) => {
-                    eprintln!("Warning: could not discover OIDC endpoints for revocation: {e}");
+        Some(refresh_data) => match oidc::discover(&args.issuer, verbose).await {
+            Ok(discovery) => {
+                if let Err(e) = oidc::refresh::revoke(
+                    &discovery,
+                    &refresh_data.client_id,
+                    &refresh_data.refresh_token,
+                    verbose,
+                )
+                .await
+                {
+                    eprintln!("Warning: could not revoke refresh token: {e}");
                 }
             }
-        }
+            Err(e) => {
+                eprintln!("Warning: could not discover OIDC endpoints for revocation: {e}");
+            }
+        },
         None => {
             if verbose {
                 eprintln!("[verbose] No cached refresh token found; skipping revocation");
