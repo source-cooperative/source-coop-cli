@@ -16,7 +16,7 @@ mod defaults {
 #[cfg(not(feature = "staging"))]
 mod defaults {
     pub const ISSUER: &str = "https://auth.source.coop";
-    pub const CLIENT_ID: &str = "d037d00b-09c7-4815-ac39-2a0b9fae40c6";
+    pub const CLIENT_ID: &str = "197e20e7-d52d-4d1d-9e54-4b73a342034b";
     pub const PROXY_URL: &str = "https://data.source.coop";
     pub const ROLE_ARN: &str = "default";
 }
