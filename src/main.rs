@@ -8,7 +8,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 #[cfg(feature = "staging")]
 mod defaults {
     pub const ISSUER: &str = "https://auth.staging.source.coop";
-    pub const CLIENT_ID: &str = "c445cc61-9884-44a8-b051-8d8f7273ffc1";
+    pub const CLIENT_ID: &str = "a79c9537-be78-454a-9ea1-b96a1be811cc";
     pub const PROXY_URL: &str = "https://staging.data.source.coop";
     pub const ROLE_ARN: &str = "default";
 }
