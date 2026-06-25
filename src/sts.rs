@@ -9,6 +9,15 @@ pub struct Credentials {
     pub expiration: String,
 }
 
+/// Build the STS endpoint URL from the proxy base. STS is served at the
+/// proxy's `/.sts` path, never the root, so the path is set explicitly — a base
+/// `proxy_url` (or any other path) always ends up targeting `/.sts`.
+fn sts_url(proxy_url: &str) -> Result<url::Url, String> {
+    let mut url = url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
+    url.set_path("/.sts");
+    Ok(url)
+}
+
 /// Call the proxy's STS AssumeRoleWithWebIdentity endpoint.
 pub async fn assume_role(
     proxy_url: &str,
@@ -17,7 +26,7 @@ pub async fn assume_role(
     duration_seconds: Option<u64>,
     verbose: bool,
 ) -> Result<Credentials, String> {
-    let mut url = url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
+    let mut url = sts_url(proxy_url)?;
 
     url.query_pairs_mut()
         .append_pair("Action", "AssumeRoleWithWebIdentity")
@@ -31,8 +40,7 @@ pub async fn assume_role(
 
     if verbose {
         // Log the URL without the WebIdentityToken to avoid leaking secrets
-        let mut redacted_url =
-            url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL: {e}"))?;
+        let mut redacted_url = sts_url(proxy_url)?;
         redacted_url
             .query_pairs_mut()
             .append_pair("Action", "AssumeRoleWithWebIdentity")
@@ -128,4 +136,31 @@ struct StsError {
     code: String,
     #[serde(rename = "Message")]
     message: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sts_url;
+
+    #[test]
+    fn targets_sts_path_from_base() {
+        assert_eq!(
+            sts_url("https://data.staging.source.coop").unwrap().as_str(),
+            "https://data.staging.source.coop/.sts"
+        );
+    }
+
+    #[test]
+    fn always_targets_sts_regardless_of_input_path() {
+        // trailing slash, an unrelated path, and an already-present /.sts all
+        // normalize to /.sts — auth requests never hit the proxy root.
+        for input in [
+            "https://x.test",
+            "https://x.test/",
+            "https://x.test/other",
+            "https://x.test/.sts",
+        ] {
+            assert_eq!(sts_url(input).unwrap().path(), "/.sts", "input: {input}");
+        }
+    }
 }
