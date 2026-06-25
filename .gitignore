@@ -1,1 +1,6 @@
 /target
+
+# Local env files may hold secrets; .env.staging is public and intentionally tracked.
+.env
+.env.local
+!.env.staging
