@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.2...v0.1.3) (2026-06-26)
+
+
+### Bug Fixes
+
+* don't print credentials to stdout on login unless --no-cache ([792ea5e](https://github.com/source-cooperative/source-coop-cli/commit/792ea5e6d6a633e8d40a8efe0e3d2ee0d46b4e93))
+* don't print credentials to stdout on login unless --no-cache ([d713fff](https://github.com/source-cooperative/source-coop-cli/commit/d713fffa4e13ff47ef5fd6632dd93273158d2048))
+
 ## [0.1.2](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.1...v0.1.2) (2026-06-26)
 
 
