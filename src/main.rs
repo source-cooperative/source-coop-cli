@@ -144,18 +144,18 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     )
     .await?;
 
-    // 4. Cache credentials
+    // 4. Cache credentials, or print to stdout when caching is skipped.
+    //    Default path stays quiet so `login` doesn't leak credentials to the terminal.
     if args.no_cache {
         eprintln!("Skipping credential cache (--no-cache)");
+        match args.format {
+            OutputFormat::CredentialProcess => output::print_credential_process(&creds),
+            OutputFormat::Env => output::print_env(&creds),
+        }
     } else {
         let location = cache::write_credentials(&args.role_arn, &creds)?;
         eprintln!("Credentials cached to {location}");
-    }
-
-    // 5. Output
-    match args.format {
-        OutputFormat::CredentialProcess => output::print_credential_process(&creds),
-        OutputFormat::Env => output::print_env(&creds),
+        eprintln!("Run 'source-coop creds' to print them.");
     }
 
     Ok(())
