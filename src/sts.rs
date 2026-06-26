@@ -145,7 +145,9 @@ mod tests {
     #[test]
     fn targets_sts_path_from_base() {
         assert_eq!(
-            sts_url("https://data.staging.source.coop").unwrap().as_str(),
+            sts_url("https://data.staging.source.coop")
+                .unwrap()
+                .as_str(),
             "https://data.staging.source.coop/.sts"
         );
     }
