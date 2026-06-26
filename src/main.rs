@@ -144,8 +144,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     )
     .await?;
 
-    // 4. Cache credentials, or print to stdout when caching is skipped.
-    //    Default path stays quiet so `login` doesn't leak credentials to the terminal.
+    // 4. Cache, or print to stdout only with --no-cache (don't leak creds by default).
     if args.no_cache {
         eprintln!("Skipping credential cache (--no-cache)");
         match args.format {
