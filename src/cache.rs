@@ -1,5 +1,6 @@
 use crate::sts::Credentials;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -19,9 +20,8 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
 }
 
 /// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
-fn sanitize_role_arn(role_arn: &str) -> String {
-    role_arn
-        .chars()
+fn sanitize_for_filename(s: &str) -> String {
+    s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                 c
@@ -37,7 +37,7 @@ fn sanitize_role_arn(role_arn: &str) -> String {
 /// `~/.cache` on Linux, `%LocalAppData%` on Windows).
 fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
-    let sanitized = sanitize_role_arn(role_arn);
+    let sanitized = sanitize_for_filename(role_arn);
     Ok(cache_dir
         .join("source-coop")
         .join("credentials")
@@ -154,6 +154,171 @@ pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
     Ok(expiration <= now + buffer)
 }
 
+// ---------------------------------------------------------------------------
+// Refresh token caching (keyring + file fallback)
+// ---------------------------------------------------------------------------
+
+const REFRESH_KEYRING_SERVICE: &str = "source-coop-cli:refresh";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RefreshTokenData {
+    pub refresh_token: String,
+    pub issuer: String,
+    pub client_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role_arn: Option<String>,
+}
+
+/// Full path to the refresh-token cache file for a given issuer.
+fn refresh_cache_path(issuer: &str) -> Result<PathBuf, String> {
+    let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
+    let key = sanitize_for_filename(issuer);
+    Ok(cache_dir
+        .join("source-coop")
+        .join("refresh")
+        .join(format!("{key}.json")))
+}
+
+/// Write refresh token data to a cache file. Returns the file path as a string.
+fn write_refresh_token_file(data: &RefreshTokenData) -> Result<String, String> {
+    let path = refresh_cache_path(&data.issuer)?;
+    let dir = path.parent().unwrap();
+
+    fs::create_dir_all(dir).map_err(|e| {
+        format!(
+            "Failed to create refresh cache directory {}: {e}",
+            dir.display()
+        )
+    })?;
+
+    let json = serde_json::to_string_pretty(data)
+        .map_err(|e| format!("Failed to serialize refresh token data: {e}"))?;
+
+    fs::write(&path, &json).map_err(|e| {
+        format!(
+            "Failed to write refresh token cache {}: {e}",
+            path.display()
+        )
+    })?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to set permissions on {}: {e}", path.display()))?;
+    }
+
+    Ok(path.display().to_string())
+}
+
+/// Read refresh token data from a cache file. Returns `None` if the file does not exist.
+fn read_refresh_token_file(issuer: &str) -> Result<Option<RefreshTokenData>, String> {
+    let path = refresh_cache_path(issuer)?;
+    match fs::read_to_string(&path) {
+        Ok(contents) => {
+            let data: RefreshTokenData = serde_json::from_str(&contents)
+                .map_err(|e| format!("Failed to parse refresh token cache: {e}"))?;
+            Ok(Some(data))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!(
+            "Failed to read refresh token cache {}: {e}",
+            path.display()
+        )),
+    }
+}
+
+/// Write a refresh token, trying the OS keyring first with file fallback.
+/// Returns a human-readable description of where the token was stored.
+pub fn write_refresh_token(data: &RefreshTokenData) -> Result<String, String> {
+    let json = serde_json::to_string(data)
+        .map_err(|e| format!("Failed to serialize refresh token data: {e}"))?;
+
+    let key = sanitize_for_filename(&data.issuer);
+    let entry = keyring::Entry::new(REFRESH_KEYRING_SERVICE, &key)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"));
+
+    if let Ok(entry) = entry {
+        match entry.set_password(&json) {
+            Ok(()) => {
+                return Ok(format!("OS keyring (service: {REFRESH_KEYRING_SERVICE})"));
+            }
+            Err(ref e) if is_keyring_unavailable(e) => {
+                // Fall through to file-based caching
+            }
+            Err(e) => {
+                return Err(format!("Failed to write refresh token to keyring: {e}"));
+            }
+        }
+    }
+
+    write_refresh_token_file(data)
+}
+
+/// Read a refresh token, trying the OS keyring first with file fallback.
+/// Returns `None` if no cached refresh token is found in either location.
+pub fn read_refresh_token(issuer: &str) -> Result<Option<RefreshTokenData>, String> {
+    let key = sanitize_for_filename(issuer);
+    let entry = keyring::Entry::new(REFRESH_KEYRING_SERVICE, &key)
+        .map_err(|e| format!("Failed to create keyring entry: {e}"));
+
+    if let Ok(entry) = entry {
+        match entry.get_password() {
+            Ok(json) => {
+                let data: RefreshTokenData = serde_json::from_str(&json)
+                    .map_err(|e| format!("Failed to parse refresh token from keyring: {e}"))?;
+                return Ok(Some(data));
+            }
+            Err(keyring::Error::NoEntry) => {
+                // Keyring works but nothing stored — fall through to file
+            }
+            Err(ref e) if is_keyring_unavailable(e) => {
+                // Keyring unavailable — fall through to file
+            }
+            Err(e) => {
+                return Err(format!("Failed to read refresh token from keyring: {e}"));
+            }
+        }
+    }
+
+    read_refresh_token_file(issuer)
+}
+
+/// Delete a keyring entry (ignoring "not found") and its file-cache fallback.
+fn delete_entry(service: &str, key: &str, path: &PathBuf) -> Result<(), String> {
+    if let Ok(entry) = keyring::Entry::new(service, key) {
+        match entry.delete_credential() {
+            Ok(()) | Err(keyring::Error::NoEntry) => {}
+            Err(ref e) if is_keyring_unavailable(e) => {}
+            Err(e) => return Err(format!("Failed to delete from keyring: {e}")),
+        }
+    }
+
+    match fs::remove_file(path) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => eprintln!("Warning: could not delete {}: {e}", path.display()),
+    }
+
+    Ok(())
+}
+
+/// Delete a refresh token from both keyring and file cache.
+pub fn delete_refresh_token(issuer: &str) -> Result<(), String> {
+    delete_entry(
+        REFRESH_KEYRING_SERVICE,
+        &sanitize_for_filename(issuer),
+        &refresh_cache_path(issuer)?,
+    )
+}
+
+/// Delete credentials from both keyring and file cache (for logout).
+pub fn delete_credentials(role_arn: &str) -> Result<(), String> {
+    delete_entry(KEYRING_SERVICE, role_arn, &cache_path(role_arn)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -169,20 +334,23 @@ mod tests {
 
     #[test]
     fn sanitize_simple_name() {
-        assert_eq!(sanitize_role_arn("source-coop-user"), "source-coop-user");
+        assert_eq!(
+            sanitize_for_filename("source-coop-user"),
+            "source-coop-user"
+        );
     }
 
     #[test]
     fn sanitize_arn_with_special_chars() {
         assert_eq!(
-            sanitize_role_arn("arn:aws:iam::123:role/Foo"),
+            sanitize_for_filename("arn:aws:iam::123:role/Foo"),
             "arn_aws_iam__123_role_Foo"
         );
     }
 
     #[test]
     fn sanitize_preserves_underscores() {
-        assert_eq!(sanitize_role_arn("my_role-name"), "my_role-name");
+        assert_eq!(sanitize_for_filename("my_role-name"), "my_role-name");
     }
 
     #[test]
