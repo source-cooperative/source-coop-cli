@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.3...v0.2.0) (2026-07-03)
+
+
+### Features
+
+* accept human-friendly --duration units (90s, 5m, 12h, 1d) ([#10](https://github.com/source-cooperative/source-coop-cli/issues/10)) ([43b746e](https://github.com/source-cooperative/source-coop-cli/commit/43b746ec79a22db89e7d221be3693ecb6dc0eef3))
+
 ## [0.1.3](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.2...v0.1.3) (2026-06-26)
 
 
