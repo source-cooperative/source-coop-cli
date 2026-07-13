@@ -36,7 +36,8 @@ struct Cli {
 enum Commands {
     /// Authenticate via OIDC and obtain temporary S3 credentials
     Login(LoginArgs),
-    /// Output cached credentials as credential_process JSON or shell env vars
+    /// Output cached credentials as credential_process JSON, shell env vars,
+    /// or an AWS credentials-file profile
     Creds(CredsArgs),
 }
 
@@ -77,6 +78,10 @@ struct LoginArgs {
     /// Skip caching credentials (just print to stdout)
     #[arg(long)]
     no_cache: bool,
+
+    /// Profile name for --format aws-credentials
+    #[arg(long, default_value = "source-coop")]
+    profile: String,
 }
 
 #[derive(Parser)]
@@ -88,6 +93,10 @@ struct CredsArgs {
     /// Output format
     #[arg(long, default_value = "credential-process")]
     format: OutputFormat,
+
+    /// Profile name for --format aws-credentials
+    #[arg(long, default_value = "source-coop")]
+    profile: String,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -96,6 +105,8 @@ enum OutputFormat {
     CredentialProcess,
     /// Shell export statements
     Env,
+    /// AWS credentials file (INI) profile
+    AwsCredentials,
 }
 
 #[tokio::main]
@@ -150,6 +161,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         match args.format {
             OutputFormat::CredentialProcess => output::print_credential_process(&creds),
             OutputFormat::Env => output::print_env(&creds),
+            OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
         }
     } else {
         let location = cache::write_credentials(&args.role_arn, &creds)?;
@@ -173,6 +185,7 @@ fn run_creds(args: CredsArgs) -> Result<(), String> {
     match args.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&creds),
         OutputFormat::Env => output::print_env(&creds),
+        OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
     }
     Ok(())
 }
