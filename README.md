@@ -106,7 +106,7 @@ endpoint_url = https://data.source.coop
 | `--role-arn` | `SOURCE_ROLE_ARN` | `source-coop-user` | Role ARN to assume |
 | `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
-| `--duration` | | | Session duration in seconds |
+| `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
 | `--scope` | | `openid` | OAuth2 scopes |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |

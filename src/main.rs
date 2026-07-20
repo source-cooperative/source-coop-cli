@@ -21,6 +21,26 @@ mod defaults {
     pub const ROLE_ARN: &str = "_default";
 }
 
+/// Parse a duration into seconds. Accepts a bare number (seconds) or a value
+/// with a unit suffix: `s`, `m`, `h`, `d`. The API is always called in seconds.
+fn parse_duration(s: &str) -> Result<u64, String> {
+    let s = s.trim();
+    let err = || format!("invalid duration '{s}' (use e.g. 3600, 90s, 5m, 12h, 1d)");
+    let (digits, mult) = match s.chars().last() {
+        Some('s') => (&s[..s.len() - 1], 1),
+        Some('m') => (&s[..s.len() - 1], 60),
+        Some('h') => (&s[..s.len() - 1], 3600),
+        Some('d') => (&s[..s.len() - 1], 86400),
+        Some(c) if c.is_ascii_digit() => (s, 1),
+        _ => return Err(err()),
+    };
+    digits
+        .parse::<u64>()
+        .ok()
+        .and_then(|n| n.checked_mul(mult))
+        .ok_or_else(err)
+}
+
 #[derive(Parser)]
 #[command(name = "source-coop", about = "Source Cooperative CLI", version)]
 struct Cli {
@@ -63,8 +83,8 @@ struct LoginArgs {
     #[arg(long, default_value = "credential-process")]
     format: OutputFormat,
 
-    /// Session duration in seconds
-    #[arg(long)]
+    /// Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds)
+    #[arg(long, value_parser = parse_duration)]
     duration: Option<u64>,
 
     /// OAuth2 scopes
@@ -188,4 +208,26 @@ fn run_creds(args: CredsArgs) -> Result<(), String> {
         OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_duration;
+
+    #[test]
+    fn parses_units_and_bare_seconds() {
+        assert_eq!(parse_duration("3600").unwrap(), 3600);
+        assert_eq!(parse_duration("90s").unwrap(), 90);
+        assert_eq!(parse_duration("5m").unwrap(), 300);
+        assert_eq!(parse_duration("12h").unwrap(), 43200);
+        assert_eq!(parse_duration("1d").unwrap(), 86400);
+        assert_eq!(parse_duration(" 2h ").unwrap(), 7200);
+    }
+
+    #[test]
+    fn rejects_junk() {
+        for bad in ["", "h", "abc", "5x", "1.5h", "-5m"] {
+            assert!(parse_duration(bad).is_err(), "expected error for {bad:?}");
+        }
+    }
 }
