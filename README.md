@@ -77,6 +77,9 @@ This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` 
 
 ### Multiple roles
 
+> [!WARNING]
+> Custom roles are not yet supported within the Source Cooperative data proxy. 
+
 Each role's credentials are cached separately:
 
 ```bash
@@ -141,7 +144,10 @@ aws_secret_access_key = ...
 aws_session_token = ...
 ```
 
-Use `--profile` to change the section name. Note the credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally).
+Use `--profile` to change the section name.
+
+> [!TIP]
+> The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We generally recommend using the above `credential-process` technique rather than this technique.
 
 ## Credential storage
 
