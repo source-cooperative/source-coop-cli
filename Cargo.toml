@@ -2,7 +2,7 @@
 name = "source-coop-cli"
 version = "0.2.0"
 edition = "2021"
-license = "MIT OR Apache-2.0"
+license = "Apache-2.0"
 description = "CLI for Source Cooperative — OIDC login and STS credential exchange"
 repository = "https://github.com/source-cooperative/source-coop-cli"
 homepage = "https://source.coop"
