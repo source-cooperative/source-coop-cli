@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.2.0...v0.3.0) (2026-07-30)
+
+
+### Features
+
+* add aws-credentials output format for ~/.aws/credentials ([#12](https://github.com/source-cooperative/source-coop-cli/issues/12)) ([ce52df5](https://github.com/source-cooperative/source-coop-cli/commit/ce52df569c6ba33c717b19a67ebf7a9e3aba39fc))
+
 ## [0.2.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.3...v0.2.0) (2026-07-03)
 
 

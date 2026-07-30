@@ -1306,7 +1306,7 @@ dependencies = [
 
 [[package]]
 name = "source-coop-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64",
  "chrono",
