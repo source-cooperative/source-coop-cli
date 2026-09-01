@@ -1,6 +1,7 @@
 mod cache;
 mod oidc;
 mod output;
+mod repos;
 mod sts;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -59,6 +60,8 @@ enum Commands {
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile
     Creds(CredsArgs),
+    /// Show the storage URI for a source.coop repository
+    Repo(RepoArgs),
 }
 
 #[derive(Parser)]
@@ -119,6 +122,25 @@ struct CredsArgs {
     profile: String,
 }
 
+#[derive(Parser)]
+struct RepoArgs {
+    /// Repository identifier as <account>/<repository>
+    #[arg(value_name = "ACCOUNT/REPOSITORY")]
+    repository: String,
+
+    /// Output format
+    #[arg(long, default_value = "uri")]
+    format: RepoOutputFormat,
+}
+
+#[derive(Clone, ValueEnum)]
+enum RepoOutputFormat {
+    /// Bare storage URI (e.g. s3://bucket/prefix/)
+    Uri,
+    /// JSON with all storage details
+    Json,
+}
+
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// AWS credential_process JSON format
@@ -144,6 +166,12 @@ async fn main() {
         }
         Commands::Creds(args) => {
             if let Err(e) = run_creds(args) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Repo(args) => {
+            if let Err(e) = run_repo(args, verbose).await {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -207,6 +235,37 @@ fn run_creds(args: CredsArgs) -> Result<(), String> {
         OutputFormat::Env => output::print_env(&creds),
         OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
     }
+    Ok(())
+}
+
+async fn run_repo(args: RepoArgs, verbose: bool) -> Result<(), String> {
+    let (account_id, repository_id) = args
+        .repository
+        .split_once('/')
+        .ok_or("Repository must be in <account>/<repository> format")?;
+
+    let info = repos::get_storage_info(account_id, repository_id, verbose).await?;
+
+    match args.format {
+        RepoOutputFormat::Uri => {
+            println!("{}", info.uri);
+        }
+        RepoOutputFormat::Json => {
+            let mut obj = serde_json::json!({
+                "uri": info.uri,
+                "provider": info.provider,
+                "bucket_or_container": info.bucket_or_container,
+                "prefix": info.prefix,
+                "connection_id": info.connection_id,
+                "connection_name": info.connection_name,
+            });
+            if let Some(region) = &info.region {
+                obj["region"] = serde_json::Value::String(region.clone());
+            }
+            println!("{}", serde_json::to_string_pretty(&obj).unwrap());
+        }
+    }
+
     Ok(())
 }
 
