@@ -81,7 +81,9 @@ pub async fn get_storage_info(
         eprintln!("[verbose] Response: {status}");
     }
     if status.as_u16() == 404 {
-        return Err(format!("Repository '{account_id}/{repository_id}' not found"));
+        return Err(format!(
+            "Repository '{account_id}/{repository_id}' not found"
+        ));
     }
     if !status.is_success() {
         return Err(format!(
@@ -96,11 +98,10 @@ pub async fn get_storage_info(
         .map_err(|e| format!("Failed to parse repository response: {e}"))?;
 
     let primary_key = &product.metadata.primary_mirror;
-    let mirror = product
-        .metadata
-        .mirrors
-        .get(primary_key)
-        .ok_or_else(|| format!("Primary mirror '{primary_key}' not found in repository mirrors"))?;
+    let mirror =
+        product.metadata.mirrors.get(primary_key).ok_or_else(|| {
+            format!("Primary mirror '{primary_key}' not found in repository mirrors")
+        })?;
 
     let dc_url = format!("{API_BASE}/data-connections/{}", mirror.connection_id);
 
@@ -148,9 +149,8 @@ pub async fn get_storage_info(
             region,
         } => {
             let full_prefix = format!("{base_prefix}{prefix}");
-            let uri = format!(
-                "az://{account_name}.blob.core.windows.net/{container_name}/{full_prefix}"
-            );
+            let uri =
+                format!("az://{account_name}.blob.core.windows.net/{container_name}/{full_prefix}");
             (
                 uri,
                 "azure".to_string(),
