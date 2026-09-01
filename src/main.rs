@@ -124,6 +124,18 @@ struct CredsArgs {
 
 #[derive(Parser)]
 struct RepoArgs {
+    #[command(subcommand)]
+    command: RepoCommands,
+}
+
+#[derive(Subcommand)]
+enum RepoCommands {
+    /// Show storage URI and metadata for a repository
+    Info(RepoInfoArgs),
+}
+
+#[derive(Parser)]
+struct RepoInfoArgs {
     /// Repository identifier as <account>/<repository>
     #[arg(value_name = "ACCOUNT/REPOSITORY")]
     repository: String,
@@ -239,6 +251,12 @@ fn run_creds(args: CredsArgs) -> Result<(), String> {
 }
 
 async fn run_repo(args: RepoArgs, verbose: bool) -> Result<(), String> {
+    match args.command {
+        RepoCommands::Info(args) => run_repo_info(args, verbose).await,
+    }
+}
+
+async fn run_repo_info(args: RepoInfoArgs, verbose: bool) -> Result<(), String> {
     let (account_id, repository_id) = args
         .repository
         .split_once('/')
