@@ -77,6 +77,9 @@ This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` 
 
 ### Multiple roles
 
+> [!WARNING]
+> Custom roles are not yet supported within the Source Cooperative data proxy. 
+
 Each role's credentials are cached separately:
 
 ```bash
@@ -104,9 +107,10 @@ endpoint_url = https://data.source.coop
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `d037d00b-...` | OAuth2 client ID |
 | `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS |
 | `--role-arn` | `SOURCE_ROLE_ARN` | `source-coop-user` | Role ARN to assume |
-| `--format` | | `credential-process` | Output format: `credential-process` or `env` |
-| `--duration` | | | Session duration in seconds |
-| `--scope` | | `openid` | OAuth2 scopes |
+| `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
+| `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
+| `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
+| `--scope` | | `openid offline_access` | OAuth2 scopes (`offline_access` enables automatic refresh in `creds`) |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |
 
@@ -125,6 +129,25 @@ source-coop creds
 ```bash
 eval $(source-coop creds --format env)
 ```
+
+**aws-credentials** — an INI profile you can write directly to `~/.aws/credentials`:
+
+```bash
+source-coop creds --format aws-credentials >> ~/.aws/credentials
+```
+
+```ini
+[source-coop]
+# expires 2026-07-13T12:00:00Z
+aws_access_key_id = ...
+aws_secret_access_key = ...
+aws_session_token = ...
+```
+
+Use `--profile` to change the section name.
+
+> [!TIP]
+> The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We generally recommend using the above `credential-process` technique rather than this technique.
 
 ## Credential storage
 
