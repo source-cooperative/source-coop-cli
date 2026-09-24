@@ -1,10 +1,31 @@
 use crate::sts::Credentials;
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
 
 const KEYRING_SERVICE: &str = "source-coop-cli";
+
+/// What gets cached per role: the STS credentials plus, when the IdP issued
+/// one, what's needed to mint fresh credentials without a browser login.
+/// `flatten` keeps caches written by older versions (bare credentials) readable.
+#[derive(Serialize, Deserialize)]
+pub struct CacheEntry {
+    #[serde(flatten)]
+    pub creds: Credentials,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<RefreshState>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct RefreshState {
+    pub refresh_token: String,
+    pub token_endpoint: String,
+    pub client_id: String,
+    pub proxy_url: String,
+    pub duration: Option<u64>,
+}
 
 /// Returns `true` for keyring errors that indicate the keyring backend is
 /// unavailable (headless Linux, containers, CI). These trigger a fallback to
@@ -44,8 +65,24 @@ fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
         .join(format!("{sanitized}.json")))
 }
 
+/// Take an exclusive per-role lock, held until the returned file is dropped.
+/// Refresh tokens rotate on use, and the IdP may revoke the whole token family
+/// if an old one is replayed, so concurrent `creds` calls must not refresh in
+/// parallel.
+pub fn lock(role_arn: &str) -> Result<fs::File, String> {
+    let path = cache_path(role_arn)?.with_extension("lock");
+    let dir = path.parent().unwrap();
+    fs::create_dir_all(dir)
+        .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
+    let file = fs::File::create(&path)
+        .map_err(|e| format!("Failed to open lock file {}: {e}", path.display()))?;
+    file.lock()
+        .map_err(|e| format!("Failed to lock {}: {e}", path.display()))?;
+    Ok(file)
+}
+
 /// Write credentials to a cache file. Returns the file path as a string.
-fn write_credentials_file(role_arn: &str, creds: &Credentials) -> Result<String, String> {
+fn write_credentials_file(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
     let path = cache_path(role_arn)?;
     let dir = path.parent().unwrap();
 
@@ -69,11 +106,11 @@ fn write_credentials_file(role_arn: &str, creds: &Credentials) -> Result<String,
 }
 
 /// Read credentials from a cache file. Returns `None` if the file does not exist.
-fn read_credentials_file(role_arn: &str) -> Result<Option<Credentials>, String> {
+fn read_credentials_file(role_arn: &str) -> Result<Option<CacheEntry>, String> {
     let path = cache_path(role_arn)?;
     match fs::read_to_string(&path) {
         Ok(contents) => {
-            let creds: Credentials = serde_json::from_str(&contents)
+            let creds: CacheEntry = serde_json::from_str(&contents)
                 .map_err(|e| format!("Failed to parse credentials cache: {e}"))?;
             Ok(Some(creds))
         }
@@ -87,7 +124,7 @@ fn read_credentials_file(role_arn: &str) -> Result<Option<Credentials>, String> 
 
 /// Write credentials, trying the OS keyring first with file fallback.
 /// Returns a human-readable description of where credentials were stored.
-pub fn write_credentials(role_arn: &str, creds: &Credentials) -> Result<String, String> {
+pub fn write_credentials(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
     let json = serde_json::to_string(creds)
         .map_err(|e| format!("Failed to serialize credentials: {e}"))?;
 
@@ -113,14 +150,14 @@ pub fn write_credentials(role_arn: &str, creds: &Credentials) -> Result<String, 
 
 /// Read credentials, trying the OS keyring first with file fallback.
 /// Returns `None` if no cached credentials are found in either location.
-pub fn read_credentials(role_arn: &str) -> Result<Option<Credentials>, String> {
+pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
     let entry = keyring::Entry::new(KEYRING_SERVICE, role_arn)
         .map_err(|e| format!("Failed to create keyring entry: {e}"));
 
     if let Ok(entry) = entry {
         match entry.get_password() {
             Ok(json) => {
-                let creds: Credentials = serde_json::from_str(&json)
+                let creds: CacheEntry = serde_json::from_str(&json)
                     .map_err(|e| format!("Failed to parse credentials from keyring: {e}"))?;
                 return Ok(Some(creds));
             }
@@ -222,6 +259,29 @@ mod tests {
         assert_eq!(loaded.secret_access_key, creds.secret_access_key);
         assert_eq!(loaded.session_token, creds.session_token);
         assert_eq!(loaded.expiration, creds.expiration);
+    }
+
+    #[test]
+    fn cache_entry_reads_legacy_format_and_round_trips_refresh() {
+        let legacy = serde_json::to_string(&sample_creds("2026-03-01T00:00:00Z")).unwrap();
+        let entry: CacheEntry = serde_json::from_str(&legacy).unwrap();
+        assert!(entry.refresh.is_none());
+        assert_eq!(entry.creds.access_key_id, "AKIAIOSFODNN7EXAMPLE");
+
+        let entry = CacheEntry {
+            refresh: Some(RefreshState {
+                refresh_token: "rt".to_string(),
+                token_endpoint: "https://auth.test/oauth2/token".to_string(),
+                client_id: "cid".to_string(),
+                proxy_url: "https://data.test".to_string(),
+                duration: Some(3600),
+            }),
+            ..entry
+        };
+        let loaded: CacheEntry =
+            serde_json::from_str(&serde_json::to_string(&entry).unwrap()).unwrap();
+        assert_eq!(loaded.refresh.unwrap().refresh_token, "rt");
+        assert_eq!(loaded.creds.session_token, entry.creds.session_token);
     }
 
     #[test]
