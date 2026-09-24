@@ -223,7 +223,9 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         let _lock = cache::lock(&args.role_arn)?;
         entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
         if cache::is_expired(&entry.creds)? {
-            entry = refresh(&args.role_arn, entry, verbose).await.map_err(|e| {
+            let save =
+                |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
+            entry = refresh(&args.role_arn, entry, verbose, save).await.map_err(|e| {
                 format!("Cached credentials have expired and refresh failed ({e}). Run 'source-coop login'.")
             })?;
         }
@@ -238,11 +240,12 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 }
 
 /// Trade the cached refresh token for a new id_token, exchange that for new STS
-/// credentials, and cache the result (including the rotated refresh token).
+/// credentials, and cache the result (including the rotated refresh token) via `save`.
 async fn refresh(
     role_arn: &str,
     mut entry: cache::CacheEntry,
     verbose: bool,
+    mut save: impl FnMut(&cache::CacheEntry) -> Result<(), String>,
 ) -> Result<cache::CacheEntry, String> {
     let state = entry.refresh.as_mut().ok_or("No refresh token cached")?;
     let tokens = oidc::refresh(
@@ -255,7 +258,7 @@ async fn refresh(
     if let Some(rotated) = tokens.refresh_token {
         // The old refresh token is now spent; persist the new one before STS can fail.
         state.refresh_token = rotated;
-        cache::write_credentials(role_arn, &entry)?;
+        save(&entry)?;
     }
     let state = entry.refresh.as_ref().unwrap();
     entry.creds = sts::assume_role(
@@ -266,13 +269,151 @@ async fn refresh(
         verbose,
     )
     .await?;
-    cache::write_credentials(role_arn, &entry)?;
+    save(&entry)?;
     Ok(entry)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_duration;
+    use super::*;
+    use wiremock::matchers::{body_string_contains, method, path, query_param};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const STS_OK: &str = "<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult>\
+        <Credentials><AccessKeyId>NEWKEY</AccessKeyId><SecretAccessKey>NEWSECRET</SecretAccessKey>\
+        <SessionToken>NEWSESSION</SessionToken><Expiration>2099-01-01T00:00:00Z</Expiration>\
+        </Credentials></AssumeRoleWithWebIdentityResult></AssumeRoleWithWebIdentityResponse>";
+
+    /// An expired cache entry whose refresh state points at the mock server.
+    fn expired_entry(server: &MockServer) -> cache::CacheEntry {
+        cache::CacheEntry {
+            creds: sts::Credentials {
+                access_key_id: "OLDKEY".into(),
+                secret_access_key: "OLDSECRET".into(),
+                session_token: "OLDSESSION".into(),
+                expiration: "2020-01-01T00:00:00Z".into(),
+            },
+            refresh: Some(cache::RefreshState {
+                refresh_token: "old-rt".into(),
+                token_endpoint: format!("{}/oauth2/token", server.uri()),
+                client_id: "cid".into(),
+                proxy_url: server.uri(),
+                duration: Some(3600),
+            }),
+        }
+    }
+
+    /// Mock Ory's token endpoint: only a refresh grant carrying `old-rt` matches.
+    async fn mock_token(server: &MockServer, status: u16, body: serde_json::Value) {
+        Mock::given(method("POST"))
+            .and(path("/oauth2/token"))
+            .and(body_string_contains("grant_type=refresh_token"))
+            .and(body_string_contains("refresh_token=old-rt"))
+            .and(body_string_contains("client_id=cid"))
+            .respond_with(ResponseTemplate::new(status).set_body_json(body))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    /// Mock the proxy's STS endpoint: only the freshly issued id_token matches.
+    async fn mock_sts(server: &MockServer, status: u16, body: &str) {
+        Mock::given(method("GET"))
+            .and(path("/.sts"))
+            .and(query_param("WebIdentityToken", "new-id-token"))
+            .and(query_param("DurationSeconds", "3600"))
+            .respond_with(ResponseTemplate::new(status).set_body_string(body))
+            .expect(1)
+            .mount(server)
+            .await;
+    }
+
+    /// Run `refresh` with a `save` that records each saved entry's
+    /// (refresh token, access key) so tests can check what was persisted when.
+    async fn run_refresh(
+        server: &MockServer,
+    ) -> (Result<cache::CacheEntry, String>, Vec<(String, String)>) {
+        let mut saved = vec![];
+        let result = refresh("role", expired_entry(server), false, |e| {
+            let rt = e.refresh.as_ref().unwrap().refresh_token.clone();
+            saved.push((rt, e.creds.access_key_id.clone()));
+            Ok(())
+        })
+        .await;
+        (result, saved)
+    }
+
+    fn saved(rt: &str, key: &str) -> (String, String) {
+        (rt.into(), key.into())
+    }
+
+    #[tokio::test]
+    async fn refresh_rotates_token_and_fetches_new_credentials() {
+        let server = MockServer::start().await;
+        let tokens = serde_json::json!({"id_token": "new-id-token", "refresh_token": "new-rt"});
+        mock_token(&server, 200, tokens).await;
+        mock_sts(&server, 200, STS_OK).await;
+
+        let (result, saved_entries) = run_refresh(&server).await;
+        let entry = result.unwrap();
+
+        assert_eq!(entry.creds.access_key_id, "NEWKEY");
+        assert!(!cache::is_expired(&entry.creds).unwrap());
+        assert_eq!(entry.refresh.unwrap().refresh_token, "new-rt");
+        // Rotated token persisted first (with old creds), then the new creds.
+        assert_eq!(
+            saved_entries,
+            [saved("new-rt", "OLDKEY"), saved("new-rt", "NEWKEY")]
+        );
+    }
+
+    #[tokio::test]
+    async fn refresh_keeps_token_when_not_rotated() {
+        let server = MockServer::start().await;
+        mock_token(
+            &server,
+            200,
+            serde_json::json!({"id_token": "new-id-token"}),
+        )
+        .await;
+        mock_sts(&server, 200, STS_OK).await;
+
+        let (result, saved_entries) = run_refresh(&server).await;
+
+        assert_eq!(result.unwrap().refresh.unwrap().refresh_token, "old-rt");
+        assert_eq!(saved_entries, [saved("old-rt", "NEWKEY")]);
+    }
+
+    #[tokio::test]
+    async fn refresh_persists_rotated_token_even_if_sts_fails() {
+        let server = MockServer::start().await;
+        let tokens = serde_json::json!({"id_token": "new-id-token", "refresh_token": "new-rt"});
+        mock_token(&server, 200, tokens).await;
+        let sts_err = "<ErrorResponse><Error><Code>AccessDenied</Code>\
+            <Message>nope</Message></Error></ErrorResponse>";
+        mock_sts(&server, 403, sts_err).await;
+
+        let (result, saved_entries) = run_refresh(&server).await;
+
+        assert!(result.err().unwrap().contains("AccessDenied"));
+        // The spent token must not survive in the cache: the rotated one does.
+        assert_eq!(saved_entries, [saved("new-rt", "OLDKEY")]);
+    }
+
+    #[tokio::test]
+    async fn refresh_fails_cleanly_when_refresh_token_expired() {
+        let server = MockServer::start().await;
+        let body = serde_json::json!({
+            "error": "invalid_grant",
+            "error_description": "The refresh token has expired."
+        });
+        mock_token(&server, 400, body).await;
+
+        let (result, saved_entries) = run_refresh(&server).await;
+
+        assert!(result.err().unwrap().contains("invalid_grant"));
+        assert!(saved_entries.is_empty());
+    }
 
     #[test]
     fn parses_units_and_bare_seconds() {

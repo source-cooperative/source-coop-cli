@@ -45,3 +45,6 @@ staging = []
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[dev-dependencies]
+wiremock = "0.6.5"
