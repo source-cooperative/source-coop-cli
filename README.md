@@ -59,6 +59,26 @@ aws s3 ls s3://my-bucket/ --profile source-coop
 
 When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
 
+### Logging in on a remote server (no browser)
+
+`login` receives the OAuth2 redirect on a local port, so on a headless machine, forward that port over SSH and complete the login in your local browser:
+
+1. Connect with a port forward (any free port works; `8400` is used here):
+
+```bash
+ssh -L 8400:127.0.0.1:8400 user@server
+```
+
+2. On the server, log in using the forwarded port:
+
+```bash
+source-coop login --port 8400
+```
+
+3. Open the URL the CLI prints in your local browser. After you sign in, the redirect to `http://127.0.0.1:8400/callback` travels through the tunnel to the CLI on the server.
+
+Credentials are cached on the server (see [File fallback](#file-fallback)), and `source-coop creds` refreshes them there without another browser login.
+
 ### Checking the CLI version
 
 ```bash
