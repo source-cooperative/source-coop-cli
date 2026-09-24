@@ -62,16 +62,23 @@ pub async fn discover(issuer: &str, verbose: bool) -> Result<OidcEndpoints, Stri
     })
 }
 
+/// Tokens returned by the token endpoint. `refresh_token` is only issued when
+/// the `offline_access` scope was granted.
+pub struct Tokens {
+    pub id_token: String,
+    pub refresh_token: Option<String>,
+}
+
 /// Run the browser-based OAuth2 Authorization Code flow with PKCE.
 /// Opens the user's browser to the OIDC provider, waits for the callback,
-/// and returns the `id_token`.
+/// and returns the issued tokens.
 pub async fn login(
     endpoints: &OidcEndpoints,
     client_id: &str,
     scope: &str,
     port: u16,
     verbose: bool,
-) -> Result<String, String> {
+) -> Result<Tokens, String> {
     let pkce = generate_pkce();
     let state: String = URL_SAFE_NO_PAD.encode(rand::thread_rng().gen::<[u8; 16]>());
 
@@ -198,7 +205,7 @@ async fn wait_for_callback(listener: &TcpListener) -> Result<(String, String), S
     Ok((code, received_state))
 }
 
-/// Exchange authorization code for tokens, return the `id_token`.
+/// Exchange authorization code for tokens.
 async fn exchange_code(
     token_endpoint: &str,
     code: &str,
@@ -206,27 +213,63 @@ async fn exchange_code(
     client_id: &str,
     code_verifier: &str,
     verbose: bool,
-) -> Result<String, String> {
+) -> Result<Tokens, String> {
     if verbose {
-        eprintln!("[verbose] POST {token_endpoint}");
         eprintln!("[verbose]   grant_type=authorization_code");
         eprintln!("[verbose]   redirect_uri={redirect_uri}");
-        eprintln!("[verbose]   client_id={client_id}");
     }
-
-    let client = reqwest::Client::new();
-    let resp = client
-        .post(token_endpoint)
-        .form(&[
+    token_request(
+        token_endpoint,
+        &[
             ("grant_type", "authorization_code"),
             ("code", code),
             ("redirect_uri", redirect_uri),
             ("client_id", client_id),
             ("code_verifier", code_verifier),
-        ])
+        ],
+        verbose,
+    )
+    .await
+}
+
+/// Use a refresh token to obtain a fresh `id_token` (and a rotated refresh token).
+pub async fn refresh(
+    token_endpoint: &str,
+    client_id: &str,
+    refresh_token: &str,
+    verbose: bool,
+) -> Result<Tokens, String> {
+    if verbose {
+        eprintln!("[verbose]   grant_type=refresh_token");
+    }
+    token_request(
+        token_endpoint,
+        &[
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("client_id", client_id),
+        ],
+        verbose,
+    )
+    .await
+}
+
+async fn token_request(
+    token_endpoint: &str,
+    form: &[(&str, &str)],
+    verbose: bool,
+) -> Result<Tokens, String> {
+    if verbose {
+        eprintln!("[verbose] POST {token_endpoint}");
+    }
+
+    let client = reqwest::Client::new();
+    let resp = client
+        .post(token_endpoint)
+        .form(form)
         .send()
         .await
-        .map_err(|e| format!("Token exchange request failed: {e}"))?;
+        .map_err(|e| format!("Token request failed: {e}"))?;
 
     if verbose {
         eprintln!("[verbose] Response: {}", resp.status());
@@ -235,7 +278,7 @@ async fn exchange_code(
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("Token exchange failed (HTTP {status}): {body}"));
+        return Err(format!("Token request failed (HTTP {status}): {body}"));
     }
 
     let body: serde_json::Value = resp
@@ -251,10 +294,15 @@ async fn exchange_code(
         eprintln!("[verbose] Token response keys: {}", keys.join(", "));
     }
 
-    body["id_token"]
+    let id_token = body["id_token"]
         .as_str()
-        .map(|s| s.to_string())
-        .ok_or_else(|| "No id_token in token response".to_string())
+        .ok_or("No id_token in token response")?
+        .to_string();
+    let refresh_token = body["refresh_token"].as_str().map(String::from);
+    Ok(Tokens {
+        id_token,
+        refresh_token,
+    })
 }
 
 struct Pkce {

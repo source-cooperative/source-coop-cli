@@ -57,7 +57,7 @@ endpoint_url = https://data.source.coop
 aws s3 ls s3://my-bucket/ --profile source-coop
 ```
 
-When credentials expire, run `source-coop login` again.
+When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
 
 ### Checking the CLI version
 
@@ -110,7 +110,7 @@ endpoint_url = https://data.source.coop
 | `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
-| `--scope` | | `openid` | OAuth2 scopes |
+| `--scope` | | `openid offline_access` | OAuth2 scopes (`offline_access` enables automatic refresh in `creds`) |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |
 

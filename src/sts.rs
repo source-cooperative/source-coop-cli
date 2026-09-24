@@ -69,11 +69,10 @@ pub async fn assume_role(
         .await
         .map_err(|e| format!("Failed to read STS response: {e}"))?;
 
-    if verbose {
-        eprintln!("[verbose] Response body:\n{body}");
-    }
-
     if !status.is_success() {
+        if verbose {
+            eprintln!("[verbose] Response body:\n{body}");
+        }
         // Try to parse error XML for a better message
         if let Ok(err) = xml_from_str::<StsErrorResponse>(&body) {
             return Err(format!(
@@ -88,6 +87,13 @@ pub async fn assume_role(
         xml_from_str(&body).map_err(|e| format!("Failed to parse STS response XML: {e}"))?;
 
     let creds = parsed.result.credentials;
+    if verbose {
+        // The success body holds the secret key and session token; don't echo it.
+        eprintln!(
+            "[verbose] Received credentials: AccessKeyId={}, Expiration={}",
+            creds.access_key_id, creds.expiration
+        );
+    }
     Ok(Credentials {
         access_key_id: creds.access_key_id,
         secret_access_key: creds.secret_access_key,
