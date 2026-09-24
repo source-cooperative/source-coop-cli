@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.2.0...v0.3.0) (2026-09-24)
+
+
+### Features
+
+* add aws-credentials output format for ~/.aws/credentials ([#12](https://github.com/source-cooperative/source-coop-cli/issues/12)) ([ce52df5](https://github.com/source-cooperative/source-coop-cli/commit/ce52df569c6ba33c717b19a67ebf7a9e3aba39fc))
+* refresh expired credentials with a cached refresh token ([#18](https://github.com/source-cooperative/source-coop-cli/issues/18)) ([0373810](https://github.com/source-cooperative/source-coop-cli/commit/0373810236e20ed9a62b154794eba3231c39447a))
+
 ## [0.2.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.1.3...v0.2.0) (2026-07-03)
 
 
