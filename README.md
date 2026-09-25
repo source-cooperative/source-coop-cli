@@ -54,7 +54,7 @@ endpoint_url = https://data.source.coop
 3. Use AWS tools normally:
 
 ```bash
-aws s3 ls s3://my-bucket/ --profile source-coop
+aws s3 ls s3://my-account/my-product --profile source-coop
 ```
 
 When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
