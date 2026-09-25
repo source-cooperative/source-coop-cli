@@ -167,7 +167,7 @@ aws_session_token = ...
 Use `--profile` to change the section name.
 
 > [!TIP]
-> The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We generally recommend using the above `credential-process` technique rather than this technique.
+> The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We recommend the utilizing `credential-process` in `~/.aws/config` rather storing temporary credentials in `~/.aws/credentials`.
 
 ## Credential storage
 
