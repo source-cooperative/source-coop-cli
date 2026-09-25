@@ -192,6 +192,22 @@ pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
 
 /// Check if credentials are expired or will expire within a 60-second buffer.
 pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
+    expires_within(creds, 60)
+}
+
+/// Whether to replace credentials from a session of `duration` seconds (the
+/// proxy's default hour when `None`) before handing them out. botocore
+/// refreshes credential_process credentials with under 15 minutes left, and
+/// reruns the process on every lookup until it gets ones with more, so they are
+/// replaced with 16 minutes left, the extra minute for clock skew. A shorter
+/// session is replaced halfway through instead, or every call would replace
+/// it, and never later than the one-minute buffer.
+pub fn needs_refresh(creds: &Credentials, duration: Option<u64>) -> Result<bool, String> {
+    let margin = (duration.unwrap_or(3600) / 2).clamp(60, 16 * 60);
+    expires_within(creds, margin as i64)
+}
+
+fn expires_within(creds: &Credentials, seconds: i64) -> Result<bool, String> {
     let expiration = chrono::DateTime::parse_from_rfc3339(&creds.expiration).map_err(|e| {
         format!(
             "Failed to parse expiration timestamp '{}': {e}",
@@ -199,10 +215,7 @@ pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
         )
     })?;
 
-    let now = Utc::now();
-    let buffer = chrono::Duration::seconds(60);
-
-    Ok(expiration <= now + buffer)
+    Ok(expiration <= Utc::now() + chrono::Duration::seconds(seconds))
 }
 
 #[cfg(test)]
@@ -265,6 +278,17 @@ mod tests {
         let near_future = (Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
         let creds = sample_creds(&near_future);
         assert!(is_expired(&creds).unwrap());
+    }
+
+    #[test]
+    fn refresh_is_due_with_16_minutes_left_or_half_the_session() {
+        let left =
+            |minutes| sample_creds(&(Utc::now() + chrono::Duration::minutes(minutes)).to_rfc3339());
+        // Inside botocore's 15-minute window at the default hour.
+        assert!(needs_refresh(&left(10), None).unwrap());
+        // A 15-minute session isn't replaced until halfway through.
+        assert!(!needs_refresh(&left(10), Some(900)).unwrap());
+        assert!(!needs_refresh(&left(30), Some(3600)).unwrap());
     }
 
     #[test]

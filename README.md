@@ -57,7 +57,9 @@ endpoint_url = https://data.source.coop
 aws s3 ls s3://my-account/my-product --profile source-coop
 ```
 
-When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
+When credentials are about to expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
+
+`creds` replaces credentials once they have 16 minutes left, or half the session if that is shorter. AWS SDKs ask `credential_process` for new credentials 5 to 15 minutes before expiry, so they get fresh ones on the first ask instead of rerunning `creds` for every request. If replacing them fails, `creds` serves the cached credentials, with a warning, until they expire.
 
 ### Logging in on a remote server (no browser)
 
@@ -81,7 +83,7 @@ Credentials are cached on the server (see [File fallback](#file-fallback)), and 
 
 ### Using an API key (no browser)
 
-Software that runs unattended, such as a cron job, a daemon or an instrument, authenticates as a service account with an API key (`sck_…`) rather than a browser login. `creds` exchanges the key at the proxy's STS endpoint, caches the credentials as it does for `login`, and exchanges the key again when they expire, so a long-running process keeps working without a person.
+Software that runs unattended, such as a cron job, a daemon or an instrument, authenticates as a service account with an API key (`sck_…`) rather than a browser login. `creds` exchanges the key at the proxy's STS endpoint, caches the credentials as it does for `login`, and exchanges the key again before they expire, so a long-running process keeps working without a person.
 
 1. Save the key, which is shown only once when you issue it, to a file only you can read:
 

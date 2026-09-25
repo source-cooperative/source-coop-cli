@@ -288,10 +288,11 @@ fn parse_api_key(raw: &str) -> Option<&str> {
     is_key.then_some(key)
 }
 
-/// Credentials for a service account's API key: the cached ones while they
-/// last, otherwise a new exchange, cached for the next call. The cache only
-/// saves exchanges, so one that can't be read or written costs an exchange
-/// instead of failing the call: a daemon holding a key keeps getting credentials.
+/// Credentials for a service account's API key: the cached ones until they are
+/// due for refresh, otherwise a new exchange, cached for the next call. The
+/// cache only saves exchanges, so one that can't be read or written costs an
+/// exchange instead of failing the call: a daemon holding a key keeps getting
+/// credentials.
 async fn key_credentials(
     args: &CredsArgs,
     key: &str,
@@ -299,13 +300,20 @@ async fn key_credentials(
     load: impl FnOnce() -> Result<Option<cache::CacheEntry>, String>,
     save: impl FnOnce(&cache::CacheEntry) -> Result<(), String>,
 ) -> Result<sts::Credentials, String> {
-    let cached = load().ok().flatten();
-    if let Some(entry) = cached.filter(|e| cache::is_expired(&e.creds) == Ok(false)) {
-        return Ok(entry.creds);
+    let cached = load().ok().flatten().map(|entry| entry.creds);
+    if let Some(creds) = cached
+        .as_ref()
+        .filter(|c| cache::needs_refresh(c, args.duration) == Ok(false))
+    {
+        return Ok(creds.clone());
     }
+    let exchanged =
+        sts::assume_role(&args.proxy_url, &args.role_arn, key, args.duration, verbose).await;
     let entry = cache::CacheEntry {
-        creds: sts::assume_role(&args.proxy_url, &args.role_arn, key, args.duration, verbose)
-            .await?,
+        creds: match exchanged {
+            Ok(creds) => creds,
+            Err(e) => return cached.and_then(|c| until_expiry(c, &e)).ok_or(e),
+        },
         refresh: None,
     };
     if let Err(e) = save(&entry) {
@@ -314,12 +322,29 @@ async fn key_credentials(
     Ok(entry.creds)
 }
 
-/// `login`'s cached credentials for the role, refreshed first if expired.
+/// The cached credentials after refreshing them early failed with `error`, if
+/// they are still valid. An SDK keeps its credentials when an advisory refresh
+/// fails, and so does this: refreshing early never ends a session sooner.
+fn until_expiry(cached: sts::Credentials, error: &str) -> Option<sts::Credentials> {
+    if cache::is_expired(&cached) != Ok(false) {
+        return None;
+    }
+    eprintln!("Warning: {error}; using cached credentials until they expire");
+    Some(cached)
+}
+
+/// `login`'s cached credentials for the role, refreshed first when due.
 async fn login_credentials(args: &CredsArgs, verbose: bool) -> Result<sts::Credentials, String> {
     const NOT_FOUND: &str = "No cached credentials found. Run 'source-coop login' first.";
+    // Only a refresh token replaces credentials without a person, so without
+    // one they are served until they expire rather than refreshed early.
+    let due = |e: &cache::CacheEntry| match &e.refresh {
+        Some(state) => cache::needs_refresh(&e.creds, state.duration),
+        None => cache::is_expired(&e.creds),
+    };
     let mut entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
 
-    if cache::is_expired(&entry.creds)? {
+    if due(&entry)? {
         if entry.refresh.is_none() {
             return Err(
                 "Cached credentials have expired. Run 'source-coop login' to refresh.".to_string(),
@@ -328,12 +353,18 @@ async fn login_credentials(args: &CredsArgs, verbose: bool) -> Result<sts::Crede
         // Re-read under the lock: another process may have refreshed already.
         let _lock = cache::lock(&args.role_arn)?;
         entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
-        if cache::is_expired(&entry.creds)? {
+        if due(&entry)? {
+            let cached = entry.creds.clone();
             let save =
                 |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
-            entry = refresh(&args.role_arn, entry, verbose, save).await.map_err(|e| {
-                format!("Cached credentials have expired and refresh failed ({e}). Run 'source-coop login'.")
-            })?;
+            entry = match refresh(&args.role_arn, entry, verbose, save).await {
+                Ok(entry) => entry,
+                Err(e) => {
+                    return until_expiry(cached, &format!("refresh failed ({e})")).ok_or_else(|| {
+                        format!("Cached credentials have expired and refresh failed ({e}). Run 'source-coop login'.")
+                    })
+                }
+            };
         }
     }
     Ok(entry.creds)
@@ -524,6 +555,10 @@ mod tests {
         format!("sck_{}", "k".repeat(43))
     }
 
+    fn in_minutes(minutes: i64) -> String {
+        (chrono::Utc::now() + chrono::Duration::minutes(minutes)).to_rfc3339()
+    }
+
     fn cached(access_key_id: &str, expiration: &str) -> cache::CacheEntry {
         cache::CacheEntry {
             creds: sts::Credentials {
@@ -598,15 +633,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_key_is_exchanged_again_once_credentials_expire() {
+    async fn api_key_is_exchanged_again_before_credentials_expire() {
         let server = MockServer::start().await;
         mock_key_sts(&server, 1).await;
 
-        let expired = cached("OLDKEY", "2020-01-01T00:00:00Z");
-        let (result, saved) = run_key(&server, Ok(Some(expired)), Ok(())).await;
+        // Five minutes left of the 15-minute session `run_key` asks for.
+        let due = cached("OLDKEY", &in_minutes(5));
+        let (result, saved) = run_key(&server, Ok(Some(due)), Ok(())).await;
 
         assert_eq!(result.unwrap().access_key_id, "NEWKEY");
         assert_eq!(saved, ["NEWKEY"]);
+    }
+
+    #[tokio::test]
+    async fn failed_early_exchange_serves_cached_credentials_until_they_expire() {
+        let server = MockServer::start().await; // answers every request 404
+
+        let due = cached("OLDKEY", &in_minutes(5));
+        let (result, _) = run_key(&server, Ok(Some(due)), Ok(())).await;
+        assert_eq!(result.unwrap().access_key_id, "OLDKEY");
+
+        let expired = cached("OLDKEY", "2020-01-01T00:00:00Z");
+        let (result, _) = run_key(&server, Ok(Some(expired)), Ok(())).await;
+        assert!(result.unwrap_err().contains("HTTP 404"));
     }
 
     #[tokio::test]
