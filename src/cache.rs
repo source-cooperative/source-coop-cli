@@ -1,6 +1,7 @@
 use crate::sts::Credentials;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -63,6 +64,19 @@ fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
         .join("source-coop")
         .join("credentials")
         .join(format!("{sanitized}.json")))
+}
+
+/// The slot an API key's credentials are cached under: the role plus the
+/// first 16 hex digits of the key's SHA-256. `login` caches under the role
+/// alone, so a key's credentials never share a slot with a person's session
+/// or another key's, and the key itself is never written down.
+pub fn api_key_slot(key: &str, role_arn: &str) -> String {
+    let hash: String = Sha256::digest(key)
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{role_arn}+key-{hash}")
 }
 
 /// Take an exclusive per-role lock, held until the returned file is dropped.
@@ -220,6 +234,15 @@ mod tests {
     #[test]
     fn sanitize_preserves_underscores() {
         assert_eq!(sanitize_role_arn("my_role-name"), "my_role-name");
+    }
+
+    #[test]
+    fn api_key_slots_are_per_key_and_role_and_hide_the_key() {
+        let slot = api_key_slot("sck_a", "_default");
+        assert_ne!(slot, "_default", "must not be login's slot for the role");
+        assert_ne!(slot, api_key_slot("sck_b", "_default"));
+        assert_ne!(slot, api_key_slot("sck_a", "ReadOnly"));
+        assert!(!slot.contains("sck_a"));
     }
 
     #[test]
