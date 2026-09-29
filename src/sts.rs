@@ -18,47 +18,58 @@ fn sts_url(proxy_url: &str) -> Result<url::Url, String> {
     Ok(url)
 }
 
-/// Call the proxy's STS AssumeRoleWithWebIdentity endpoint.
+/// A role as the ARN a stock SDK sends in `AWS_ROLE_ARN`: a bare name such as
+/// `ReadOnly` becomes `arn:aws:iam::000000000000:role/ReadOnly`. The proxy
+/// ignores the account segment, because the token names the account; an ARN
+/// passes through unchanged.
+fn role_arn(role: &str) -> String {
+    if role.starts_with("arn:") {
+        role.to_string()
+    } else {
+        format!("arn:aws:iam::000000000000:role/{role}")
+    }
+}
+
+/// Call the proxy's STS AssumeRoleWithWebIdentity endpoint. The token travels
+/// in a form-encoded POST body, never the URL: URLs end up in access logs, and
+/// the proxy refuses an API key sent in one.
 pub async fn assume_role(
     proxy_url: &str,
-    role_arn: &str,
+    role: &str,
     web_identity_token: &str,
     duration_seconds: Option<u64>,
     verbose: bool,
 ) -> Result<Credentials, String> {
-    let mut url = sts_url(proxy_url)?;
-
-    url.query_pairs_mut()
-        .append_pair("Action", "AssumeRoleWithWebIdentity")
-        .append_pair("RoleArn", role_arn)
-        .append_pair("WebIdentityToken", web_identity_token);
-
-    if let Some(duration) = duration_seconds {
-        url.query_pairs_mut()
-            .append_pair("DurationSeconds", &duration.to_string());
+    let url = sts_url(proxy_url)?;
+    let role_arn = role_arn(role);
+    let duration = duration_seconds.map(|d| d.to_string());
+    let mut form = vec![
+        ("Action", "AssumeRoleWithWebIdentity"),
+        ("RoleArn", role_arn.as_str()),
+        ("WebIdentityToken", web_identity_token),
+    ];
+    if let Some(duration) = &duration {
+        form.push(("DurationSeconds", duration));
     }
 
     if verbose {
-        // Log the URL without the WebIdentityToken to avoid leaking secrets
-        let mut redacted_url = sts_url(proxy_url)?;
-        redacted_url
-            .query_pairs_mut()
-            .append_pair("Action", "AssumeRoleWithWebIdentity")
-            .append_pair("RoleArn", role_arn)
-            .append_pair("WebIdentityToken", "<redacted>");
-        if let Some(duration) = duration_seconds {
-            redacted_url
-                .query_pairs_mut()
-                .append_pair("DurationSeconds", &duration.to_string());
-        }
-        eprintln!("[verbose] GET {redacted_url}");
+        eprintln!("[verbose] POST {url}");
+        eprintln!("[verbose]   RoleArn={role_arn}");
     }
 
-    let resp = reqwest::get(url.as_str())
+    let resp = reqwest::Client::new()
+        .post(url)
+        .form(&form)
+        .send()
         .await
         .map_err(|e| format!("STS request failed: {e}"))?;
 
     let status = resp.status();
+    let request_id = resp
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
 
     if verbose {
         eprintln!("[verbose] Response: {status}");
@@ -73,14 +84,16 @@ pub async fn assume_role(
         if verbose {
             eprintln!("[verbose] Response body:\n{body}");
         }
-        // Try to parse error XML for a better message
-        if let Ok(err) = xml_from_str::<StsErrorResponse>(&body) {
-            return Err(format!(
-                "STS error ({}): {}",
-                err.error.code, err.error.message
-            ));
+        let mut error = match xml_from_str::<StsErrorResponse>(&body) {
+            Ok(err) => format!("STS error ({}): {}", err.error.code, err.error.message),
+            Err(_) => format!("STS request failed (HTTP {status}): {body}"),
+        };
+        // Support finds the proxy's log lines by request id. A refused API key
+        // carries it in the message; other failures carry it only in a header.
+        if let Some(id) = request_id.filter(|id| !error.contains(id.as_str())) {
+            error.push_str(&format!(" (request id {id})"));
         }
-        return Err(format!("STS request failed (HTTP {status}): {body}"));
+        return Err(error);
     }
 
     let parsed: StsResponse =
@@ -146,7 +159,9 @@ struct StsError {
 
 #[cfg(test)]
 mod tests {
-    use super::sts_url;
+    use super::*;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[test]
     fn targets_sts_path_from_base() {
@@ -170,5 +185,57 @@ mod tests {
         ] {
             assert_eq!(sts_url(input).unwrap().path(), "/.sts", "input: {input}");
         }
+    }
+
+    #[test]
+    fn expands_bare_role_names_to_arns() {
+        let default = "arn:aws:iam::000000000000:role/_default";
+        assert_eq!(role_arn("_default"), default);
+        assert_eq!(role_arn(default), default);
+        assert_eq!(
+            role_arn("ReadOnly"),
+            "arn:aws:iam::000000000000:role/ReadOnly"
+        );
+    }
+
+    /// The error `assume_role` returns when the proxy answers `status` with
+    /// `body`, tagged with a request id the way the proxy tags every response.
+    async fn sts_error(status: u16, body: &str) -> String {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/.sts"))
+            .respond_with(
+                ResponseTemplate::new(status)
+                    .insert_header("x-request-id", "a40cee47fef1c4b4")
+                    .set_body_string(body),
+            )
+            .mount(&server)
+            .await;
+        assume_role(&server.uri(), "_default", "sck_x", None, false)
+            .await
+            .unwrap_err()
+    }
+
+    #[tokio::test]
+    async fn surfaces_the_proxy_error_verbatim() {
+        // The proxy's refusal of an API key, byte for byte.
+        let body = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<ErrorResponse><Error>\
+            <Code>InvalidIdentityToken</Code>\
+            <Message>API key was not accepted (request id a40cee47fef1c4b4)</Message>\
+            </Error></ErrorResponse>";
+        assert_eq!(
+            sts_error(400, body).await,
+            "STS error (InvalidIdentityToken): API key was not accepted (request id a40cee47fef1c4b4)"
+        );
+    }
+
+    #[tokio::test]
+    async fn adds_the_request_id_when_the_message_lacks_it() {
+        let body = "<ErrorResponse><Error><Code>InternalError</Code>\
+            <Message>internal error</Message></Error></ErrorResponse>";
+        assert_eq!(
+            sts_error(500, body).await,
+            "STS error (InternalError): internal error (request id a40cee47fef1c4b4)"
+        );
     }
 }

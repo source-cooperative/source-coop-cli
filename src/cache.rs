@@ -1,6 +1,7 @@
 use crate::sts::Credentials;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::fs;
 use std::io;
 use std::path::PathBuf;
@@ -63,6 +64,19 @@ fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
         .join("source-coop")
         .join("credentials")
         .join(format!("{sanitized}.json")))
+}
+
+/// The slot an API key's credentials are cached under: the role plus the
+/// first 16 hex digits of the key's SHA-256. `login` caches under the role
+/// alone, so a key's credentials never share a slot with a person's session
+/// or another key's, and the key itself is never written down.
+pub fn api_key_slot(key: &str, role_arn: &str) -> String {
+    let hash: String = Sha256::digest(key)
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    format!("{role_arn}+key-{hash}")
 }
 
 /// Take an exclusive per-role lock, held until the returned file is dropped.
@@ -178,6 +192,22 @@ pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
 
 /// Check if credentials are expired or will expire within a 60-second buffer.
 pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
+    expires_within(creds, 60)
+}
+
+/// Whether to replace credentials from a session of `duration` seconds (the
+/// proxy's default hour when `None`) before handing them out. botocore
+/// refreshes credential_process credentials with under 15 minutes left, and
+/// reruns the process on every lookup until it gets ones with more, so they are
+/// replaced with 16 minutes left, the extra minute for clock skew. A shorter
+/// session is replaced halfway through instead, or every call would replace
+/// it, and never later than the one-minute buffer.
+pub fn needs_refresh(creds: &Credentials, duration: Option<u64>) -> Result<bool, String> {
+    let margin = (duration.unwrap_or(3600) / 2).clamp(60, 16 * 60);
+    expires_within(creds, margin as i64)
+}
+
+fn expires_within(creds: &Credentials, seconds: i64) -> Result<bool, String> {
     let expiration = chrono::DateTime::parse_from_rfc3339(&creds.expiration).map_err(|e| {
         format!(
             "Failed to parse expiration timestamp '{}': {e}",
@@ -185,10 +215,7 @@ pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
         )
     })?;
 
-    let now = Utc::now();
-    let buffer = chrono::Duration::seconds(60);
-
-    Ok(expiration <= now + buffer)
+    Ok(expiration <= Utc::now() + chrono::Duration::seconds(seconds))
 }
 
 #[cfg(test)]
@@ -223,6 +250,15 @@ mod tests {
     }
 
     #[test]
+    fn api_key_slots_are_per_key_and_role_and_hide_the_key() {
+        let slot = api_key_slot("sck_a", "_default");
+        assert_ne!(slot, "_default", "must not be login's slot for the role");
+        assert_ne!(slot, api_key_slot("sck_b", "_default"));
+        assert_ne!(slot, api_key_slot("sck_a", "ReadOnly"));
+        assert!(!slot.contains("sck_a"));
+    }
+
+    #[test]
     fn expired_future_date() {
         let future = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
         let creds = sample_creds(&future);
@@ -242,6 +278,17 @@ mod tests {
         let near_future = (Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
         let creds = sample_creds(&near_future);
         assert!(is_expired(&creds).unwrap());
+    }
+
+    #[test]
+    fn refresh_is_due_with_16_minutes_left_or_half_the_session() {
+        let left =
+            |minutes| sample_creds(&(Utc::now() + chrono::Duration::minutes(minutes)).to_rfc3339());
+        // Inside botocore's 15-minute window at the default hour.
+        assert!(needs_refresh(&left(10), None).unwrap());
+        // A 15-minute session isn't replaced until halfway through.
+        assert!(!needs_refresh(&left(10), Some(900)).unwrap());
+        assert!(!needs_refresh(&left(30), Some(3600)).unwrap());
     }
 
     #[test]

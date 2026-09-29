@@ -2,7 +2,7 @@
 
 Authenticate with the Source Cooperative data proxy and obtain temporary S3 credentials.
 
-Uses the OAuth2 Authorization Code flow with PKCE to authenticate via browser, then exchanges the OIDC ID token at the proxy's STS endpoint for temporary AWS credentials.
+Uses the OAuth2 Authorization Code flow with PKCE to authenticate via browser, then exchanges the OIDC ID token at the proxy's STS endpoint for temporary AWS credentials. Software that runs unattended can instead exchange a service account's API key, with no browser (see [Using an API key](#using-an-api-key-no-browser)).
 
 ## Install
 
@@ -57,7 +57,9 @@ endpoint_url = https://data.source.coop
 aws s3 ls s3://my-account/my-product --profile source-coop
 ```
 
-When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
+When credentials are about to expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
+
+`creds` replaces credentials once they have 16 minutes left, or half the session if that is shorter. AWS SDKs ask `credential_process` for new credentials 5 to 15 minutes before expiry, so they get fresh ones on the first ask instead of rerunning `creds` for every request. If replacing them fails, `creds` serves the cached credentials, with a warning, until they expire.
 
 ### Logging in on a remote server (no browser)
 
@@ -78,6 +80,77 @@ source-coop login --port 8400
 3. Open the URL the CLI prints in your local browser. After you sign in, the redirect to `http://127.0.0.1:8400/callback` travels through the tunnel to the CLI on the server.
 
 Credentials are cached on the server (see [File fallback](#file-fallback)), and `source-coop creds` refreshes them there without another browser login.
+
+### Using an API key (no browser)
+
+Software that runs unattended, such as a cron job, a daemon or an instrument, authenticates as a service account with an API key (`sck_…`) rather than a browser login. `creds` exchanges the key at the proxy's STS endpoint, caches the credentials as it does for `login`, and exchanges the key again before they expire, so a long-running process keeps working without a person.
+
+1. Save the key, which is shown only once when you issue it, to a file only you can read:
+
+```bash
+mkdir -p ~/.config/source-coop
+(umask 077 && cat > ~/.config/source-coop/key)   # paste the key, press Enter, then Ctrl-D
+```
+
+2. Point `credential_process` at it in `~/.aws/config`, using the full path (`~` is not expanded there):
+
+```ini
+[profile source-coop]
+credential_process = source-coop creds --api-key-file /home/me/.config/source-coop/key
+endpoint_url = https://data.source.coop
+```
+
+3. Use AWS tools as usual:
+
+```bash
+aws s3 ls s3://my-account/my-product --profile source-coop
+```
+
+Instead of `--api-key-file`, the environment can supply the key: `SOURCE_API_KEY_FILE` names the file, or `SOURCE_API_KEY` holds the key itself. The file wins if both are set. No flag takes the key itself, because other users on the machine can read a command line.
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--api-key-file` | `SOURCE_API_KEY_FILE` | | File holding the API key |
+| | `SOURCE_API_KEY` | | The API key itself |
+| `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role to assume: a name such as `ReadOnly` (sent as `arn:aws:iam::000000000000:role/ReadOnly`) or a full ARN; see [Multiple roles](#multiple-roles) |
+| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | Proxy whose `/.sts` exchanges the key |
+| `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` |
+
+If the proxy refuses the key, `creds` prints the proxy's error and exits non-zero. Quote the request id when you contact support:
+
+```
+Error: STS error (InvalidIdentityToken): API key was not accepted (request id a40cee47fef1c4b4)
+```
+
+#### GDAL
+
+GDAL 3.12 and later run `credential_process` from the profile too. GDAL can't exchange the key on its own, because it sends its STS request as a GET with the token in the URL, and the proxy refuses a key in a URL. It gets credentials through the CLI instead. GDAL ignores the profile's `endpoint_url`, so name the proxy in `AWS_S3_ENDPOINT`:
+
+```bash
+AWS_PROFILE=source-coop AWS_S3_ENDPOINT=https://data.source.coop AWS_VIRTUAL_HOSTING=FALSE \
+  gdalinfo /vsis3/my-account/my-product/image.tif
+```
+
+With an older GDAL, export credentials into the environment instead. They are not refreshed, so run this again before they expire:
+
+```bash
+eval "$(source-coop creds --api-key-file ~/.config/source-coop/key --format env)"
+```
+
+#### Without the CLI
+
+AWS SDKs and the AWS CLI can exchange the key themselves and refresh on their own, with nothing else installed. Point `AWS_WEB_IDENTITY_TOKEN_FILE` at the key file and set four more variables:
+
+```bash
+export AWS_WEB_IDENTITY_TOKEN_FILE=$HOME/.config/source-coop/key
+export AWS_ROLE_ARN=arn:aws:iam::000000000000:role/_default
+export AWS_ENDPOINT_URL_STS=https://data.source.coop/.sts
+export AWS_ENDPOINT_URL_S3=https://data.source.coop
+export AWS_REGION=us-west-2   # required by the SDK; says nothing about where data lives
+aws s3 ls s3://my-account/my-product/
+```
+
+This needs an SDK that reads `AWS_ENDPOINT_URL_STS`: the AWS CLI 2.13 or later, boto3/botocore 1.31 or later, or a current Go v2, JavaScript v3 or Java 2.x SDK. `aws --debug` prints the key, so don't share its output.
 
 ### Checking the CLI version
 
@@ -100,7 +173,7 @@ This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` 
 > [!WARNING]
 > Custom roles are not yet supported within the Source Cooperative data proxy. 
 
-Each role's credentials are cached separately:
+A bare role name such as `reader-role` reaches the proxy as `arn:aws:iam::000000000000:role/reader-role`, the ARN form AWS SDKs send; a full ARN is sent as given. Each role's credentials are cached separately:
 
 ```bash
 source-coop login --role-arn reader-role
@@ -126,7 +199,7 @@ endpoint_url = https://data.source.coop
 | `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `d037d00b-...` | OAuth2 client ID |
 | `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS |
-| `--role-arn` | `SOURCE_ROLE_ARN` | `source-coop-user` | Role ARN to assume |
+| `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role to assume: a name such as `ReadOnly`, or a full ARN |
 | `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
@@ -175,7 +248,7 @@ The CLI caches temporary STS credentials so that `creds` can output them without
 
 ### OS keyring (default)
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN:
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role. An API key's credentials are keyed by role and a prefix of the key's SHA-256, so they never mix with a `login` session's or another key's; the key itself is never stored.
 
 | Platform | Backend |
 |----------|---------|
