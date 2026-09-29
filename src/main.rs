@@ -270,22 +270,49 @@ fn api_key(file: Option<&Path>, env: Option<String>) -> Result<Option<String>, S
         (None, None) => return Ok(None),
     };
     let key = parse_api_key(&raw).ok_or_else(|| {
-        format!("{source} does not hold a Source API key (sck_ followed by 43 characters)")
+        format!(
+            "{source} does not hold a Source API key (sck_ and 36 letters and digits); \
+             check that it was copied whole"
+        )
     })?;
     Ok(Some(key.to_string()))
 }
 
 /// The key, trimmed because a key file ends in a newline, if it has an API
-/// key's fixed shape: `sck_` and 43 base64url characters. Anything else, such
-/// as a JWT or the wrong file's contents, is never sent as a key.
+/// key's fixed shape and its checksum holds: `sck_`, 30 random base62
+/// characters, and six more that are their checksum. Anything else, such as a
+/// JWT, the wrong file's contents or a key cut short, is never sent as a key.
 fn parse_api_key(raw: &str) -> Option<&str> {
     let key = raw.trim();
-    let is_key = key.len() == 47
-        && key.starts_with("sck_")
-        && key[4..]
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+    let body = key.strip_prefix("sck_")?.as_bytes();
+    let is_key = body.len() == 36
+        && body.iter().all(u8::is_ascii_alphanumeric)
+        && body[30..] == key_checksum(&body[..30]);
     is_key.then_some(key)
+}
+
+/// A key's last six characters: the CRC-32 of the thirty before them (IEEE,
+/// as zlib computes it), in base62, most significant digit first.
+fn key_checksum(body: &[u8]) -> [u8; 6] {
+    const BASE62: &[u8; 62] = b"0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+    let mut crc = !0u32;
+    for &b in body {
+        crc ^= u32::from(b);
+        for _ in 0..8 {
+            crc = if crc & 1 == 1 {
+                (crc >> 1) ^ 0xEDB8_8320
+            } else {
+                crc >> 1
+            };
+        }
+    }
+    let mut n = !crc;
+    let mut digits = [b'0'; 6];
+    for digit in digits.iter_mut().rev() {
+        *digit = BASE62[(n % 62) as usize];
+        n /= 62;
+    }
+    digits
 }
 
 /// Credentials for a service account's API key: the cached ones until they are
@@ -550,9 +577,10 @@ mod tests {
     }
 
     /// A throwaway key of the issued shape, built at run time so that secret
-    /// scanners looking for `sck_` keys don't flag this file.
+    /// scanners looking for `sck_` keys don't flag this file. Its checksum was
+    /// computed independently, with Python's zlib.crc32.
     fn test_key() -> String {
-        format!("sck_{}", "k".repeat(43))
+        format!("sck_{}1EpiOw", "k".repeat(30))
     }
 
     fn in_minutes(minutes: i64) -> String {
@@ -688,10 +716,12 @@ mod tests {
         for bad in [
             String::new(),
             "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ4In0.c2ln".to_string(),
-            key[..46].to_string(),
+            key[..39].to_string(),
             format!("{key}k"),
             key.replace("sck_", "SCK_"),
-            format!("sck_{}!", "k".repeat(42)),
+            format!("sck_j{}", &key[5..]),
+            format!("sck_{}!{}", "k".repeat(29), &key[34..]),
+            format!("sck_{}", "k".repeat(43)),
         ] {
             assert_eq!(parse_api_key(&bad), None, "{bad:?}");
         }
@@ -699,7 +729,7 @@ mod tests {
 
     #[test]
     fn api_key_file_wins_over_env_and_errors_never_echo_a_key() {
-        let (key, other) = (test_key(), format!("sck_{}", "o".repeat(43)));
+        let (key, other) = (test_key(), format!("sck_{}18XLyL", "o".repeat(30)));
         let file = std::env::temp_dir().join(format!("source-coop-key-{}", std::process::id()));
         fs::write(&file, format!("{key}\n")).unwrap();
         assert_eq!(api_key(Some(&file), Some(other.clone())), Ok(Some(key)));
