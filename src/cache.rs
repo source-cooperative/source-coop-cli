@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 const KEYRING_SERVICE: &str = "source-coop-cli";
 
-/// What gets cached per role: the STS credentials plus, when the IdP issued
+/// What gets cached per proxy + role: the STS credentials plus, when the IdP issued
 /// one, what's needed to mint fresh credentials without a browser login.
 /// `flatten` keeps caches written by older versions (bare credentials) readable.
 #[derive(Serialize, Deserialize)]
@@ -39,10 +39,28 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
     )
 }
 
+/// Production proxy host. Its entries keep the bare role ARN as the cache key,
+/// so caches written before keys included the host remain readable.
+const PROD_HOST: &str = "data.source.coop";
+
+/// Cache key for a role at a given proxy, so logins against different
+/// environments (prod, staging) don't overwrite each other: `_default` for
+/// production, `data.staging.source.coop/_default` for any other proxy.
+pub fn key(proxy_url: &str, role_arn: &str) -> String {
+    let host = proxy_url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    if host == PROD_HOST {
+        role_arn.to_string()
+    } else {
+        format!("{host}/{role_arn}")
+    }
+}
+
 /// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
-fn sanitize_role_arn(role_arn: &str) -> String {
-    role_arn
-        .chars()
+fn sanitize_key(key: &str) -> String {
+    key.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
                 c
@@ -53,24 +71,24 @@ fn sanitize_role_arn(role_arn: &str) -> String {
         .collect()
 }
 
-/// Full path to the credentials cache file for a given role.
+/// Full path to the credentials cache file for a given cache key.
 /// Uses the OS-idiomatic cache directory (`~/Library/Caches` on macOS,
 /// `~/.cache` on Linux, `%LocalAppData%` on Windows).
-fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
+fn cache_path(key: &str) -> Result<PathBuf, String> {
     let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
-    let sanitized = sanitize_role_arn(role_arn);
+    let sanitized = sanitize_key(key);
     Ok(cache_dir
         .join("source-coop")
         .join("credentials")
         .join(format!("{sanitized}.json")))
 }
 
-/// Take an exclusive per-role lock, held until the returned file is dropped.
+/// Take an exclusive per-key lock, held until the returned file is dropped.
 /// Refresh tokens rotate on use, and the IdP may revoke the whole token family
 /// if an old one is replayed, so concurrent `creds` calls must not refresh in
 /// parallel.
-pub fn lock(role_arn: &str) -> Result<fs::File, String> {
-    let path = cache_path(role_arn)?.with_extension("lock");
+pub fn lock(key: &str) -> Result<fs::File, String> {
+    let path = cache_path(key)?.with_extension("lock");
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
@@ -82,8 +100,8 @@ pub fn lock(role_arn: &str) -> Result<fs::File, String> {
 }
 
 /// Write credentials to a cache file. Returns the file path as a string.
-fn write_credentials_file(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
-    let path = cache_path(role_arn)?;
+fn write_credentials_file(key: &str, creds: &CacheEntry) -> Result<String, String> {
+    let path = cache_path(key)?;
     let dir = path.parent().unwrap();
 
     fs::create_dir_all(dir)
@@ -106,8 +124,8 @@ fn write_credentials_file(role_arn: &str, creds: &CacheEntry) -> Result<String, 
 }
 
 /// Read credentials from a cache file. Returns `None` if the file does not exist.
-fn read_credentials_file(role_arn: &str) -> Result<Option<CacheEntry>, String> {
-    let path = cache_path(role_arn)?;
+fn read_credentials_file(key: &str) -> Result<Option<CacheEntry>, String> {
+    let path = cache_path(key)?;
     match fs::read_to_string(&path) {
         Ok(contents) => {
             let creds: CacheEntry = serde_json::from_str(&contents)
@@ -124,11 +142,11 @@ fn read_credentials_file(role_arn: &str) -> Result<Option<CacheEntry>, String> {
 
 /// Write credentials, trying the OS keyring first with file fallback.
 /// Returns a human-readable description of where credentials were stored.
-pub fn write_credentials(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
+pub fn write_credentials(key: &str, creds: &CacheEntry) -> Result<String, String> {
     let json = serde_json::to_string(creds)
         .map_err(|e| format!("Failed to serialize credentials: {e}"))?;
 
-    let entry = keyring::Entry::new(KEYRING_SERVICE, role_arn)
+    let entry = keyring::Entry::new(KEYRING_SERVICE, key)
         .map_err(|e| format!("Failed to create keyring entry: {e}"));
 
     if let Ok(entry) = entry {
@@ -145,13 +163,13 @@ pub fn write_credentials(role_arn: &str, creds: &CacheEntry) -> Result<String, S
         }
     }
 
-    write_credentials_file(role_arn, creds)
+    write_credentials_file(key, creds)
 }
 
 /// Read credentials, trying the OS keyring first with file fallback.
 /// Returns `None` if no cached credentials are found in either location.
-pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, role_arn)
+pub fn read_credentials(key: &str) -> Result<Option<CacheEntry>, String> {
+    let entry = keyring::Entry::new(KEYRING_SERVICE, key)
         .map_err(|e| format!("Failed to create keyring entry: {e}"));
 
     if let Ok(entry) = entry {
@@ -173,7 +191,7 @@ pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
         }
     }
 
-    read_credentials_file(role_arn)
+    read_credentials_file(key)
 }
 
 /// Check if credentials are expired or will expire within a 60-second buffer.
@@ -205,21 +223,31 @@ mod tests {
     }
 
     #[test]
+    fn key_separates_environments() {
+        assert_eq!(key("https://data.source.coop", "_default"), "_default");
+        assert_eq!(key("https://data.source.coop/", "_default"), "_default");
+        assert_eq!(
+            key("https://data.staging.source.coop/", "_default"),
+            "data.staging.source.coop/_default"
+        );
+    }
+
+    #[test]
     fn sanitize_simple_name() {
-        assert_eq!(sanitize_role_arn("source-coop-user"), "source-coop-user");
+        assert_eq!(sanitize_key("source-coop-user"), "source-coop-user");
     }
 
     #[test]
     fn sanitize_arn_with_special_chars() {
         assert_eq!(
-            sanitize_role_arn("arn:aws:iam::123:role/Foo"),
+            sanitize_key("arn:aws:iam::123:role/Foo"),
             "arn_aws_iam__123_role_Foo"
         );
     }
 
     #[test]
     fn sanitize_preserves_underscores() {
-        assert_eq!(sanitize_role_arn("my_role-name"), "my_role-name");
+        assert_eq!(sanitize_key("my_role-name"), "my_role-name");
     }
 
     #[test]

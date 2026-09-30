@@ -119,6 +119,27 @@ credential_process = source-coop creds --role-arn admin-role
 endpoint_url = https://data.source.coop
 ```
 
+### Multiple environments (e.g. staging)
+
+Credentials are cached per proxy URL, so production and staging logins live side by side:
+
+```bash
+source-coop login
+( source .env.staging && source-coop login )
+```
+
+`creds` reads `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment:
+
+```ini
+[profile source-coop]
+credential_process = source-coop creds
+endpoint_url = https://data.source.coop
+
+[profile source-coop-staging]
+credential_process = source-coop creds --proxy-url https://data.staging.source.coop
+endpoint_url = https://data.staging.source.coop
+```
+
 ### Login options
 
 | Flag | Env var | Default | Description |
@@ -175,7 +196,7 @@ The CLI caches temporary STS credentials so that `creds` can output them without
 
 ### OS keyring (default)
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN:
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN (e.g. `_default`), prefixed with the proxy host for non-production proxies (e.g. `data.staging.source.coop/_default`):
 
 | Platform | Backend |
 |----------|---------|
@@ -189,8 +210,8 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` |
-| Linux | `~/.cache/source-coop/credentials/<role>.json` |
+| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
+| Linux | `~/.cache/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
 The fallback is automatic — no configuration is needed.
