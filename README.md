@@ -196,7 +196,7 @@ The CLI caches temporary STS credentials so that `creds` can output them without
 
 ### OS keyring (default)
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by proxy host and role ARN (e.g. `data.source.coop/_default`):
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN (e.g. `_default`), prefixed with the proxy host for non-production proxies (e.g. `data.staging.source.coop/_default`):
 
 | Platform | Backend |
 |----------|---------|
@@ -210,8 +210,8 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Caches/source-coop/credentials/<host>_<role>.json` |
-| Linux | `~/.cache/source-coop/credentials/<host>_<role>.json` |
+| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
+| Linux | `~/.cache/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
 The fallback is automatic — no configuration is needed.

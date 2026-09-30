@@ -39,14 +39,23 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
     )
 }
 
-/// Cache key for a role at a given proxy, e.g. `data.source.coop/_default`, so
-/// logins against different environments (prod, staging) don't overwrite each other.
+/// Production proxy host. Its entries keep the bare role ARN as the cache key,
+/// so caches written before keys included the host remain readable.
+const PROD_HOST: &str = "data.source.coop";
+
+/// Cache key for a role at a given proxy, so logins against different
+/// environments (prod, staging) don't overwrite each other: `_default` for
+/// production, `data.staging.source.coop/_default` for any other proxy.
 pub fn key(proxy_url: &str, role_arn: &str) -> String {
     let host = proxy_url
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
-    format!("{host}/{role_arn}")
+    if host == PROD_HOST {
+        role_arn.to_string()
+    } else {
+        format!("{host}/{role_arn}")
+    }
 }
 
 /// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
@@ -215,10 +224,8 @@ mod tests {
 
     #[test]
     fn key_separates_environments() {
-        assert_eq!(
-            key("https://data.source.coop", "_default"),
-            "data.source.coop/_default"
-        );
+        assert_eq!(key("https://data.source.coop", "_default"), "_default");
+        assert_eq!(key("https://data.source.coop/", "_default"), "_default");
         assert_eq!(
             key("https://data.staging.source.coop/", "_default"),
             "data.staging.source.coop/_default"
