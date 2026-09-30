@@ -107,6 +107,10 @@ struct LoginArgs {
 
 #[derive(Parser)]
 struct CredsArgs {
+    /// S3 proxy URL the credentials were issued by (selects the cache entry)
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
     /// Role ARN to read cached credentials for
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
@@ -189,6 +193,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
                 "No refresh token issued; run 'source-coop login' again when credentials expire."
             );
         }
+        let key = cache::key(&args.proxy_url, &args.role_arn);
         let entry = cache::CacheEntry {
             creds,
             refresh: tokens
@@ -201,7 +206,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
                     duration: args.duration,
                 }),
         };
-        let location = cache::write_credentials(&args.role_arn, &entry)?;
+        let location = cache::write_credentials(&key, &entry)?;
         eprintln!("Credentials cached to {location}");
         eprintln!("Run 'source-coop creds' to print them.");
     }
@@ -211,7 +216,8 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     const NOT_FOUND: &str = "No cached credentials found. Run 'source-coop login' first.";
-    let mut entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
+    let key = cache::key(&args.proxy_url, &args.role_arn);
+    let mut entry = cache::read_credentials(&key)?.ok_or(NOT_FOUND)?;
 
     if cache::is_expired(&entry.creds)? {
         if entry.refresh.is_none() {
@@ -220,11 +226,10 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
             );
         }
         // Re-read under the lock: another process may have refreshed already.
-        let _lock = cache::lock(&args.role_arn)?;
-        entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
+        let _lock = cache::lock(&key)?;
+        entry = cache::read_credentials(&key)?.ok_or(NOT_FOUND)?;
         if cache::is_expired(&entry.creds)? {
-            let save =
-                |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
+            let save = |e: &cache::CacheEntry| cache::write_credentials(&key, e).map(drop);
             entry = refresh(&args.role_arn, entry, verbose, save).await.map_err(|e| {
                 format!("Cached credentials have expired and refresh failed ({e}). Run 'source-coop login'.")
             })?;
