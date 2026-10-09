@@ -1,6 +1,10 @@
+mod api;
+mod api_cmd;
 mod cache;
 mod oidc;
 mod output;
+mod product;
+mod prompt;
 mod session;
 mod sts;
 
@@ -65,6 +69,32 @@ enum Commands {
     /// Work with the login session
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// List, view, create, edit and delete products
+    Product(ProductArgs),
+    /// Make any request to the source.coop API, signed in as you
+    Api(ApiCommandArgs),
+}
+
+#[derive(Parser)]
+struct ApiCommandArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    #[command(flatten)]
+    request: api_cmd::ApiArgs,
+}
+
+/// A command that calls the source.coop API, as whoever ran `login` (see
+/// `api_token`).
+#[derive(Parser)]
+struct ProductArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    #[command(subcommand)]
+    command: product::ProductCommand,
 }
 
 #[derive(Subcommand)]
@@ -173,6 +203,32 @@ async fn main() {
         }
         Commands::Auth(AuthCommand::Token) => {
             if let Err(e) = run_auth_token(verbose).await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Api(args) => {
+            let token = api_token(verbose).await;
+            let result = match api::Client::new(&args.api_url, token, verbose) {
+                Ok(client) => api_cmd::run(args.request, &client).await,
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Product(args) => {
+            let token = api_token(verbose).await;
+            let result = match api::Client::new(&args.api_url, token, verbose) {
+                Ok(client) => {
+                    let mut tty = prompt::tty();
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    product::run(args.command, &client, &args.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -326,6 +382,22 @@ async fn mint(
             };
             save(&entry)?;
             Ok(entry)
+        }
+    }
+}
+
+/// The bearer for the source.coop API: `SOURCE_TOKEN` if set (for a token
+/// obtained some other way), else the login session's access token. Without
+/// either, commands run signed out, which is enough to read public products.
+async fn api_token(verbose: bool) -> Option<String> {
+    if let Ok(token) = std::env::var("SOURCE_TOKEN") {
+        return Some(token);
+    }
+    match session::token(session::Want::Access, verbose).await {
+        Ok(token) => token,
+        Err(e) => {
+            eprintln!("Warning: continuing signed out: {e}");
+            None
         }
     }
 }
