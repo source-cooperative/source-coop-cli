@@ -4,7 +4,7 @@
 //! are both terminals and `SOURCE_PROMPT_DISABLED` is unset. Otherwise a
 //! command sends what it was given, and the API says what's missing.
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Input, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Input, MultiSelect, Select};
 use std::io::IsTerminal;
 
 pub trait Prompter {
@@ -14,6 +14,11 @@ pub trait Prompter {
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String>;
     /// Ask a yes/no question.
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String>;
+    /// Ask for text that may run to paragraphs, starting from `current`: typed
+    /// on one line, or written in the person's editor.
+    fn long_text(&mut self, label: &str, current: &str) -> Result<String, String>;
+    /// Ask for any number of `items`; returns their indexes.
+    fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String>;
 }
 
 /// Prompts on the terminal, written to stderr so stdout stays clean for output.
@@ -62,6 +67,39 @@ impl Prompter for Tty {
             .interact()
             .map_err(failed)
     }
+
+    /// gh's way: Enter keeps what's there, `e` opens `$VISUAL` or `$EDITOR`
+    /// on it, and anything else typed is the new text.
+    fn long_text(&mut self, label: &str, current: &str) -> Result<String, String> {
+        let keep = if current.is_empty() { "skip" } else { "keep" };
+        let typed = Input::<String>::with_theme(&self.theme)
+            .with_prompt(format!(
+                "{label} [(e) to open your editor, Enter to {keep}]"
+            ))
+            .allow_empty(true)
+            .interact_text()
+            .map_err(failed)?;
+        match typed.trim() {
+            "" => Ok(current.to_string()),
+            "e" => {
+                let edited = Editor::new()
+                    .require_save(true)
+                    .edit(current)
+                    .map_err(|e| format!("Couldn't open your editor: {e}"))?;
+                // Quitting without saving keeps what was there.
+                Ok(edited.map_or_else(|| current.to_string(), |t| t.trim_end().to_string()))
+            }
+            _ => Ok(typed),
+        }
+    }
+
+    fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
+        MultiSelect::with_theme(&self.theme)
+            .with_prompt(format!("{label} (Space to pick, Enter when done)"))
+            .items(items)
+            .interact()
+            .map_err(failed)
+    }
 }
 
 /// Answers from a script, in order, for tests.
@@ -76,6 +114,7 @@ pub mod scripted {
         Default,
         Text(&'static str),
         Pick(usize),
+        Picks(&'static [usize]),
         Yes(bool),
     }
 
@@ -135,6 +174,23 @@ pub mod scripted {
                 Answer::Default => default,
                 Answer::Yes(y) => y,
                 a => panic!("{label}: expected yes/no, scripted {a:?}"),
+            })
+        }
+
+        fn long_text(&mut self, label: &str, current: &str) -> Result<String, String> {
+            self.asked.push(format!("{label} (long) [{current}]"));
+            Ok(match self.next(label) {
+                Answer::Default => current.to_string(),
+                Answer::Text(t) => t.to_string(),
+                a => panic!("{label}: expected text, scripted {a:?}"),
+            })
+        }
+
+        fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
+            self.asked.push(format!("{label} of {}", items.join(" | ")));
+            Ok(match self.next(label) {
+                Answer::Picks(p) => p.to_vec(),
+                a => panic!("{label}: expected picks, scripted {a:?}"),
             })
         }
     }
