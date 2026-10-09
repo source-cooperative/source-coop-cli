@@ -176,6 +176,23 @@ Use `--profile` to change the section name.
 > [!TIP]
 > The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We recommend the utilizing `credential-process` in `~/.aws/config` rather storing temporary credentials in `~/.aws/credentials`.
 
+## Managing products
+
+`source-coop product` lists, views, creates, edits and deletes products through the source.coop API (`/api/v1`), with the same rules as the web UI: the CLI checks nothing itself and shows the API's errors, field by field.
+
+```bash
+source-coop product list                      # public products
+source-coop product list my-org --json        # one account's products, as JSON
+source-coop product view my-org/my-product    # --web opens it in the browser
+source-coop product create my-org/my-product  # prompts for the rest
+source-coop product edit my-org/my-product --visibility unlisted
+source-coop product delete my-org/my-product  # asks you to type the name back
+```
+
+`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. `edit` with no flags walks through the product's current values. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
+
+Reading public products needs no credentials. Anything else acts as whoever ran `source-coop login`: login asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
+
 ## Credential storage
 
 The CLI caches the login session (the Ory refresh, ID and access tokens) and the temporary STS credentials for each role, so that `creds` and API commands work without re-authenticating. The refresh token is kept in the session only: it rotates on use, so every role and every API call refreshes through it, one at a time.
