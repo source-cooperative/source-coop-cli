@@ -1,4 +1,5 @@
 mod api;
+mod api_cmd;
 mod cache;
 mod oidc;
 mod output;
@@ -70,6 +71,18 @@ enum Commands {
     Auth(AuthCommand),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
+    /// Make any request to the source.coop API, signed in as you
+    Api(ApiCommandArgs),
+}
+
+#[derive(Parser)]
+struct ApiCommandArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    #[command(flatten)]
+    request: api_cmd::ApiArgs,
 }
 
 /// A command that calls the source.coop API, as whoever ran `login` (see
@@ -190,6 +203,17 @@ async fn main() {
         }
         Commands::Auth(AuthCommand::Token) => {
             if let Err(e) = run_auth_token(verbose).await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        Commands::Api(args) => {
+            let token = api_token(verbose).await;
+            let result = match api::Client::new(&args.api_url, token, verbose) {
+                Ok(client) => api_cmd::run(args.request, &client).await,
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }

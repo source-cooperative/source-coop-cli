@@ -1,12 +1,12 @@
 //! `source-coop product`: list, view, create, edit and delete products through
 //! `/api/v1/products`.
 
-use crate::api::{Client, Page};
+use crate::api::{ApiError, Client, Page};
 use crate::prompt::Prompter;
 use clap::{Args, Subcommand};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
-use std::io::Read;
+use std::io::{IsTerminal, Read};
 
 #[derive(Subcommand)]
 pub enum ProductCommand {
@@ -187,8 +187,8 @@ pub async fn run(
     match cmd {
         ProductCommand::List(args) => list(args, client).await,
         ProductCommand::View(args) => view(args, client, site).await,
-        ProductCommand::Create(args) => create(args, client, prompter).await,
-        ProductCommand::Edit(args) => edit(args, client, prompter).await,
+        ProductCommand::Create(args) => create(args, client, site, prompter).await,
+        ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
         ProductCommand::Delete(args) => delete(args, client, prompter).await,
     }
 }
@@ -263,6 +263,7 @@ const VISIBILITIES: [&str; 3] = ["public", "unlisted", "restricted"];
 async fn create(
     args: CreateArgs,
     client: &Client,
+    site: &str,
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let mut body = read_fields(args.from_file.as_deref())?;
@@ -278,13 +279,86 @@ async fn create(
     };
     body.insert("product_id".into(), json!(product.product_id));
 
-    if let Some(ask) = prompter {
+    if let Some(ask) = prompter.as_deref_mut() {
         prompt_new_product(ask, client, &product, &mut body).await?;
     }
 
     let url = client.url(&["products", &product.account_id]);
-    let created: Value = client.request(Method::POST, url, Some(&body)).await?;
-    report(&created, args.json, "Created");
+    let created = send_until_accepted(client, Method::POST, url, &mut body, prompter).await?;
+    report(&created, args.json, "Created", site);
+    Ok(())
+}
+
+/// The fields a person can be asked for again when the API rejects them.
+const REASKABLE: [&str; 5] = [
+    "product_id",
+    "title",
+    "description",
+    "visibility",
+    "data_connection_id",
+];
+
+/// Send `body`, and when the API rejects some of its fields and someone is
+/// there to answer, show why and ask for just those fields again, keeping
+/// every other answer. The API stays the only judge of what's acceptable.
+async fn send_until_accepted(
+    client: &Client,
+    method: Method,
+    url: url::Url,
+    body: &mut Map<String, Value>,
+    mut prompter: Option<&mut dyn Prompter>,
+) -> Result<Value, String> {
+    loop {
+        match client
+            .request::<Value>(method.clone(), url.clone(), Some(&*body))
+            .await
+        {
+            Ok(product) => return Ok(product),
+            Err(e) => match prompter.as_deref_mut() {
+                Some(ask) if reaskable(&e) => {
+                    eprintln!("{e}");
+                    reask(ask, &e, body)?;
+                }
+                _ => return Err(e.into()),
+            },
+        }
+    }
+}
+
+/// A 400 naming only fields a person can answer again.
+fn reaskable(e: &ApiError) -> bool {
+    e.status == Some(reqwest::StatusCode::BAD_REQUEST)
+        && !e.field_errors.is_empty()
+        && e.field_errors
+            .keys()
+            .all(|f| REASKABLE.contains(&f.as_str()))
+}
+
+fn reask(
+    ask: &mut dyn Prompter,
+    e: &ApiError,
+    body: &mut Map<String, Value>,
+) -> Result<(), String> {
+    for field in e.field_errors.keys() {
+        let current = body
+            .get(field)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let answer = match field.as_str() {
+            "product_id" => ask.input("Product ID", &current, false)?,
+            "title" => ask.input("Title", &current, false)?,
+            "description" => ask.long_text("Description", &current)?,
+            "visibility" => {
+                let options: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
+                let default = options.iter().position(|v| *v == current).unwrap_or(0);
+                options[ask.select("Visibility", &options, default)?].clone()
+            }
+            "data_connection_id" => ask.input("Data connection ID", &current, false)?,
+            _ => unreachable!("reaskable() checked every field"),
+        };
+        body.insert(field.clone(), json!(answer));
+    }
     Ok(())
 }
 
@@ -303,7 +377,7 @@ async fn prompt_new_product(
         body.insert("title".into(), json!(title));
     }
     if !body.contains_key("description") {
-        let description = ask.input("Description", "", true)?;
+        let description = ask.long_text("Description", "")?;
         body.insert("description".into(), json!(description));
     }
 
@@ -387,7 +461,8 @@ fn title_from_id(id: &str) -> String {
 async fn edit(
     args: EditArgs,
     client: &Client,
-    prompter: Option<&mut dyn Prompter>,
+    site: &str,
+    mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let mut body = read_fields(args.from_file.as_deref())?;
     insert_some(&mut body, "title", args.title);
@@ -399,7 +474,7 @@ async fn edit(
     let url = product_url(client, &args.product);
 
     if body.is_empty() {
-        let Some(ask) = prompter else {
+        let Some(ask) = prompter.as_deref_mut() else {
             return Err(
                 "Nothing to change: pass --title, --description, --visibility, --disable, --enable or --from-file."
                     .into(),
@@ -413,34 +488,40 @@ async fn edit(
         }
     }
 
-    let product: Value = client.request(Method::PATCH, url, Some(&body)).await?;
-    report(&product, args.json, "Edited");
+    let product = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await?;
+    report(&product, args.json, "Edited", site);
     Ok(())
 }
 
-/// Walk through the editable fields with their current values as defaults,
-/// keeping only the ones that changed.
+/// Ask which fields to change, then for each, starting from its current value;
+/// only the ones that changed are kept.
 fn prompt_edits(
     ask: &mut dyn Prompter,
     current: &Value,
     body: &mut Map<String, Value>,
 ) -> Result<(), String> {
-    for (key, label, allow_empty) in [
-        ("title", "Title", false),
-        ("description", "Description", true),
-    ] {
-        let was = str_field(current, key);
-        let now = ask.input(label, was, allow_empty)?;
-        if now != was {
+    let fields = ["Title", "Description", "Visibility"].map(String::from);
+    for picked in ask.multi_select("What do you want to change?", &fields)? {
+        let (key, now) = match picked {
+            0 => (
+                "title",
+                ask.input("Title", str_field(current, "title"), false)?,
+            ),
+            1 => (
+                "description",
+                ask.long_text("Description", str_field(current, "description"))?,
+            ),
+            _ => {
+                let was = str_field(current, "visibility");
+                let options: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
+                let default = options.iter().position(|v| v == was).unwrap_or(0);
+                let now = options[ask.select("Visibility", &options, default)?].clone();
+                ("visibility", now)
+            }
+        };
+        if now != str_field(current, key) {
             body.insert(key.into(), json!(now));
         }
-    }
-    let was = str_field(current, "visibility");
-    let options: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
-    let default = options.iter().position(|v| v == was).unwrap_or(0);
-    let now = &options[ask.select("Visibility", &options, default)?];
-    if now != was {
-        body.insert("visibility".into(), json!(now));
     }
     Ok(())
 }
@@ -476,7 +557,11 @@ async fn delete(
     url.query_pairs_mut()
         .append_pair("preserve_data", &preserve_data.to_string());
     let product: Value = client.request(Method::DELETE, url, None::<&()>).await?;
-    report(&product, args.json, "Deleted");
+    if args.json {
+        print_json(&product);
+    } else {
+        eprintln!("Deleted {}", name(&product));
+    }
     Ok(())
 }
 
@@ -512,11 +597,15 @@ fn insert_some(body: &mut Map<String, Value>, key: &str, value: Option<String>) 
     }
 }
 
-fn report(product: &Value, as_json: bool, verb: &str) {
+/// The product as JSON, or a line on stderr for the person and its URL on
+/// stdout for a script: `url=$(source-coop product create ...)`.
+fn report(product: &Value, as_json: bool, verb: &str, site: &str) {
     if as_json {
         print_json(product);
     } else {
-        eprintln!("{verb} {}", name(product));
+        let name = name(product);
+        eprintln!("{verb} {name}");
+        println!("{}/{name}", site.trim_end_matches('/'));
     }
 }
 
@@ -551,8 +640,10 @@ fn print_product(p: &Value, site: &str) {
     println!("\n{}/{name}", site.trim_end_matches('/'));
 }
 
-/// Rows of `NAME  VISIBILITY  TITLE`, padded to line up.
-fn table_rows(items: &[Value]) -> Vec<String> {
+/// On a terminal, `NAME  VISIBILITY  TITLE` under a header, padded to line
+/// up; piped, the same columns tab-separated with no header, for `cut` and
+/// `awk`.
+fn table_rows(items: &[Value], terminal: bool) -> Vec<String> {
     let rows: Vec<[String; 3]> = items
         .iter()
         .map(|p| {
@@ -563,15 +654,20 @@ fn table_rows(items: &[Value]) -> Vec<String> {
             ]
         })
         .collect();
-    let w0 = rows.iter().map(|r| r[0].chars().count()).max().unwrap_or(0);
-    let w1 = rows.iter().map(|r| r[1].chars().count()).max().unwrap_or(0);
-    rows.iter()
+    if !terminal {
+        return rows.iter().map(|r| r.join("\t")).collect();
+    }
+    let header = ["NAME", "VISIBILITY", "TITLE"].map(String::from);
+    let all: Vec<&[String; 3]> = std::iter::once(&header).chain(&rows).collect();
+    let w0 = all.iter().map(|r| r[0].chars().count()).max().unwrap_or(0);
+    let w1 = all.iter().map(|r| r[1].chars().count()).max().unwrap_or(0);
+    all.iter()
         .map(|[n, v, t]| format!("{n:<w0$}  {v:<w1$}  {t}").trim_end().to_string())
         .collect()
 }
 
 fn print_table(items: &[Value]) {
-    for row in table_rows(items) {
+    for row in table_rows(items, std::io::stdout().is_terminal()) {
         println!("{row}");
     }
 }
@@ -582,6 +678,8 @@ mod tests {
     use crate::prompt::scripted::{Answer::*, Script};
     use wiremock::matchers::{body_json, header, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    const SITE: &str = "https://source.coop";
 
     fn product(account: &str, id: &str) -> Value {
         json!({"account_id": account, "product_id": id, "title": format!("{id} title"),
@@ -651,14 +749,19 @@ mod tests {
     }
 
     #[test]
-    fn table_lines_up() {
-        let rows = table_rows(&[product("a", "one"), product("longer", "two")]);
+    fn table_lines_up_on_a_terminal_and_tabs_when_piped() {
+        let items = [product("a", "one"), product("longer", "two")];
         assert_eq!(
-            rows,
+            table_rows(&items, true),
             [
-                "a/one       public  one title",
-                "longer/two  public  two title"
+                "NAME        VISIBILITY  TITLE",
+                "a/one       public      one title",
+                "longer/two  public      two title"
             ]
+        );
+        assert_eq!(
+            table_rows(&items, false),
+            ["a/one\tpublic\tone title", "longer/two\tpublic\ttwo title"]
         );
     }
 
@@ -728,13 +831,15 @@ mod tests {
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/prod"));
         args.title = Some("T".into());
-        create(args, &client, None).await.unwrap();
+        create(args, &client, SITE, None).await.unwrap();
     }
 
     #[tokio::test]
     async fn create_without_a_terminal_needs_the_product_named() {
         let client = Client::new("http://127.0.0.1:9", None, false).unwrap();
-        let err = create(create_args(None), &client, None).await.unwrap_err();
+        let err = create(create_args(None), &client, SITE, None)
+            .await
+            .unwrap_err();
         assert!(err.contains("ACCOUNT/PRODUCT"));
     }
 
@@ -762,7 +867,7 @@ mod tests {
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut ask = Script::new([Text("acct/my-data"), Default, Default, Pick(1), Default]);
-        create(create_args(None), &client, Some(&mut ask))
+        create(create_args(None), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
         assert_eq!(
@@ -770,7 +875,7 @@ mod tests {
             [
                 "Product (ACCOUNT/PRODUCT) []",
                 "Title [My Data]",
-                "Description []",
+                "Description (long) []",
                 // Someone else's connection isn't offered.
                 "Data connection [Shared (shared)] of Shared (shared) | Mine (mine, read-only)",
                 // Only what the chosen connection allows, starting on public.
@@ -803,7 +908,7 @@ mod tests {
         args.title = Some("Flag wins".into());
         args.from_file = Some(f.to_str().unwrap().into());
         let mut ask = Script::new([Pick(1)]);
-        create(args, &client, Some(&mut ask)).await.unwrap();
+        create(args, &client, SITE, Some(&mut ask)).await.unwrap();
         assert_eq!(
             ask.asked,
             ["Visibility [public] of public | unlisted | restricted"]
@@ -828,9 +933,14 @@ mod tests {
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut ask = Script::new([Text("T"), Text("D"), Text("typed"), Default]);
-        create(create_args(Some("acct/prod")), &client, Some(&mut ask))
-            .await
-            .unwrap();
+        create(
+            create_args(Some("acct/prod")),
+            &client,
+            SITE,
+            Some(&mut ask),
+        )
+        .await
+        .unwrap();
     }
 
     #[tokio::test]
@@ -845,7 +955,7 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let err = create(create_args(Some("acct/prod")), &client, None)
+        let err = create(create_args(Some("acct/prod")), &client, SITE, None)
             .await
             .unwrap_err();
         assert!(err.contains("data_connection_id: A data connection is required"));
@@ -865,8 +975,8 @@ mod tests {
 
         let mut args = edit_args();
         args.disable = true;
-        edit(args, &client, None).await.unwrap();
-        assert!(edit(edit_args(), &client, None)
+        edit(args, &client, SITE, None).await.unwrap();
+        assert!(edit(edit_args(), &client, SITE, None)
             .await
             .unwrap_err()
             .contains("Nothing to change"));
@@ -891,9 +1001,18 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Default, Text("New"), Pick(1)]);
-        edit(edit_args(), &client, Some(&mut ask)).await.unwrap();
-        assert_eq!(ask.asked[0], "Title [prod title]");
+        let mut ask = Script::new([Picks(&[1, 2]), Text("New"), Pick(1)]);
+        edit(edit_args(), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "What do you want to change? of Title | Description | Visibility",
+                "Description (long) []",
+                "Visibility [public] of public | unlisted | restricted",
+            ]
+        );
     }
 
     #[tokio::test]
@@ -911,8 +1030,11 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Default, Default, Default]);
-        edit(edit_args(), &client, Some(&mut ask)).await.unwrap();
+        // Picking a field and keeping its value changes nothing either.
+        let mut ask = Script::new([Picks(&[0]), Default]);
+        edit(edit_args(), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
     }
 
     /// Answer a DELETE of acct/prod, but only with this `preserve_data`.
@@ -966,5 +1088,59 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.contains("nothing was deleted"));
+    }
+    #[tokio::test]
+    async fn create_asks_again_for_just_the_rejected_fields() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/products/acct"))
+            .and(body_json(json!({"product_id": "Bad--ID", "title": "T", "description": "D",
+                                  "data_connection_id": "dc", "visibility": "public"})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
+                "code": "invalid", "message": "The request is invalid.",
+                "field_errors": {"product_id": ["Product ID may not contain consecutive hyphens"]}}})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        expect_create(
+            &server,
+            json!({"product_id": "good-id", "title": "T", "description": "D",
+                   "data_connection_id": "dc", "visibility": "public"}),
+        )
+        .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut args = create_args(Some("acct/Bad--ID"));
+        args.title = Some("T".into());
+        args.description = Some("D".into());
+        args.data_connection_id = Some("dc".into());
+        args.visibility = Some("public".into());
+        let mut ask = Script::new([Text("good-id")]);
+        create(args, &client, SITE, Some(&mut ask)).await.unwrap();
+        // Only the rejected field is asked for, starting from what was sent.
+        assert_eq!(ask.asked, ["Product ID [Bad--ID]"]);
+    }
+
+    #[tokio::test]
+    async fn a_rejection_naming_other_fields_is_just_an_error() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
+                "code": "invalid", "message": "The request is invalid.",
+                "field_errors": {"metadata": ["Not allowed"]}}})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut args = create_args(Some("acct/prod"));
+        args.title = Some("T".into());
+        args.description = Some("D".into());
+        args.data_connection_id = Some("dc".into());
+        args.visibility = Some("public".into());
+        let mut ask = Script::new([]);
+        let err = create(args, &client, SITE, Some(&mut ask))
+            .await
+            .unwrap_err();
+        assert!(err.contains("metadata: Not allowed"));
     }
 }

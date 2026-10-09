@@ -189,7 +189,22 @@ source-coop product edit my-org/my-product --visibility unlisted
 source-coop product delete my-org/my-product  # asks you to type the name back
 ```
 
-`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. `edit` with no flags walks through the product's current values. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
+`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) by answering `e`. `edit` with no flags asks which fields to change and starts each from its current value. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
+
+Output is for people on a terminal and for scripts when piped: `list` prints an aligned table with a header on a terminal, and tab-separated rows without one when piped; `create` and `edit` print the product's URL on stdout and their message on stderr, so `url=$(source-coop product create ...)` works.
+
+### Any API request
+
+`source-coop api` sends any request to `/api/v1`, signed in as you, and prints the response. It covers what the other commands don't yet:
+
+```bash
+source-coop api products/my-org -X GET -F limit=5
+source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
+  -f visibility=public -f data_connection_id=my-connection
+source-coop api products/my-org/new -X PATCH --input changes.json
+```
+
+`-f key=value` sends a string, and `-F key=value` sends `true`, `false`, `null` and numbers as JSON. Fields go in the query string for `GET` and in a JSON body otherwise, and the method is `POST` when fields or `--input` are given. A status other than success exits non-zero.
 
 Reading public products needs no credentials. Anything else acts as whoever ran `source-coop login`: login asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
 
