@@ -1,21 +1,34 @@
+use crate::session::Session;
 use crate::sts::Credentials;
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fs;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const KEYRING_SERVICE: &str = "source-coop-cli";
 
-/// What gets cached per role: the STS credentials plus, when the IdP issued
-/// one, what's needed to mint fresh credentials without a browser login.
-/// `flatten` keeps caches written by older versions (bare credentials) readable.
+/// What gets cached per role: the STS credentials, and how to mint new ones
+/// from the login session when they expire. `flatten` keeps caches written by
+/// older versions (bare credentials) readable.
 #[derive(Serialize, Deserialize)]
 pub struct CacheEntry {
     #[serde(flatten)]
     pub creds: Credentials,
+    /// The STS settings `login` was given, reused when minting new credentials.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sts: Option<StsSettings>,
+    /// A refresh token of the role's own, from versions before the login
+    /// session was shared. Still honoured so those caches keep working; a new
+    /// `login` replaces it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub refresh: Option<RefreshState>,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct StsSettings {
+    pub proxy_url: String,
+    pub duration: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -25,6 +38,35 @@ pub struct RefreshState {
     pub client_id: String,
     pub proxy_url: String,
     pub duration: Option<u64>,
+}
+
+/// Where one cached item lives: its keyring account, and its file when the
+/// keyring is unavailable.
+struct Slot {
+    account: String,
+    path: PathBuf,
+}
+
+fn cache_dir() -> Result<PathBuf, String> {
+    Ok(dirs::cache_dir()
+        .ok_or("Could not determine cache directory")?
+        .join("source-coop"))
+}
+
+fn role_slot(role_arn: &str) -> Result<Slot, String> {
+    Ok(Slot {
+        account: role_arn.to_string(),
+        path: cache_path(role_arn)?,
+    })
+}
+
+/// The login session's slot. `@` can't begin a role ARN or role name, so its
+/// keyring account never collides with a role's.
+fn session_slot() -> Result<Slot, String> {
+    Ok(Slot {
+        account: "@session".to_string(),
+        path: cache_dir()?.join("session.json"),
+    })
 }
 
 /// Returns `true` for keyring errors that indicate the keyring backend is
@@ -57,20 +99,27 @@ fn sanitize_role_arn(role_arn: &str) -> String {
 /// Uses the OS-idiomatic cache directory (`~/Library/Caches` on macOS,
 /// `~/.cache` on Linux, `%LocalAppData%` on Windows).
 fn cache_path(role_arn: &str) -> Result<PathBuf, String> {
-    let cache_dir = dirs::cache_dir().ok_or("Could not determine cache directory")?;
     let sanitized = sanitize_role_arn(role_arn);
-    Ok(cache_dir
-        .join("source-coop")
+    Ok(cache_dir()?
         .join("credentials")
         .join(format!("{sanitized}.json")))
 }
 
-/// Take an exclusive per-role lock, held until the returned file is dropped.
-/// Refresh tokens rotate on use, and the IdP may revoke the whole token family
-/// if an old one is replayed, so concurrent `creds` calls must not refresh in
-/// parallel.
+/// Take an exclusive per-role lock, held until the returned file is dropped,
+/// so concurrent `creds` calls for one role mint once.
 pub fn lock(role_arn: &str) -> Result<fs::File, String> {
-    let path = cache_path(role_arn)?.with_extension("lock");
+    lock_slot(&role_slot(role_arn)?)
+}
+
+/// Take the login session's lock. Refresh tokens rotate on use, and the IdP
+/// may revoke the whole token family if an old one is replayed, so nothing may
+/// refresh the session in parallel. Taken after a role's lock, never before.
+pub fn lock_session() -> Result<fs::File, String> {
+    lock_slot(&session_slot()?)
+}
+
+fn lock_slot(slot: &Slot) -> Result<fs::File, String> {
+    let path = slot.path.with_extension("lock");
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
@@ -81,99 +130,77 @@ pub fn lock(role_arn: &str) -> Result<fs::File, String> {
     Ok(file)
 }
 
-/// Write credentials to a cache file. Returns the file path as a string.
-fn write_credentials_file(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
-    let path = cache_path(role_arn)?;
-    let dir = path.parent().unwrap();
-
-    fs::create_dir_all(dir)
-        .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
-
-    let json = serde_json::to_string_pretty(creds)
-        .map_err(|e| format!("Failed to serialize credentials: {e}"))?;
-
-    fs::write(&path, &json)
-        .map_err(|e| format!("Failed to write credentials cache {}: {e}", path.display()))?;
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o600))
-            .map_err(|e| format!("Failed to set permissions on {}: {e}", path.display()))?;
-    }
-
-    Ok(path.display().to_string())
-}
-
-/// Read credentials from a cache file. Returns `None` if the file does not exist.
-fn read_credentials_file(role_arn: &str) -> Result<Option<CacheEntry>, String> {
-    let path = cache_path(role_arn)?;
-    match fs::read_to_string(&path) {
-        Ok(contents) => {
-            let creds: CacheEntry = serde_json::from_str(&contents)
-                .map_err(|e| format!("Failed to parse credentials cache: {e}"))?;
-            Ok(Some(creds))
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!(
-            "Failed to read credentials cache {}: {e}",
-            path.display()
-        )),
-    }
-}
-
 /// Write credentials, trying the OS keyring first with file fallback.
 /// Returns a human-readable description of where credentials were stored.
 pub fn write_credentials(role_arn: &str, creds: &CacheEntry) -> Result<String, String> {
-    let json = serde_json::to_string(creds)
-        .map_err(|e| format!("Failed to serialize credentials: {e}"))?;
-
-    let entry = keyring::Entry::new(KEYRING_SERVICE, role_arn)
-        .map_err(|e| format!("Failed to create keyring entry: {e}"));
-
-    if let Ok(entry) = entry {
-        match entry.set_password(&json) {
-            Ok(()) => {
-                return Ok(format!("OS keyring (service: {KEYRING_SERVICE})"));
-            }
-            Err(ref e) if is_keyring_unavailable(e) => {
-                // Fall through to file-based caching
-            }
-            Err(e) => {
-                return Err(format!("Failed to write credentials to keyring: {e}"));
-            }
-        }
-    }
-
-    write_credentials_file(role_arn, creds)
+    write_slot(&role_slot(role_arn)?, creds)
 }
 
 /// Read credentials, trying the OS keyring first with file fallback.
 /// Returns `None` if no cached credentials are found in either location.
 pub fn read_credentials(role_arn: &str) -> Result<Option<CacheEntry>, String> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, role_arn)
-        .map_err(|e| format!("Failed to create keyring entry: {e}"));
+    read_slot(&role_slot(role_arn)?)
+}
 
-    if let Ok(entry) = entry {
-        match entry.get_password() {
-            Ok(json) => {
-                let creds: CacheEntry = serde_json::from_str(&json)
-                    .map_err(|e| format!("Failed to parse credentials from keyring: {e}"))?;
-                return Ok(Some(creds));
-            }
-            Err(keyring::Error::NoEntry) => {
-                // Keyring works but nothing stored — fall through to file
-            }
-            Err(ref e) if is_keyring_unavailable(e) => {
-                // Keyring unavailable — fall through to file
-            }
-            Err(e) => {
-                return Err(format!("Failed to read credentials from keyring: {e}"));
-            }
+pub fn write_session(session: &Session) -> Result<String, String> {
+    write_slot(&session_slot()?, session)
+}
+
+pub fn read_session() -> Result<Option<Session>, String> {
+    read_slot(&session_slot()?)
+}
+
+fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
+    let json =
+        serde_json::to_string(value).map_err(|e| format!("Failed to serialize cache: {e}"))?;
+
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
+        match entry.set_password(&json) {
+            Ok(()) => return Ok(format!("OS keyring (service: {KEYRING_SERVICE})")),
+            // Fall through to file-based caching
+            Err(ref e) if is_keyring_unavailable(e) => {}
+            Err(e) => return Err(format!("Failed to write to keyring: {e}")),
         }
     }
+    write_file(&slot.path, &json)
+}
 
-    read_credentials_file(role_arn)
+fn read_slot<T: DeserializeOwned>(slot: &Slot) -> Result<Option<T>, String> {
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
+        match entry.get_password() {
+            Ok(json) => {
+                return serde_json::from_str(&json)
+                    .map(Some)
+                    .map_err(|e| format!("Failed to parse cache from keyring: {e}"));
+            }
+            // Keyring works but nothing stored, or is unavailable: try the file
+            Err(keyring::Error::NoEntry) => {}
+            Err(ref e) if is_keyring_unavailable(e) => {}
+            Err(e) => return Err(format!("Failed to read from keyring: {e}")),
+        }
+    }
+    match fs::read_to_string(&slot.path) {
+        Ok(contents) => serde_json::from_str(&contents)
+            .map(Some)
+            .map_err(|e| format!("Failed to parse cache {}: {e}", slot.path.display())),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("Failed to read cache {}: {e}", slot.path.display())),
+    }
+}
+
+/// Write a cache file readable only by its owner. Returns the file path.
+fn write_file(path: &Path, json: &str) -> Result<String, String> {
+    let dir = path.parent().unwrap();
+    fs::create_dir_all(dir)
+        .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
+    fs::write(path, json).map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+            .map_err(|e| format!("Failed to set permissions on {}: {e}", path.display()))?;
+    }
+    Ok(path.display().to_string())
 }
 
 /// Check if credentials are expired or will expire within a 60-second buffer.
@@ -268,6 +295,7 @@ mod tests {
         assert!(entry.refresh.is_none());
         assert_eq!(entry.creds.access_key_id, "AKIAIOSFODNN7EXAMPLE");
 
+        assert!(entry.sts.is_none());
         let entry = CacheEntry {
             refresh: Some(RefreshState {
                 refresh_token: "rt".to_string(),

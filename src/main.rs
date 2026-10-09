@@ -1,6 +1,7 @@
 mod cache;
 mod oidc;
 mod output;
+mod session;
 mod sts;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -11,6 +12,7 @@ mod defaults {
     pub const CLIENT_ID: &str = "a79c9537-be78-454a-9ea1-b96a1be811cc";
     pub const PROXY_URL: &str = "https://data.staging.source.coop";
     pub const ROLE_ARN: &str = "_default";
+    pub const API_URL: &str = "https://staging.source.coop";
 }
 
 #[cfg(not(feature = "staging"))]
@@ -19,6 +21,7 @@ mod defaults {
     pub const CLIENT_ID: &str = "197e20e7-d52d-4d1d-9e54-4b73a342034b";
     pub const PROXY_URL: &str = "https://data.source.coop";
     pub const ROLE_ARN: &str = "_default";
+    pub const API_URL: &str = "https://source.coop";
 }
 
 /// Parse a duration into seconds. Accepts a bare number (seconds) or a value
@@ -59,6 +62,16 @@ enum Commands {
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile, refreshing them first if expired
     Creds(CredsArgs),
+    /// Work with the login session
+    #[command(subcommand)]
+    Auth(AuthCommand),
+}
+
+#[derive(Subcommand)]
+enum AuthCommand {
+    /// Print an access token for the source.coop API, refreshing it if expired
+    /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
+    Token,
 }
 
 #[derive(Parser)]
@@ -92,6 +105,11 @@ struct LoginArgs {
     #[arg(long, default_value = "openid offline_access")]
     scope: String,
 
+    /// Audience for the access token the source.coop API takes; pass an empty
+    /// value to request none (then only `creds` works)
+    #[arg(long, env = "SOURCE_API_AUDIENCE", default_value = defaults::API_URL)]
+    audience: String,
+
     /// Local callback port (0 for random available port)
     #[arg(long, default_value = "0")]
     port: u16,
@@ -110,6 +128,10 @@ struct CredsArgs {
     /// Role ARN to read cached credentials for
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
+
+    /// S3 proxy URL for STS, for a role with nothing cached yet
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
 
     /// Output format
     #[arg(long, default_value = "credential-process")]
@@ -149,7 +171,21 @@ async fn main() {
                 std::process::exit(1);
             }
         }
+        Commands::Auth(AuthCommand::Token) => {
+            if let Err(e) = run_auth_token(verbose).await {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
     }
+}
+
+async fn run_auth_token(verbose: bool) -> Result<(), String> {
+    let token = session::token(session::Want::Access, verbose)
+        .await?
+        .ok_or("No access token cached. Run 'source-coop login' (with an API audience).")?;
+    println!("{token}");
+    Ok(())
 }
 
 async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
@@ -158,7 +194,16 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let endpoints = oidc::discover(&args.issuer, verbose).await?;
 
     // 2. Browser-based OIDC login
-    let tokens = oidc::login(&endpoints, &args.client_id, &args.scope, args.port, verbose).await?;
+    let audience = Some(args.audience.trim()).filter(|a| !a.is_empty());
+    let tokens = oidc::login(
+        &endpoints,
+        &args.client_id,
+        &args.scope,
+        audience,
+        args.port,
+        verbose,
+    )
+    .await?;
     eprintln!("Authentication successful.");
 
     // 3. STS credential exchange
@@ -183,53 +228,59 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             OutputFormat::Env => output::print_env(&creds),
             OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
         }
-    } else {
-        if tokens.refresh_token.is_none() {
-            eprintln!(
-                "No refresh token issued; run 'source-coop login' again when credentials expire."
-            );
-        }
-        let entry = cache::CacheEntry {
-            creds,
-            refresh: tokens
-                .refresh_token
-                .map(|refresh_token| cache::RefreshState {
-                    refresh_token,
-                    token_endpoint: endpoints.token_endpoint,
-                    client_id: args.client_id,
-                    proxy_url: args.proxy_url,
-                    duration: args.duration,
-                }),
-        };
-        let location = cache::write_credentials(&args.role_arn, &entry)?;
-        eprintln!("Credentials cached to {location}");
-        eprintln!("Run 'source-coop creds' to print them.");
+        return Ok(());
     }
 
+    if tokens.refresh_token.is_none() {
+        eprintln!(
+            "No refresh token issued; run 'source-coop login' again when credentials expire."
+        );
+    }
+    if audience.is_some() && tokens.access_token.is_none() {
+        eprintln!(
+            "No access token issued; commands that call the source.coop API will run signed out."
+        );
+    }
+    let session = session::Session::new(
+        tokens,
+        args.client_id,
+        endpoints.token_endpoint,
+        audience.map(String::from),
+        chrono::Utc::now().timestamp(),
+    );
+    {
+        let _lock = cache::lock_session()?;
+        cache::write_session(&session)?;
+    }
+    let entry = cache::CacheEntry {
+        creds,
+        sts: Some(cache::StsSettings {
+            proxy_url: args.proxy_url,
+            duration: args.duration,
+        }),
+        refresh: None,
+    };
+    let location = cache::write_credentials(&args.role_arn, &entry)?;
+    eprintln!("Credentials cached to {location}");
+    eprintln!("Run 'source-coop creds' to print them.");
     Ok(())
 }
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    const NOT_FOUND: &str = "No cached credentials found. Run 'source-coop login' first.";
-    let mut entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
-
-    if cache::is_expired(&entry.creds)? {
-        if entry.refresh.is_none() {
-            return Err(
-                "Cached credentials have expired. Run 'source-coop login' to refresh.".to_string(),
-            );
+    let cached = cache::read_credentials(&args.role_arn)?;
+    let entry = match cached {
+        Some(entry) if !cache::is_expired(&entry.creds)? => entry,
+        _ => {
+            // Re-check under the lock: another process may have minted already.
+            let _lock = cache::lock(&args.role_arn)?;
+            match cache::read_credentials(&args.role_arn)? {
+                Some(entry) if !cache::is_expired(&entry.creds)? => entry,
+                stale => mint(&args, stale, verbose).await.map_err(|e| {
+                    format!("Couldn't get new credentials ({e}). Run 'source-coop login'.")
+                })?,
+            }
         }
-        // Re-read under the lock: another process may have refreshed already.
-        let _lock = cache::lock(&args.role_arn)?;
-        entry = cache::read_credentials(&args.role_arn)?.ok_or(NOT_FOUND)?;
-        if cache::is_expired(&entry.creds)? {
-            let save =
-                |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
-            entry = refresh(&args.role_arn, entry, verbose, save).await.map_err(|e| {
-                format!("Cached credentials have expired and refresh failed ({e}). Run 'source-coop login'.")
-            })?;
-        }
-    }
+    };
 
     match args.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
@@ -237,6 +288,46 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         OutputFormat::AwsCredentials => output::print_aws_credentials(&entry.creds, &args.profile),
     }
     Ok(())
+}
+
+/// New credentials for the role, cached before they're returned. An entry
+/// from before the session was shared refreshes with its own token; anything
+/// else exchanges the session's ID token, refreshing the session if need be.
+async fn mint(
+    args: &CredsArgs,
+    stale: Option<cache::CacheEntry>,
+    verbose: bool,
+) -> Result<cache::CacheEntry, String> {
+    let save = |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
+    match stale {
+        Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
+            refresh(&args.role_arn, entry, verbose, save).await
+        }
+        stale => {
+            let sts = stale.and_then(|e| e.sts).unwrap_or(cache::StsSettings {
+                proxy_url: args.proxy_url.clone(),
+                duration: None,
+            });
+            let id_token = session::token(session::Want::Id, verbose)
+                .await?
+                .ok_or("not logged in")?;
+            let creds = sts::assume_role(
+                &sts.proxy_url,
+                &args.role_arn,
+                &id_token,
+                sts.duration,
+                verbose,
+            )
+            .await?;
+            let entry = cache::CacheEntry {
+                creds,
+                sts: Some(sts),
+                refresh: None,
+            };
+            save(&entry)?;
+            Ok(entry)
+        }
+    }
 }
 
 /// Trade the cached refresh token for a new id_token, exchange that for new STS
@@ -293,6 +384,7 @@ mod tests {
                 session_token: "OLDSESSION".into(),
                 expiration: "2020-01-01T00:00:00Z".into(),
             },
+            sts: None,
             refresh: Some(cache::RefreshState {
                 refresh_token: "old-rt".into(),
                 token_endpoint: format!("{}/oauth2/token", server.uri()),
