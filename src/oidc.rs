@@ -63,10 +63,14 @@ pub async fn discover(issuer: &str, verbose: bool) -> Result<OidcEndpoints, Stri
 }
 
 /// Tokens returned by the token endpoint. `refresh_token` is only issued when
-/// the `offline_access` scope was granted.
+/// the `offline_access` scope was granted. `access_token` is the one the
+/// source.coop API takes; `expires_in` is its lifetime in seconds.
+#[derive(Debug)]
 pub struct Tokens {
     pub id_token: String,
     pub refresh_token: Option<String>,
+    pub access_token: Option<String>,
+    pub expires_in: Option<i64>,
 }
 
 /// Run the browser-based OAuth2 Authorization Code flow with PKCE.
@@ -76,6 +80,7 @@ pub async fn login(
     endpoints: &OidcEndpoints,
     client_id: &str,
     scope: &str,
+    audience: Option<&str>,
     port: u16,
     verbose: bool,
 ) -> Result<Tokens, String> {
@@ -109,6 +114,11 @@ pub async fn login(
         .append_pair("code_challenge", &pkce.challenge)
         .append_pair("code_challenge_method", "S256")
         .append_pair("state", &state);
+    // The audience the access token is for, so the API can tell a token meant
+    // for it from one issued to the same client for something else.
+    if let Some(audience) = audience {
+        auth_url.query_pairs_mut().append_pair("audience", audience);
+    }
 
     if verbose {
         eprintln!("[verbose] Authorization URL: {auth_url}");
@@ -298,10 +308,11 @@ async fn token_request(
         .as_str()
         .ok_or("No id_token in token response")?
         .to_string();
-    let refresh_token = body["refresh_token"].as_str().map(String::from);
     Ok(Tokens {
         id_token,
-        refresh_token,
+        refresh_token: body["refresh_token"].as_str().map(String::from),
+        access_token: body["access_token"].as_str().map(String::from),
+        expires_in: body["expires_in"].as_i64(),
     })
 }
 

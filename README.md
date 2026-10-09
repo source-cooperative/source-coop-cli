@@ -59,6 +59,12 @@ aws s3 ls s3://my-account/my-product --profile source-coop
 
 When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
 
+`login` keeps one session for everything: `creds` for any role exchanges its ID token at the proxy, and commands that call the source.coop API send its access token. `source-coop auth token` prints that access token, refreshed if it has expired:
+
+```bash
+curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
+```
+
 ### Logging in on a remote server (no browser)
 
 `login` receives the OAuth2 redirect on a local port, so on a headless machine, forward that port over SSH and complete the login in your local browser:
@@ -131,6 +137,7 @@ endpoint_url = https://data.source.coop
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
 | `--scope` | | `openid offline_access` | OAuth2 scopes (`offline_access` enables automatic refresh in `creds`) |
+| `--audience` | `SOURCE_API_AUDIENCE` | `https://source.coop` | Audience of the access token for the source.coop API; empty to request none |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |
 
@@ -171,11 +178,11 @@ Use `--profile` to change the section name.
 
 ## Credential storage
 
-The CLI caches temporary STS credentials so that `creds` can output them without re-authenticating.
+The CLI caches the login session (the Ory refresh, ID and access tokens) and the temporary STS credentials for each role, so that `creds` and API commands work without re-authenticating. The refresh token is kept in the session only: it rotates on use, so every role and every API call refreshes through it, one at a time.
 
 ### OS keyring (default)
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN:
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN, with the session under `@session`:
 
 | Platform | Backend |
 |----------|---------|
@@ -192,6 +199,8 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 | macOS | `~/Library/Caches/source-coop/credentials/<role>.json` |
 | Linux | `~/.cache/source-coop/credentials/<role>.json` |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
+
+The session sits beside them, at `source-coop/session.json`.
 
 The fallback is automatic — no configuration is needed.
 
@@ -221,5 +230,7 @@ The OAuth2 client should be configured as a **public client** (no client secret)
 
 - **Grant type**: Authorization Code
 - **Token endpoint auth method**: `none` (public client, PKCE used instead)
-- **Allowed scopes**: `openid`
+- **Allowed scopes**: `openid`, `offline_access`
 - **Redirect URIs**: `http://127.0.0.1/callback` (see above)
+- **Allowed audiences**: the source.coop site the API is served from (`https://source.coop`, or `https://staging.source.coop`). Without it, Ory refuses a login that asks for that audience.
+- **Access token strategy**: `jwt`, so the API can verify access tokens against Ory's published keys rather than asking Ory about each one
