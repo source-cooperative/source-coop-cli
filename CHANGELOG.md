@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.3.0...v0.4.0) (2026-10-09)
+
+
+### Features
+
+* one login session for STS and the source.coop API ([#23](https://github.com/source-cooperative/source-coop-cli/issues/23)) ([d55e4b7](https://github.com/source-cooperative/source-coop-cli/commit/d55e4b7d0597436876530eddab1abf70090c6808))
+
 ## [0.3.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.2.0...v0.3.0) (2026-09-24)
 
 
