@@ -25,6 +25,19 @@ pub struct CacheEntry {
     pub refresh: Option<RefreshState>,
 }
 
+impl CacheEntry {
+    /// Whether this entry was minted at a proxy in `env`. Bare credentials
+    /// record no proxy and can't be renewed, so they're taken as they are.
+    fn belongs_to(&self, env: Option<&str>) -> bool {
+        let proxy_url = match (&self.sts, &self.refresh) {
+            (Some(sts), _) => &sts.proxy_url,
+            (None, Some(refresh)) => &refresh.proxy_url,
+            (None, None) => return true,
+        };
+        self::env(proxy_url).is_ok_and(|e| e.as_deref() == env)
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 pub struct StsSettings {
     pub proxy_url: String,
@@ -47,25 +60,72 @@ struct Slot {
     path: PathBuf,
 }
 
+/// The OS-idiomatic cache directory (`~/Library/Caches` on macOS, `~/.cache`
+/// on Linux, `%LocalAppData%` on Windows).
 fn cache_dir() -> Result<PathBuf, String> {
     Ok(dirs::cache_dir()
         .ok_or("Could not determine cache directory")?
         .join("source-coop"))
 }
 
-fn role_slot(key: &str) -> Result<Slot, String> {
+/// The environment a proxy URL belongs to: `None` for this build's default
+/// proxy, whose slots keep the names they had before environments existed,
+/// otherwise the proxy's host (and port, if not the scheme's default).
+pub fn env(proxy_url: &str) -> Result<Option<String>, String> {
+    let host = host(proxy_url)?;
+    Ok((host != host_of_default()).then_some(host))
+}
+
+fn host(proxy_url: &str) -> Result<String, String> {
+    let url =
+        url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL {proxy_url}: {e}"))?;
+    let host = url
+        .host_str()
+        .ok_or_else(|| format!("Proxy URL {proxy_url} has no host"))?;
+    Ok(match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    })
+}
+
+fn host_of_default() -> String {
+    host(crate::defaults::PROXY_URL).expect("default proxy URL is valid")
+}
+
+/// The keyring account for `name` in `env`. Hosts can't contain `/`, so a
+/// prefixed account never equals a default-environment one.
+fn account(env: Option<&str>, name: &str) -> String {
+    match env {
+        None => name.to_string(),
+        Some(env) => format!("{env}/{name}"),
+    }
+}
+
+/// The directory `env`'s cache files live in. Each non-default environment
+/// gets its own, so their files can't collide with each other's or prod's.
+fn env_dir(env: Option<&str>) -> Result<PathBuf, String> {
+    let dir = cache_dir()?;
+    Ok(match env {
+        None => dir,
+        Some(env) => dir.join("env").join(sanitize(env, &['-', '.'])),
+    })
+}
+
+fn role_slot(env: Option<&str>, role_arn: &str) -> Result<Slot, String> {
     Ok(Slot {
-        account: key.to_string(),
-        path: cache_path(key)?,
+        account: account(env, role_arn),
+        path: env_dir(env)?
+            .join("credentials")
+            .join(format!("{}.json", sanitize(role_arn, &['-', '_']))),
     })
 }
 
 /// The login session's slot. `@` can't begin a role ARN or role name, so its
 /// keyring account never collides with a role's.
-fn session_slot() -> Result<Slot, String> {
+fn session_slot(env: Option<&str>) -> Result<Slot, String> {
     Ok(Slot {
-        account: "@session".to_string(),
-        path: cache_dir()?.join("session.json"),
+        account: account(env, "@session"),
+        path: env_dir(env)?.join("session.json"),
     })
 }
 
@@ -81,30 +141,11 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
     )
 }
 
-/// Production proxy host. Its entries keep the bare role ARN as the cache key,
-/// so caches written before keys included the host remain readable.
-const PROD_HOST: &str = "data.source.coop";
-
-/// Cache key for a role at a given proxy, so logins against different
-/// environments (prod, staging) don't overwrite each other: `_default` for
-/// production, `data.staging.source.coop/_default` for any other proxy.
-pub fn key(proxy_url: &str, role_arn: &str) -> String {
-    let host = proxy_url
-        .trim_start_matches("https://")
-        .trim_start_matches("http://")
-        .trim_end_matches('/');
-    if host == PROD_HOST {
-        role_arn.to_string()
-    } else {
-        format!("{host}/{role_arn}")
-    }
-}
-
-/// Replace any character that isn't alphanumeric, `-`, or `_` with `_`.
-fn sanitize_key(key: &str) -> String {
-    key.chars()
+/// Replace any character that isn't alphanumeric or in `keep` with `_`.
+fn sanitize(s: &str, keep: &[char]) -> String {
+    s.chars()
         .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+            if c.is_ascii_alphanumeric() || keep.contains(&c) {
                 c
             } else {
                 '_'
@@ -113,27 +154,17 @@ fn sanitize_key(key: &str) -> String {
         .collect()
 }
 
-/// Full path to the credentials cache file for a given role.
-/// Uses the OS-idiomatic cache directory (`~/Library/Caches` on macOS,
-/// `~/.cache` on Linux, `%LocalAppData%` on Windows).
-fn cache_path(key: &str) -> Result<PathBuf, String> {
-    let sanitized = sanitize_key(key);
-    Ok(cache_dir()?
-        .join("credentials")
-        .join(format!("{sanitized}.json")))
-}
-
 /// Take an exclusive per-role lock, held until the returned file is dropped,
 /// so concurrent `creds` calls for one role mint once.
-pub fn lock(key: &str) -> Result<fs::File, String> {
-    lock_slot(&role_slot(key)?)
+pub fn lock(env: Option<&str>, role_arn: &str) -> Result<fs::File, String> {
+    lock_slot(&role_slot(env, role_arn)?)
 }
 
 /// Take the login session's lock. Refresh tokens rotate on use, and the IdP
 /// may revoke the whole token family if an old one is replayed, so nothing may
 /// refresh the session in parallel. Taken after a role's lock, never before.
-pub fn lock_session() -> Result<fs::File, String> {
-    lock_slot(&session_slot()?)
+pub fn lock_session(env: Option<&str>) -> Result<fs::File, String> {
+    lock_slot(&session_slot(env)?)
 }
 
 fn lock_slot(slot: &Slot) -> Result<fs::File, String> {
@@ -150,22 +181,29 @@ fn lock_slot(slot: &Slot) -> Result<fs::File, String> {
 
 /// Write credentials, trying the OS keyring first with file fallback.
 /// Returns a human-readable description of where credentials were stored.
-pub fn write_credentials(key: &str, creds: &CacheEntry) -> Result<String, String> {
-    write_slot(&role_slot(key)?, creds)
+pub fn write_credentials(
+    env: Option<&str>,
+    role_arn: &str,
+    creds: &CacheEntry,
+) -> Result<String, String> {
+    write_slot(&role_slot(env, role_arn)?, creds)
 }
 
 /// Read credentials, trying the OS keyring first with file fallback.
-/// Returns `None` if no cached credentials are found in either location.
-pub fn read_credentials(key: &str) -> Result<Option<CacheEntry>, String> {
-    read_slot(&role_slot(key)?)
+/// Returns `None` if no cached credentials are found in either location, or
+/// if they were minted at another environment's proxy: versions before
+/// environments existed cached every proxy's credentials in the default slot.
+pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
+    let entry: Option<CacheEntry> = read_slot(&role_slot(env, role_arn)?)?;
+    Ok(entry.filter(|e| e.belongs_to(env)))
 }
 
-pub fn write_session(session: &Session) -> Result<String, String> {
-    write_slot(&session_slot()?, session)
+pub fn write_session(env: Option<&str>, session: &Session) -> Result<String, String> {
+    write_slot(&session_slot(env)?, session)
 }
 
-pub fn read_session() -> Result<Option<Session>, String> {
-    read_slot(&session_slot()?)
+pub fn read_session(env: Option<&str>) -> Result<Option<Session>, String> {
+    read_slot(&session_slot(env)?)
 }
 
 fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
@@ -250,31 +288,81 @@ mod tests {
     }
 
     #[test]
-    fn key_separates_environments() {
-        assert_eq!(key("https://data.source.coop", "_default"), "_default");
-        assert_eq!(key("https://data.source.coop/", "_default"), "_default");
+    fn env_normalizes_proxy_urls() {
+        let default = crate::defaults::PROXY_URL;
+        assert_eq!(env(default).unwrap(), None);
+        assert_eq!(env(&format!("{default}/")).unwrap(), None);
+        assert_eq!(env(&default.to_uppercase()).unwrap(), None);
+        assert_eq!(env(&format!("{default}:443")).unwrap(), None);
         assert_eq!(
-            key("https://data.staging.source.coop/", "_default"),
-            "data.staging.source.coop/_default"
+            env("https://Data.Example.com/").unwrap().as_deref(),
+            Some("data.example.com")
+        );
+        assert_eq!(
+            env("http://localhost:8080").unwrap().as_deref(),
+            Some("localhost:8080")
+        );
+        assert!(env("not a url").is_err());
+    }
+
+    #[test]
+    fn slots_never_collide_across_environments() {
+        let default = cache_dir().unwrap();
+        let prod = role_slot(None, "_default").unwrap();
+        assert_eq!(prod.account, "_default");
+        assert_eq!(prod.path, default.join("credentials").join("_default.json"));
+        assert_eq!(session_slot(None).unwrap().account, "@session");
+
+        // A role whose sanitized name looks like an environment's still lands elsewhere.
+        let local = role_slot(Some("localhost:8080"), "_default").unwrap();
+        let lookalike = role_slot(None, "localhost_8080__default").unwrap();
+        assert_eq!(local.account, "localhost:8080/_default");
+        assert_eq!(
+            local.path,
+            default
+                .join("env")
+                .join("localhost_8080")
+                .join("credentials")
+                .join("_default.json")
+        );
+        assert_ne!(local.path, lookalike.path);
+
+        let staging = session_slot(Some("data.staging.source.coop")).unwrap();
+        assert_eq!(staging.account, "data.staging.source.coop/@session");
+        assert_eq!(
+            staging.path,
+            default
+                .join("env")
+                .join("data.staging.source.coop")
+                .join("session.json")
         );
     }
 
     #[test]
-    fn sanitize_simple_name() {
-        assert_eq!(sanitize_key("source-coop-user"), "source-coop-user");
+    fn entries_belong_to_their_proxys_environment() {
+        let entry = |proxy_url: &str| CacheEntry {
+            creds: sample_creds("2026-03-01T00:00:00Z"),
+            sts: Some(StsSettings {
+                proxy_url: proxy_url.to_string(),
+                duration: None,
+            }),
+            refresh: None,
+        };
+        let other = entry("https://data.example.com");
+        assert!(other.belongs_to(Some("data.example.com")));
+        assert!(!other.belongs_to(None));
+        assert!(entry(crate::defaults::PROXY_URL).belongs_to(None));
+        let bare = CacheEntry { sts: None, ..other };
+        assert!(bare.belongs_to(None));
     }
 
     #[test]
     fn sanitize_arn_with_special_chars() {
         assert_eq!(
-            sanitize_key("arn:aws:iam::123:role/Foo"),
+            sanitize("arn:aws:iam::123:role/Foo", &['-', '_']),
             "arn_aws_iam__123_role_Foo"
         );
-    }
-
-    #[test]
-    fn sanitize_preserves_underscores() {
-        assert_eq!(sanitize_key("my_role-name"), "my_role-name");
+        assert_eq!(sanitize("my_role-name", &['-', '_']), "my_role-name");
     }
 
     #[test]

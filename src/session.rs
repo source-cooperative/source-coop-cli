@@ -143,22 +143,23 @@ pub async fn ensure(
         .map_err(|()| "The refreshed token has already expired; check the system clock.".into())
 }
 
-/// The wanted token from the cached session, or `None` if there is no session
-/// (or it can't have that token). Refreshes under the session lock when needed.
-pub async fn token(want: Want, verbose: bool) -> Result<Option<String>, String> {
-    let Some(session) = cache::read_session()? else {
+/// The wanted token from `env`'s cached session, or `None` if there is no
+/// session (or it can't have that token). Refreshes under the session lock
+/// when needed.
+pub async fn token(env: Option<&str>, want: Want, verbose: bool) -> Result<Option<String>, String> {
+    let Some(session) = cache::read_session(env)? else {
         return Ok(None);
     };
     if let Ok(token) = session.current(want, now()) {
         return Ok(token.map(String::from));
     }
     // Re-read under the lock: another process may have refreshed already.
-    let _lock = cache::lock_session()?;
-    let Some(mut session) = cache::read_session()? else {
+    let _lock = cache::lock_session(env)?;
+    let Some(mut session) = cache::read_session(env)? else {
         return Ok(None);
     };
     ensure(&mut session, want, now(), verbose, |s| {
-        cache::write_session(s).map(drop)
+        cache::write_session(env, s).map(drop)
     })
     .await
 }

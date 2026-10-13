@@ -127,14 +127,14 @@ endpoint_url = https://data.source.coop
 
 ### Multiple environments (e.g. staging)
 
-Credentials are cached per proxy URL, so production and staging logins live side by side:
+Each proxy host is its own environment, with its own login session and credentials, so production and staging logins live side by side:
 
 ```bash
 source-coop login
 ( source .env.staging && source-coop login )
 ```
 
-`creds` reads `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment:
+`creds` and `auth token` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment:
 
 ```ini
 [profile source-coop]
@@ -152,7 +152,7 @@ endpoint_url = https://data.staging.source.coop
 |------|---------|---------|-------------|
 | `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `d037d00b-...` | OAuth2 client ID |
-| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS |
+| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS; also selects the environment the login is cached under |
 | `--role-arn` | `SOURCE_ROLE_ARN` | `source-coop-user` | Role ARN to assume |
 | `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
@@ -203,7 +203,7 @@ The CLI caches the login session (the Ory refresh, ID and access tokens) and the
 
 ### OS keyring (default)
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN (e.g. `_default`), prefixed with the proxy host for non-production proxies (e.g. `data.staging.source.coop/_default`), with the session under `@session`:
+Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN (e.g. `_default`), with the session under `@session`. Other environments prefix both with their proxy host (e.g. `data.staging.source.coop/_default`, `data.staging.source.coop/@session`):
 
 | Platform | Backend |
 |----------|---------|
@@ -217,11 +217,11 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 
 | Platform | Path |
 |----------|------|
-| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
-| Linux | `~/.cache/source-coop/credentials/<role>.json` (non-production: `<host>_<role>.json`) |
+| macOS | `~/Library/Caches/source-coop/credentials/<role>.json` |
+| Linux | `~/.cache/source-coop/credentials/<role>.json` |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
-The session sits beside them, at `source-coop/session.json`.
+The session sits beside them, at `source-coop/session.json`. Other environments keep the same layout under `source-coop/env/<host>/` (e.g. `source-coop/env/data.staging.source.coop/session.json`).
 
 The fallback is automatic — no configuration is needed.
 
