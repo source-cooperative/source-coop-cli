@@ -204,6 +204,7 @@ Use `--profile` to change the section name.
 ```bash
 source-coop product list                      # public products
 source-coop product list my-org --json        # one account's products, as JSON
+source-coop product list --format table       # one row per product; tab-separated when piped
 source-coop product view my-org/my-product    # --web opens it in the browser
 source-coop product create my-org/my-product  # prompts for the rest
 source-coop product edit my-org/my-product --visibility unlisted

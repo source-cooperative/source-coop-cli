@@ -3,7 +3,7 @@
 
 use crate::api::{ApiError, Client, Page};
 use crate::prompt::Prompter;
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
 use std::io::{IsTerminal, Read, Write};
@@ -48,6 +48,11 @@ pub struct ListArgs {
     #[arg(long)]
     cursor: Option<String>,
 
+    /// How to lay out the products: `details` (each product's fields, as
+    /// `view` shows them) or `table` (one row each; tab-separated when piped)
+    #[arg(long, value_enum, default_value_t = ListFormat::Details)]
+    format: ListFormat,
+
     /// Print the products as JSON
     #[arg(long)]
     json: bool,
@@ -56,6 +61,12 @@ pub struct ListArgs {
     /// $PAGER or `less -FRX`
     #[arg(long)]
     no_pager: bool,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+pub enum ListFormat {
+    Details,
+    Table,
 }
 
 #[derive(Args)]
@@ -195,7 +206,7 @@ pub async fn run(
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     match cmd {
-        ProductCommand::List(args) => list(args, client).await,
+        ProductCommand::List(args) => list(args, client, site).await,
         ProductCommand::View(args) => view(args, client, site).await,
         ProductCommand::Create(args) => create(args, client, site, prompter).await,
         ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
@@ -203,7 +214,7 @@ pub async fn run(
     }
 }
 
-async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
+async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String> {
     let mut url = match &args.account {
         Some(account) => client.url(&["products", account]),
         None => client.url(&["products"]),
@@ -234,7 +245,7 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
     // than the API's maximum.
     let mut items: Vec<Value> = vec![];
     let mut count = 0;
-    let mut widths = None;
+    let mut layout = Layout::new(args.format, std::io::stdout().is_terminal(), site);
     let mut cursor = args.cursor.clone();
     while count < limit {
         let mut page_url = url.clone();
@@ -252,7 +263,7 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
             Some(_) if page.items.is_empty() => {}
             Some(p) => {
                 // The user quit the pager: nothing left to show.
-                if p.write(&padded_rows(&page.items, &mut widths)).is_err() {
+                if p.write(&layout.page(&page.items)).is_err() {
                     break;
                 }
             }
@@ -273,7 +284,9 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
     } else if count == 0 {
         eprintln!("No products found.");
     } else if !paged {
-        print_table(&items);
+        for line in layout.page(&items) {
+            println!("{line}");
+        }
     }
     if let Some(cursor) = cursor.filter(|_| !paged && std::io::stderr().is_terminal()) {
         eprintln!("\nMore products: run again with --cursor {cursor}");
@@ -788,14 +801,56 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
     lines
 }
 
-/// On a terminal, `NAME  VISIBILITY  TITLE` under a header, padded to line
-/// up; piped, the same columns tab-separated with no header, for `cut` and
-/// `awk`.
-fn table_rows(items: &[Value], terminal: bool) -> Vec<String> {
-    if terminal {
-        return padded_rows(items, &mut None);
+/// Lays out a list one page at a time, keeping what later pages need from
+/// earlier ones: the table's column widths, or whether a product has been
+/// shown yet, so details get a rule between products.
+struct Layout<'a> {
+    format: ListFormat,
+    /// Writing to a terminal (or a pager on one) rather than a pipe
+    terminal: bool,
+    color: bool,
+    site: &'a str,
+    widths: Option<[usize; 2]>,
+    started: bool,
+}
+
+impl<'a> Layout<'a> {
+    fn new(format: ListFormat, terminal: bool, site: &'a str) -> Self {
+        Layout {
+            format,
+            terminal,
+            color: terminal && std::env::var_os("NO_COLOR").is_none(),
+            site,
+            widths: None,
+            started: false,
+        }
     }
-    columns(items).iter().map(|r| r.join("\t")).collect()
+
+    /// Details: each product as `view` shows it. Table on a terminal:
+    /// `NAME  VISIBILITY  TITLE` under a header, padded to line up; piped, the
+    /// same columns tab-separated with no header, for `cut` and `awk`.
+    fn page(&mut self, items: &[Value]) -> Vec<String> {
+        match self.format {
+            ListFormat::Table if self.terminal => padded_rows(items, &mut self.widths),
+            ListFormat::Table => columns(items).iter().map(|r| r.join("\t")).collect(),
+            ListFormat::Details => {
+                let rule = if self.color {
+                    format!("\x1b[2m{}\x1b[0m", "─".repeat(40))
+                } else {
+                    "─".repeat(40)
+                };
+                let mut lines = vec![];
+                for p in items {
+                    if self.started {
+                        lines.extend([String::new(), rule.clone(), String::new()]);
+                    }
+                    self.started = true;
+                    lines.extend(product_lines(p, self.site, self.color));
+                }
+                lines
+            }
+        }
+    }
 }
 
 /// The padded rows for one page of a streamed table. The first page (with
@@ -826,12 +881,6 @@ fn columns(items: &[Value]) -> Vec<[String; 3]> {
             ]
         })
         .collect()
-}
-
-fn print_table(items: &[Value]) {
-    for row in table_rows(items, std::io::stdout().is_terminal()) {
-        println!("{row}");
-    }
 }
 
 #[cfg(test)]
@@ -945,7 +994,7 @@ mod tests {
     fn table_lines_up_on_a_terminal_and_tabs_when_piped() {
         let items = [product("a", "one"), product("longer", "two")];
         assert_eq!(
-            table_rows(&items, true),
+            Layout::new(ListFormat::Table, true, "").page(&items),
             [
                 "NAME        VISIBILITY  TITLE",
                 "a/one       public      one title",
@@ -953,9 +1002,21 @@ mod tests {
             ]
         );
         assert_eq!(
-            table_rows(&items, false),
+            Layout::new(ListFormat::Table, false, "").page(&items),
             ["a/one\tpublic\tone title", "longer/two\tpublic\ttwo title"]
         );
+    }
+
+    #[test]
+    fn details_rule_off_products_across_pages() {
+        let mut layout = Layout::new(ListFormat::Details, false, "https://source.coop");
+        let first = layout.page(&[product("a", "one")]);
+        assert_eq!(first[0], "one title");
+        assert!(first.contains(&"URL         https://source.coop/a/one".to_string()));
+        assert!(!first.iter().any(|l| l.starts_with('─')));
+        // The second page's first product follows a rule, as the first page's would.
+        let second = layout.page(&[product("b", "two")]);
+        assert_eq!(second[..4], ["", &"─".repeat(40), "", "two title"]);
     }
 
     #[test]
@@ -1022,9 +1083,10 @@ mod tests {
             limit: Some(3),
             cursor: None,
             json: true,
+            format: ListFormat::Table,
             no_pager: false,
         };
-        list(args, &client).await.unwrap();
+        list(args, &client, "https://source.coop").await.unwrap();
     }
 
     #[tokio::test]
