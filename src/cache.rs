@@ -26,15 +26,21 @@ pub struct CacheEntry {
 }
 
 impl CacheEntry {
-    /// Whether this entry was minted at a proxy in `env`. Bare credentials
-    /// record no proxy and can't be renewed, so they're taken as they are.
-    fn belongs_to(&self, env: Option<&str>) -> bool {
+    /// Whether this entry records that it was minted at a proxy in `env`.
+    fn minted_in(&self, env: Option<&str>) -> bool {
         let proxy_url = match (&self.sts, &self.refresh) {
             (Some(sts), _) => &sts.proxy_url,
             (None, Some(refresh)) => &refresh.proxy_url,
-            (None, None) => return true,
+            (None, None) => return false,
         };
         in_env(proxy_url, env)
+    }
+
+    /// Whether this entry can be used in its own slot in `env`. Bare
+    /// credentials record no proxy and can't be renewed, so they're taken as
+    /// they are.
+    fn belongs_to(&self, env: Option<&str>) -> bool {
+        (self.sts.is_none() && self.refresh.is_none()) || self.minted_in(env)
     }
 }
 
@@ -211,7 +217,8 @@ pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<Cach
         return Ok(entry.filter(|e| e.belongs_to(env)));
     }
     let legacy: Option<CacheEntry> = read_slot(&role_slot(None, role_arn)?)?;
-    let Some(legacy) = legacy.filter(|e| e.belongs_to(env)) else {
+    // Only an entry that records its proxy: bare ones there are production's.
+    let Some(legacy) = legacy.filter(|e| e.minted_in(env)) else {
         return Ok(None);
     };
     write_slot(&slot, &legacy)?;
@@ -383,8 +390,11 @@ mod tests {
         assert!(other.belongs_to(Some("data.staging.source.coop")));
         assert!(!other.belongs_to(None));
         assert!(entry("https://data.source.coop").belongs_to(None));
+        assert!(other.minted_in(Some("data.staging.source.coop")));
         let bare = CacheEntry { sts: None, ..other };
         assert!(bare.belongs_to(None));
+        // A bare entry stays where it is: migration never hands it to another environment.
+        assert!(!bare.minted_in(Some("data.staging.source.coop")));
     }
 
     #[test]
