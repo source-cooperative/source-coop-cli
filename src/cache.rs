@@ -193,17 +193,17 @@ fn lock_slot(slot: &Slot) -> Result<fs::File, String> {
     Ok(file)
 }
 
-/// Write credentials, trying the OS keyring first with file fallback.
+/// Write credentials to their cache file (see `write_role`).
 /// Returns a human-readable description of where credentials were stored.
 pub fn write_credentials(
     env: Option<&str>,
     role_arn: &str,
     creds: &CacheEntry,
 ) -> Result<String, String> {
-    write_slot(&role_slot(env, role_arn)?, creds)
+    write_role(&role_slot(env, role_arn)?, creds)
 }
 
-/// Read credentials, trying the OS keyring first with file fallback.
+/// Read credentials from their cache file, falling back to the keyring.
 /// Returns `None` if no cached credentials are found in either location, or
 /// if they were minted at another environment's proxy.
 ///
@@ -212,16 +212,16 @@ pub fn write_credentials(
 /// entry from there, copying it into its own slot.
 pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
     let slot = role_slot(env, role_arn)?;
-    let entry: Option<CacheEntry> = read_slot(&slot)?;
+    let entry = read_role(&slot)?;
     if entry.is_some() || env.is_none() {
         return Ok(entry.filter(|e| e.belongs_to(env)));
     }
-    let legacy: Option<CacheEntry> = read_slot(&role_slot(None, role_arn)?)?;
+    let legacy = read_role(&role_slot(None, role_arn)?)?;
     // Only an entry that records its proxy: bare ones there are production's.
     let Some(legacy) = legacy.filter(|e| e.minted_in(env)) else {
         return Ok(None);
     };
-    write_slot(&slot, &legacy)?;
+    write_role(&slot, &legacy)?;
     Ok(Some(legacy))
 }
 
@@ -251,26 +251,60 @@ fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
     write_file(&slot.path, &json)
 }
 
-fn read_slot<T: DeserializeOwned>(slot: &Slot) -> Result<Option<T>, String> {
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
-        match entry.get_password() {
-            Ok(json) => {
-                return serde_json::from_str(&json)
-                    .map(Some)
-                    .map_err(|e| format!("Failed to parse cache from keyring: {e}"));
-            }
-            // Keyring works but nothing stored, or is unavailable: try the file
-            Err(keyring::Error::NoEntry) => {}
-            Err(ref e) if is_keyring_unavailable(e) => {}
-            Err(e) => return Err(format!("Failed to read from keyring: {e}")),
-        }
+/// Write a role's entry to its file. STS credentials are short-lived and
+/// minted again from the session, so they don't need the keyring, and keeping
+/// them out of it spares the keychain prompt macOS shows for every entry after
+/// each upgrade. An entry from before the session was shared still carries its
+/// own refresh token, which stays in the keyring.
+fn write_role(slot: &Slot, entry: &CacheEntry) -> Result<String, String> {
+    if entry.refresh.is_some() {
+        return write_slot(slot, entry);
     }
-    match fs::read_to_string(&slot.path) {
+    let json =
+        serde_json::to_string(entry).map_err(|e| format!("Failed to serialize cache: {e}"))?;
+    write_file(&slot.path, &json)
+}
+
+/// Read a role's entry from its file, or from the keyring, where versions
+/// before this one kept it.
+fn read_role(slot: &Slot) -> Result<Option<CacheEntry>, String> {
+    match read_file(&slot.path)? {
+        Some(entry) => Ok(Some(entry)),
+        None => read_keyring(slot),
+    }
+}
+
+/// Read a slot, trying the OS keyring first with file fallback.
+fn read_slot<T: DeserializeOwned>(slot: &Slot) -> Result<Option<T>, String> {
+    match read_keyring(slot)? {
+        Some(value) => Ok(Some(value)),
+        None => read_file(&slot.path),
+    }
+}
+
+/// Read a slot's keyring entry. `None` if there is none or the keyring is
+/// unavailable.
+fn read_keyring<T: DeserializeOwned>(slot: &Slot) -> Result<Option<T>, String> {
+    let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) else {
+        return Ok(None);
+    };
+    match entry.get_password() {
+        Ok(json) => serde_json::from_str(&json)
+            .map(Some)
+            .map_err(|e| format!("Failed to parse cache from keyring: {e}")),
+        Err(keyring::Error::NoEntry) => Ok(None),
+        Err(ref e) if is_keyring_unavailable(e) => Ok(None),
+        Err(e) => Err(format!("Failed to read from keyring: {e}")),
+    }
+}
+
+fn read_file<T: DeserializeOwned>(path: &Path) -> Result<Option<T>, String> {
+    match fs::read_to_string(path) {
         Ok(contents) => serde_json::from_str(&contents)
             .map(Some)
-            .map_err(|e| format!("Failed to parse cache {}: {e}", slot.path.display())),
+            .map_err(|e| format!("Failed to parse cache {}: {e}", path.display())),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(format!("Failed to read cache {}: {e}", slot.path.display())),
+        Err(e) => Err(format!("Failed to read cache {}: {e}", path.display())),
     }
 }
 
@@ -395,6 +429,33 @@ mod tests {
         assert!(bare.belongs_to(None));
         // A bare entry stays where it is: migration never hands it to another environment.
         assert!(!bare.minted_in(Some("data.staging.source.coop")));
+    }
+
+    #[test]
+    fn role_entries_round_trip_through_their_file() {
+        let path = std::env::temp_dir()
+            .join(format!("source-coop-test-{}", std::process::id()))
+            .join("role.json");
+        // An account no keyring holds, so a stray keyring lookup would find nothing.
+        let slot = Slot {
+            account: format!("source-coop-test-{}", std::process::id()),
+            path: path.clone(),
+        };
+        let entry = CacheEntry {
+            creds: sample_creds("2099-01-01T00:00:00Z"),
+            sts: Some(StsSettings {
+                proxy_url: "https://data.source.coop".into(),
+                duration: None,
+            }),
+            refresh: None,
+        };
+        assert_eq!(
+            write_role(&slot, &entry).unwrap(),
+            path.display().to_string()
+        );
+        let read = read_role(&slot).unwrap().unwrap();
+        assert_eq!(read.creds.access_key_id, entry.creds.access_key_id);
+        let _ = fs::remove_dir_all(path.parent().unwrap());
     }
 
     #[test]

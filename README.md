@@ -201,9 +201,9 @@ Use `--profile` to change the section name.
 
 The CLI caches the login session (the Ory refresh, ID and access tokens) and the temporary STS credentials for each role, so that `creds` and API commands work without re-authenticating. The refresh token is kept in the session only: it rotates on use, so every role and every API call refreshes through it, one at a time.
 
-### OS keyring (default)
+### Login session: OS keyring
 
-Credentials are stored in the OS-native keyring under the service name `source-coop-cli`, keyed by role ARN (e.g. `_default`), with the session under `@session`. Other environments prefix both with their proxy host (e.g. `data.staging.source.coop/_default`, `data.staging.source.coop/@session`):
+The session, which holds the long-lived refresh token, is stored in the OS-native keyring under the service name `source-coop-cli` and the account `@session`. Other environments prefix it with their proxy host (e.g. `data.staging.source.coop/@session`):
 
 | Platform | Backend |
 |----------|---------|
@@ -211,9 +211,11 @@ Credentials are stored in the OS-native keyring under the service name `source-c
 | Windows | Credential Manager |
 | Linux | Secret Service API (GNOME Keyring, KDE Wallet) via D-Bus |
 
-### File fallback
+When the OS keyring is unavailable (headless servers, containers, CI), the session falls back to a file, `source-coop/session.json` in the OS cache directory. The fallback is automatic; no configuration is needed.
 
-When the OS keyring is unavailable (headless servers, containers, CI), the CLI falls back to JSON files in the OS cache directory with `0600` permissions on Unix:
+### Role credentials: cache files
+
+Each role's STS credentials are short-lived and re-created from the session, so they're kept in JSON files in the OS cache directory (with `0600` permissions on Unix) rather than the keyring, much like the AWS CLI's own `~/.aws/cli/cache`. A `creds` call that finds fresh credentials doesn't touch the keyring at all, which matters on macOS: after every CLI upgrade, the Keychain asks for your password once for each entry it holds.
 
 | Platform | Path |
 |----------|------|
@@ -221,9 +223,9 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 | Linux | `~/.cache/source-coop/credentials/<role>.json` |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
-The session sits beside them, at `source-coop/session.json`. Other environments keep the same layout under `source-coop/env/<host>/`, or `source-coop/env/<host>/<port>/` for a non-default port (e.g. `source-coop/env/data.staging.source.coop/session.json`).
+Other environments keep the same layout under `source-coop/env/<host>/`, or `source-coop/env/<host>/<port>/` for a non-default port (e.g. `source-coop/env/data.staging.source.coop/credentials/_default.json`).
 
-The fallback is automatic — no configuration is needed.
+Credentials cached in the keyring by earlier versions are still read, so upgrading doesn't log you out; the next `login` replaces them with a file. An entry from v0.3.0 or earlier that carries its own refresh token stays in the keyring until then.
 
 ## OIDC provider setup
 
