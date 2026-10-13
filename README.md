@@ -228,9 +228,34 @@ source-coop login --role-arn <ARN> --port 8400
 
 The OAuth2 client should be configured as a **public client** (no client secret) with:
 
-- **Grant type**: Authorization Code
+- **Grant types**: Authorization Code, and Refresh Token (with `offline_access`) so a login lasts beyond the first token
 - **Token endpoint auth method**: `none` (public client, PKCE used instead)
 - **Allowed scopes**: `openid`, `offline_access`
 - **Redirect URIs**: `http://127.0.0.1/callback` (see above)
 - **Allowed audiences**: the source.coop site the API is served from (`https://source.coop`, or `https://staging.source.coop`). Without it, Ory refuses a login that asks for that audience.
 - **Access token strategy**: `jwt`, so the API can verify access tokens against Ory's published keys rather than asking Ory about each one
+
+### Source Cooperative's Ory clients
+
+Each environment's Ory project has two OAuth2 clients. Only the first belongs to this CLI.
+
+| | Staging | Production |
+|---|---|---|
+| Ory project | `ff8f07bb-adb7-4399-af07-20e633a105f6` | `d567800d-b705-49d1-8a28-6f92f3a4c053` |
+| Issuer | `https://auth.staging.source.coop` | `https://auth.source.coop` |
+| `source-coop-cli` client | `a79c9537-be78-454a-9ea1-b96a1be811cc` | `197e20e7-d52d-4d1d-9e54-4b73a342034b` |
+| `source.coop frontend` client | `1123dfa8-469f-44fe-b9f4-9b76f06fd325` | `fb15e9fb-00e7-4604-9df0-ac27ac5822f2` |
+
+**`source-coop-cli`** is configured as listed under [Client configuration](#client-configuration), with the audience matching its environment. It also has `skip_consent` set, so the browser returns straight to the CLI after login. Production's access token strategy is still `opaque`. It must be `jwt` before a CLI release that calls the source.coop API (source-cooperative/source.coop#654).
+
+**`source.coop frontend`** is the website's, not the CLI's. It's a confidential client (`client_secret_basic`, secret in Vercel as `ORY_OAUTH2_CLIENT_SECRET`) with only the Authorization Code grant and `openid offline_access`. The website runs its flow entirely server-side to get ID tokens for the data proxy's `/.sts`. Its redirect URI, `https://source.coop` on both projects, is never visited, but it must match the site's `CONFIG.auth.oauth2.redirectUri`. It has no audience and uses opaque access tokens; nothing needs either.
+
+To change a client, keep a copy and edit that. `ory update oauth2-client` replaces the whole client, dropping any field you leave out, and this `ory` CLI has no `patch` for clients:
+
+```bash
+P=<project> C=<client-id>
+ory get oauth2-client $C --project $P --format json > client.before.json
+jq '.access_token_strategy = "jwt"' client.before.json > client.after.json   # the change
+ory update oauth2-client $C --project $P --file client.after.json
+# Roll back: ory update oauth2-client $C --project $P --file client.before.json
+```
