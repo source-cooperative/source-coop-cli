@@ -13,6 +13,8 @@ use std::io::{IsTerminal, Read, Write};
 pub enum ProductCommand {
     /// List public products, or one account's products
     List(ListArgs),
+    /// Pick products from a list to view, open, edit or delete
+    Browse(BrowseArgs),
     /// Show one product
     View(ViewArgs),
     /// Create a product
@@ -23,9 +25,10 @@ pub enum ProductCommand {
     Delete(DeleteArgs),
 }
 
+/// Which products `list` and `browse` show.
 #[derive(Args)]
-pub struct ListArgs {
-    /// List this account's products (all public products when omitted)
+pub struct Filters {
+    /// This account's products (all public products when omitted)
     account: Option<String>,
 
     /// Only products whose title, description or IDs contain this text
@@ -39,6 +42,34 @@ pub struct ListArgs {
     /// Only featured products
     #[arg(long)]
     featured: bool,
+}
+
+impl Filters {
+    fn url(&self, client: &Client) -> url::Url {
+        let mut url = match &self.account {
+            Some(account) => client.url(&["products", account]),
+            None => client.url(&["products"]),
+        };
+        {
+            let mut q = url.query_pairs_mut();
+            if let Some(s) = &self.search {
+                q.append_pair("q", s);
+            }
+            if let Some(t) = &self.tags {
+                q.append_pair("tags", t);
+            }
+            if self.featured {
+                q.append_pair("featured", "true");
+            }
+        }
+        url
+    }
+}
+
+#[derive(Args)]
+pub struct ListArgs {
+    #[command(flatten)]
+    filters: Filters,
 
     /// Maximum number of products to list [default: 30, or all in a pager]
     #[arg(long, short = 'L')]
@@ -62,6 +93,12 @@ pub struct ListArgs {
     /// $PAGER or `less -FRX`
     #[arg(long)]
     no_pager: bool,
+}
+
+#[derive(Args)]
+pub struct BrowseArgs {
+    #[command(flatten)]
+    filters: Filters,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -208,6 +245,7 @@ pub async fn run(
 ) -> Result<(), String> {
     match cmd {
         ProductCommand::List(args) => list(args, client, site).await,
+        ProductCommand::Browse(args) => browse(args, client, site, prompter).await,
         ProductCommand::View(args) => view(args, client, site).await,
         ProductCommand::Create(args) => create(args, client, site, prompter).await,
         ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
@@ -216,22 +254,7 @@ pub async fn run(
 }
 
 async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String> {
-    let mut url = match &args.account {
-        Some(account) => client.url(&["products", account]),
-        None => client.url(&["products"]),
-    };
-    {
-        let mut q = url.query_pairs_mut();
-        if let Some(s) = &args.search {
-            q.append_pair("q", s);
-        }
-        if let Some(t) = &args.tags {
-            q.append_pair("tags", t);
-        }
-        if args.featured {
-            q.append_pair("featured", "true");
-        }
-    }
+    let url = args.filters.url(client);
 
     // On a terminal, stream pages into a pager as they come: a full pipe holds
     // off fetching until the user scrolls, so without -L it goes to the end.
@@ -249,15 +272,7 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
     let mut layout = Layout::new(args.format, std::io::stdout().is_terminal(), site);
     let mut cursor = args.cursor.clone();
     while count < limit {
-        let mut page_url = url.clone();
-        {
-            let mut q = page_url.query_pairs_mut();
-            q.append_pair("limit", &(limit - count).min(100).to_string());
-            if let Some(c) = &cursor {
-                q.append_pair("cursor", c);
-            }
-        }
-        let page: Page<Value> = client.get(page_url).await?;
+        let page = fetch_page(client, &url, limit - count, cursor.as_deref()).await?;
         count += page.items.len();
         cursor = page.next_cursor;
         match &mut pager {
@@ -293,6 +308,138 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
         eprintln!("\nMore products: run again with --cursor {cursor}");
     }
     Ok(())
+}
+
+/// How many products `browse` fetches at a time.
+const BROWSE_PAGE: usize = 50;
+
+/// Pick a product from a list (typing narrows it), then act on it with the
+/// same code as `view`, `edit` and `delete`. The list ends with "Load more…"
+/// while the listing has more pages, and "Quit".
+async fn browse(
+    args: BrowseArgs,
+    client: &Client,
+    site: &str,
+    prompter: Option<&mut dyn Prompter>,
+) -> Result<(), String> {
+    let ask = prompter.ok_or("browse needs a terminal to pick from; try `product list`.")?;
+    let url = args.filters.url(client);
+    let first = fetch_page(client, &url, BROWSE_PAGE, None).await?;
+    let (mut items, mut cursor) = (first.items, first.next_cursor);
+    let mut at = 0;
+    loop {
+        if items.is_empty() && cursor.is_none() {
+            eprintln!("No products found.");
+            return Ok(());
+        }
+        let mut labels: Vec<String> = items
+            .iter()
+            .map(|p| format!("{}  {}", name(p), str_field(p, "title")))
+            .collect();
+        let load_more = cursor.is_some().then_some(labels.len());
+        if load_more.is_some() {
+            labels.push("Load more…".into());
+        }
+        let quit = labels.len();
+        labels.push("Quit".into());
+
+        let pick = ask.fuzzy_select("Products", &labels, at.min(quit))?;
+        if pick == quit {
+            return Ok(());
+        }
+        if Some(pick) == load_more {
+            let page = fetch_page(client, &url, BROWSE_PAGE, cursor.as_deref()).await?;
+            at = items.len();
+            items.extend(page.items);
+            cursor = page.next_cursor;
+            continue;
+        }
+        at = pick;
+        match product_menu(items[pick].clone(), client, site, ask).await? {
+            Some(product) => items[pick] = product,
+            None => {
+                items.remove(pick);
+            }
+        }
+    }
+}
+
+/// Show one product and offer what to do with it until "Back". Returns the
+/// product as it now is, or None once it's deleted. A failed action is
+/// reported and the menu offered again.
+async fn product_menu(
+    mut product: Value,
+    client: &Client,
+    site: &str,
+    ask: &mut dyn Prompter,
+) -> Result<Option<Value>, String> {
+    let p: ProductRef = name(&product).parse()?;
+    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let actions = ["Back", "Open in browser", "Edit", "Delete"].map(String::from);
+    loop {
+        println!();
+        for line in product_lines(&product, site, color) {
+            println!("{line}");
+        }
+        println!();
+        match ask.select(&p.to_string(), &actions, 0)? {
+            0 => return Ok(Some(product)),
+            1 => {
+                let url = p.web_url(site);
+                eprintln!("Opening {url} in your browser.");
+                if let Err(e) = open::that(&url) {
+                    eprintln!("Couldn't open a browser: {e}");
+                }
+            }
+            2 => {
+                let args = EditArgs {
+                    product: p.clone(),
+                    title: None,
+                    description: None,
+                    visibility: None,
+                    disable: false,
+                    enable: false,
+                    from_file: None,
+                    json: false,
+                };
+                match edit(args, client, site, Some(&mut *ask)).await {
+                    Ok(()) => product = client.get(product_url(client, &p)).await?,
+                    Err(e) => eprintln!("Error: {e}"),
+                }
+            }
+            _ => {
+                let args = DeleteArgs {
+                    product: p.clone(),
+                    preserve_data: false,
+                    yes: false,
+                    json: false,
+                };
+                match delete(args, client, Some(&mut *ask)).await {
+                    Ok(()) => return Ok(None),
+                    Err(e) => eprintln!("Error: {e}"),
+                }
+            }
+        }
+    }
+}
+
+/// One page of a listing: up to `limit` products (the API caps a page at
+/// 100), from `cursor` on.
+async fn fetch_page(
+    client: &Client,
+    url: &url::Url,
+    limit: usize,
+    cursor: Option<&str>,
+) -> Result<Page<Value>, String> {
+    let mut url = url.clone();
+    {
+        let mut q = url.query_pairs_mut();
+        q.append_pair("limit", &limit.min(100).to_string());
+        if let Some(c) = cursor {
+            q.append_pair("cursor", c);
+        }
+    }
+    Ok(client.get(url).await?)
 }
 
 /// `$SOURCE_PAGER`, `$PAGER` or `less -FRX`, reading what is written to its
@@ -924,7 +1071,9 @@ fn columns(items: &[Value]) -> Vec<[String; 3]> {
 mod tests {
     use super::*;
     use crate::prompt::scripted::{Answer::*, Script};
-    use wiremock::matchers::{body_json, header, method, path, query_param};
+    use wiremock::matchers::{
+        body_json, header, method, path, query_param, query_param_is_missing,
+    };
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     const SITE: &str = "https://source.coop";
@@ -1190,10 +1339,12 @@ mod tests {
 
         let client = Client::new(&server.uri(), None, false).unwrap();
         let args = ListArgs {
-            account: Some("acct".into()),
-            search: None,
-            tags: None,
-            featured: false,
+            filters: Filters {
+                account: Some("acct".into()),
+                search: None,
+                tags: None,
+                featured: false,
+            },
             limit: Some(3),
             cursor: None,
             json: true,
@@ -1433,6 +1584,72 @@ mod tests {
             .expect(times)
             .mount(server)
             .await;
+    }
+
+    #[tokio::test]
+    async fn browse_loads_more_deletes_through_the_menu_and_quits() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct"))
+            .and(query_param("cursor", "c1"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"items": [product("acct", "c")], "next_cursor": null})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct"))
+            .and(query_param_is_missing("cursor"))
+            .and(query_param("limit", "50"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"items": [product("acct", "a"), product("acct", "prod")], "next_cursor": "c1"}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        expect_delete(&server, "false", 1).await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let args = BrowseArgs {
+            filters: Filters {
+                account: Some("acct".into()),
+                search: None,
+                tags: None,
+                featured: false,
+            },
+        };
+        let mut ask = Script::new([
+            Pick(2),           // Load more…
+            Pick(1),           // acct/prod
+            Pick(3),           // Delete
+            Yes(false),        // don't keep the data
+            Text("acct/prod"), // confirm
+            Pick(2),           // Quit
+        ]);
+        browse(args, &client, "https://source.coop", Some(&mut ask))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            ask.asked[0],
+            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title | Load more… | Quit"
+        );
+        // Load more keeps the cursor on the first new product.
+        assert_eq!(
+            ask.asked[1],
+            "Products [acct/c  c title] of acct/a  a title | acct/prod  prod title | acct/c  c title | Quit"
+        );
+        assert_eq!(
+            ask.asked[2],
+            "acct/prod [Back] of Back | Open in browser | Edit | Delete"
+        );
+        // The deleted product is gone, and the cursor sits on the one after it.
+        assert_eq!(
+            ask.asked.last().unwrap(),
+            "Products [acct/c  c title] of acct/a  a title | acct/c  c title | Quit"
+        );
     }
 
     #[tokio::test]
