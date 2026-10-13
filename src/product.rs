@@ -6,7 +6,7 @@ use crate::prompt::Prompter;
 use clap::{Args, Subcommand};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
-use std::io::{IsTerminal, Read};
+use std::io::{IsTerminal, Read, Write};
 
 #[derive(Subcommand)]
 pub enum ProductCommand {
@@ -39,9 +39,9 @@ pub struct ListArgs {
     #[arg(long)]
     featured: bool,
 
-    /// Maximum number of products to list
-    #[arg(long, short = 'L', default_value_t = 30)]
-    limit: usize,
+    /// Maximum number of products to list [default: 30, or all in a pager]
+    #[arg(long, short = 'L')]
+    limit: Option<usize>,
 
     /// Start after the products already listed: the cursor a previous list
     /// printed for its next page
@@ -51,6 +51,11 @@ pub struct ListArgs {
     /// Print the products as JSON
     #[arg(long)]
     json: bool,
+
+    /// Print straight to the terminal instead of through $SOURCE_PAGER,
+    /// $PAGER or `less -FRX`
+    #[arg(long)]
+    no_pager: bool,
 }
 
 #[derive(Args)]
@@ -216,22 +221,43 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
         }
     }
 
+    // On a terminal, stream pages into a pager as they come: a full pipe holds
+    // off fetching until the user scrolls, so without -L it goes to the end.
+    let mut pager = (!args.json && !args.no_pager && std::io::stdout().is_terminal())
+        .then(Pager::spawn)
+        .flatten();
+    let limit = args
+        .limit
+        .unwrap_or(if pager.is_some() { usize::MAX } else { 30 });
+
     // Follow next_cursor until there are enough, asking for no more per page
     // than the API's maximum.
     let mut items: Vec<Value> = vec![];
+    let mut count = 0;
+    let mut widths = None;
     let mut cursor = args.cursor.clone();
-    while items.len() < args.limit {
+    while count < limit {
         let mut page_url = url.clone();
         {
             let mut q = page_url.query_pairs_mut();
-            q.append_pair("limit", &(args.limit - items.len()).min(100).to_string());
+            q.append_pair("limit", &(limit - count).min(100).to_string());
             if let Some(c) = &cursor {
                 q.append_pair("cursor", c);
             }
         }
         let page: Page<Value> = client.get(page_url).await?;
-        items.extend(page.items);
+        count += page.items.len();
         cursor = page.next_cursor;
+        match &mut pager {
+            Some(_) if page.items.is_empty() => {}
+            Some(p) => {
+                // The user quit the pager: nothing left to show.
+                if p.write(&padded_rows(&page.items, &mut widths)).is_err() {
+                    break;
+                }
+            }
+            None => items.extend(page.items),
+        }
         if cursor.is_none() {
             break;
         }
@@ -240,17 +266,53 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
     // asked for, and dropping the extra would skip them: the cursor resumes
     // after the whole page.
 
+    let paged = pager.is_some();
+    drop(pager);
     if args.json {
         print_json(&Value::Array(items));
-    } else if items.is_empty() {
+    } else if count == 0 {
         eprintln!("No products found.");
-    } else {
+    } else if !paged {
         print_table(&items);
     }
-    if let Some(cursor) = cursor.filter(|_| std::io::stderr().is_terminal()) {
+    if let Some(cursor) = cursor.filter(|_| !paged && std::io::stderr().is_terminal()) {
         eprintln!("\nMore products: run again with --cursor {cursor}");
     }
     Ok(())
+}
+
+/// `$SOURCE_PAGER`, `$PAGER` or `less -FRX`, reading what is written to its
+/// stdin. Dropping it closes stdin and waits for the user to quit.
+struct Pager(std::process::Child);
+
+impl Pager {
+    /// None when the pager is empty or `cat`, or won't start (no `less` on
+    /// Windows): print straight to stdout.
+    fn spawn() -> Option<Pager> {
+        let cmd = std::env::var("SOURCE_PAGER")
+            .or_else(|_| std::env::var("PAGER"))
+            .unwrap_or_else(|_| "less -FRX".into());
+        let mut words = cmd.split_whitespace();
+        let program = words.next().filter(|p| *p != "cat")?;
+        std::process::Command::new(program)
+            .args(words)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .ok()
+            .map(Pager)
+    }
+
+    fn write(&mut self, rows: &[String]) -> std::io::Result<()> {
+        let stdin = self.0.stdin.as_mut().expect("piped stdin");
+        stdin.write_all((rows.join("\n") + "\n").as_bytes())
+    }
+}
+
+impl Drop for Pager {
+    fn drop(&mut self) {
+        drop(self.0.stdin.take());
+        let _ = self.0.wait();
+    }
 }
 
 async fn view(args: ViewArgs, client: &Client, site: &str) -> Result<(), String> {
@@ -730,7 +792,31 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
 /// up; piped, the same columns tab-separated with no header, for `cut` and
 /// `awk`.
 fn table_rows(items: &[Value], terminal: bool) -> Vec<String> {
-    let rows: Vec<[String; 3]> = items
+    if terminal {
+        return padded_rows(items, &mut None);
+    }
+    columns(items).iter().map(|r| r.join("\t")).collect()
+}
+
+/// The padded rows for one page of a streamed table. The first page (with
+/// `widths` None) gets the header and sets the column widths; later pages
+/// reuse them.
+fn padded_rows(items: &[Value], widths: &mut Option<[usize; 2]>) -> Vec<String> {
+    let mut rows = columns(items);
+    if widths.is_none() {
+        rows.insert(0, ["NAME", "VISIBILITY", "TITLE"].map(String::from));
+    }
+    let [w0, w1] = *widths.get_or_insert_with(|| {
+        let width = |i: usize| rows.iter().map(|r| r[i].chars().count()).max().unwrap_or(0);
+        [width(0), width(1)]
+    });
+    rows.iter()
+        .map(|[n, v, t]| format!("{n:<w0$}  {v:<w1$}  {t}").trim_end().to_string())
+        .collect()
+}
+
+fn columns(items: &[Value]) -> Vec<[String; 3]> {
+    items
         .iter()
         .map(|p| {
             [
@@ -739,16 +825,6 @@ fn table_rows(items: &[Value], terminal: bool) -> Vec<String> {
                 str_field(p, "title").to_string(),
             ]
         })
-        .collect();
-    if !terminal {
-        return rows.iter().map(|r| r.join("\t")).collect();
-    }
-    let header = ["NAME", "VISIBILITY", "TITLE"].map(String::from);
-    let all: Vec<&[String; 3]> = std::iter::once(&header).chain(&rows).collect();
-    let w0 = all.iter().map(|r| r[0].chars().count()).max().unwrap_or(0);
-    let w1 = all.iter().map(|r| r[1].chars().count()).max().unwrap_or(0);
-    all.iter()
-        .map(|[n, v, t]| format!("{n:<w0$}  {v:<w1$}  {t}").trim_end().to_string())
         .collect()
 }
 
@@ -883,6 +959,22 @@ mod tests {
     }
 
     #[test]
+    fn streamed_pages_keep_the_first_pages_widths() {
+        let mut widths = None;
+        assert_eq!(
+            padded_rows(&[product("a", "one")], &mut widths),
+            ["NAME   VISIBILITY  TITLE", "a/one  public      one title"]
+        );
+        assert_eq!(
+            padded_rows(&[product("b", "two"), product("longer", "x")], &mut widths),
+            [
+                "b/two  public      two title",
+                "longer/x  public      x title"
+            ]
+        );
+    }
+
+    #[test]
     fn reads_fields_from_a_file() {
         let dir = std::env::temp_dir().join(format!("scc-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -927,9 +1019,10 @@ mod tests {
             search: None,
             tags: None,
             featured: false,
-            limit: 3,
+            limit: Some(3),
             cursor: None,
             json: true,
+            no_pager: false,
         };
         list(args, &client).await.unwrap();
     }
