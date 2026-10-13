@@ -18,6 +18,10 @@ const SKEW_SECONDS: i64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// The proxy `login` was given, which names the session's environment.
+    /// Absent in sessions written before environments existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
     pub client_id: String,
     pub token_endpoint: String,
     /// What the access token was requested for, if anything.
@@ -45,12 +49,14 @@ pub enum Want {
 impl Session {
     pub fn new(
         tokens: oidc::Tokens,
+        proxy_url: String,
         client_id: String,
         token_endpoint: String,
         audience: Option<String>,
         now: i64,
     ) -> Self {
         let mut session = Session {
+            proxy_url: Some(proxy_url),
             client_id,
             token_endpoint,
             audience,
@@ -191,6 +197,7 @@ mod tests {
     fn session(server: &MockServer, t: oidc::Tokens) -> Session {
         Session::new(
             t,
+            "https://data.source.coop".into(),
             "cid".into(),
             format!("{}/oauth2/token", server.uri()),
             Some("https://source.coop".into()),

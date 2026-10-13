@@ -253,6 +253,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     }
     let session = session::Session::new(
         tokens,
+        args.proxy_url.clone(),
         args.client_id,
         endpoints.token_endpoint,
         audience.map(String::from),
@@ -270,6 +271,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         }),
         refresh: None,
     };
+    // Under the role's lock, so a `creds` minting from the old session can't
+    // overwrite this entry afterwards.
+    let _lock = cache::lock(env.as_deref(), &args.role_arn)?;
     let location = cache::write_credentials(env.as_deref(), &args.role_arn, &entry)?;
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");

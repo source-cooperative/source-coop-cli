@@ -34,8 +34,13 @@ impl CacheEntry {
             (None, Some(refresh)) => &refresh.proxy_url,
             (None, None) => return true,
         };
-        self::env(proxy_url).is_ok_and(|e| e.as_deref() == env)
+        in_env(proxy_url, env)
     }
+}
+
+/// Whether `proxy_url` is in `env`. An unparseable URL is in none.
+fn in_env(proxy_url: &str, env: Option<&str>) -> bool {
+    self::env(proxy_url).is_ok_and(|e| e.as_deref() == env)
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -68,28 +73,26 @@ fn cache_dir() -> Result<PathBuf, String> {
         .join("source-coop"))
 }
 
-/// The environment a proxy URL belongs to: `None` for this build's default
-/// proxy, whose slots keep the names they had before environments existed,
-/// otherwise the proxy's host (and port, if not the scheme's default).
-pub fn env(proxy_url: &str) -> Result<Option<String>, String> {
-    let host = host(proxy_url)?;
-    Ok((host != host_of_default()).then_some(host))
-}
+/// The production proxy's host. Its slots keep the names they had before
+/// environments existed, in every build: tying them to the build's default
+/// proxy would let a staging build and a production build, which share the
+/// keyring, read each other's caches as their own.
+const PROD_HOST: &str = "data.source.coop";
 
-fn host(proxy_url: &str) -> Result<String, String> {
-    let url =
-        url::Url::parse(proxy_url).map_err(|e| format!("Invalid proxy URL {proxy_url}: {e}"))?;
+/// The environment a proxy URL belongs to: `None` for production, otherwise
+/// the proxy's host (and port, if not the scheme's default).
+pub fn env(proxy_url: &str) -> Result<Option<String>, String> {
+    let url = url::Url::parse(proxy_url).map_err(|e| {
+        format!("Invalid proxy URL {proxy_url:?} (from --proxy-url or SOURCE_PROXY_URL): {e}")
+    })?;
     let host = url
         .host_str()
-        .ok_or_else(|| format!("Proxy URL {proxy_url} has no host"))?;
+        .ok_or_else(|| format!("Proxy URL {proxy_url:?} has no host"))?;
     Ok(match url.port() {
-        Some(port) => format!("{host}:{port}"),
-        None => host.to_string(),
+        Some(port) => Some(format!("{host}:{port}")),
+        None if host == PROD_HOST => None,
+        None => Some(host.to_string()),
     })
-}
-
-fn host_of_default() -> String {
-    host(crate::defaults::PROXY_URL).expect("default proxy URL is valid")
 }
 
 /// The keyring account for `name` in `env`. Hosts can't contain `/`, so a
@@ -101,14 +104,19 @@ fn account(env: Option<&str>, name: &str) -> String {
     }
 }
 
-/// The directory `env`'s cache files live in. Each non-default environment
-/// gets its own, so their files can't collide with each other's or prod's.
+/// The directory `env`'s cache files live in: `env/<host>[/<port>]`. Each
+/// non-production environment gets its own, so their files can't collide with
+/// each other's or prod's. The port is its own segment because `_`, which
+/// sanitizing produces, is allowed in hosts.
 fn env_dir(env: Option<&str>) -> Result<PathBuf, String> {
     let dir = cache_dir()?;
-    Ok(match env {
-        None => dir,
-        Some(env) => dir.join("env").join(sanitize(env, &['-', '.'])),
-    })
+    let Some(env) = env else { return Ok(dir) };
+    let (host, port) = env
+        .rsplit_once(':')
+        .filter(|(_, port)| port.bytes().all(|b| b.is_ascii_digit()))
+        .unwrap_or((env, ""));
+    let dir = dir.join("env").join(sanitize(host, &['-', '.', '_']));
+    Ok(if port.is_empty() { dir } else { dir.join(port) })
 }
 
 fn role_slot(env: Option<&str>, role_arn: &str) -> Result<Slot, String> {
@@ -191,19 +199,34 @@ pub fn write_credentials(
 
 /// Read credentials, trying the OS keyring first with file fallback.
 /// Returns `None` if no cached credentials are found in either location, or
-/// if they were minted at another environment's proxy: versions before
-/// environments existed cached every proxy's credentials in the default slot.
+/// if they were minted at another environment's proxy.
+///
+/// Versions before environments existed cached every proxy's credentials in
+/// the production slot, so an environment with nothing of its own takes its
+/// entry from there, copying it into its own slot.
 pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
-    let entry: Option<CacheEntry> = read_slot(&role_slot(env, role_arn)?)?;
-    Ok(entry.filter(|e| e.belongs_to(env)))
+    let slot = role_slot(env, role_arn)?;
+    let entry: Option<CacheEntry> = read_slot(&slot)?;
+    if entry.is_some() || env.is_none() {
+        return Ok(entry.filter(|e| e.belongs_to(env)));
+    }
+    let legacy: Option<CacheEntry> = read_slot(&role_slot(None, role_arn)?)?;
+    let Some(legacy) = legacy.filter(|e| e.belongs_to(env)) else {
+        return Ok(None);
+    };
+    write_slot(&slot, &legacy)?;
+    Ok(Some(legacy))
 }
 
 pub fn write_session(env: Option<&str>, session: &Session) -> Result<String, String> {
     write_slot(&session_slot(env)?, session)
 }
 
+/// Read `env`'s login session, or `None` if there is none or it belongs to
+/// another environment's proxy.
 pub fn read_session(env: Option<&str>) -> Result<Option<Session>, String> {
-    read_slot(&session_slot(env)?)
+    let session: Option<Session> = read_slot(&session_slot(env)?)?;
+    Ok(session.filter(|s| s.proxy_url.as_deref().is_none_or(|p| in_env(p, env))))
 }
 
 fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
@@ -289,14 +312,18 @@ mod tests {
 
     #[test]
     fn env_normalizes_proxy_urls() {
-        let default = crate::defaults::PROXY_URL;
-        assert_eq!(env(default).unwrap(), None);
-        assert_eq!(env(&format!("{default}/")).unwrap(), None);
-        assert_eq!(env(&default.to_uppercase()).unwrap(), None);
-        assert_eq!(env(&format!("{default}:443")).unwrap(), None);
+        // Production is the bare environment in every build, staging never is.
+        assert_eq!(env("https://data.source.coop").unwrap(), None);
+        assert_eq!(env("https://data.source.coop/").unwrap(), None);
+        assert_eq!(env("HTTPS://DATA.SOURCE.COOP").unwrap(), None);
+        assert_eq!(env("https://data.source.coop:443").unwrap(), None);
         assert_eq!(
-            env("https://Data.Example.com/").unwrap().as_deref(),
-            Some("data.example.com")
+            env("https://Data.Staging.Source.Coop/").unwrap().as_deref(),
+            Some("data.staging.source.coop")
+        );
+        assert_eq!(
+            env("https://data.source.coop:8443").unwrap().as_deref(),
+            Some("data.source.coop:8443")
         );
         assert_eq!(
             env("http://localhost:8080").unwrap().as_deref(),
@@ -321,11 +348,15 @@ mod tests {
             local.path,
             default
                 .join("env")
-                .join("localhost_8080")
+                .join("localhost")
+                .join("8080")
                 .join("credentials")
                 .join("_default.json")
         );
         assert_ne!(local.path, lookalike.path);
+        // `_` is legal in hosts, so the port can't be joined to the host with one.
+        let underscored = role_slot(Some("localhost_8080"), "_default").unwrap();
+        assert_ne!(local.path, underscored.path);
 
         let staging = session_slot(Some("data.staging.source.coop")).unwrap();
         assert_eq!(staging.account, "data.staging.source.coop/@session");
@@ -348,10 +379,10 @@ mod tests {
             }),
             refresh: None,
         };
-        let other = entry("https://data.example.com");
-        assert!(other.belongs_to(Some("data.example.com")));
+        let other = entry("https://data.staging.source.coop");
+        assert!(other.belongs_to(Some("data.staging.source.coop")));
         assert!(!other.belongs_to(None));
-        assert!(entry(crate::defaults::PROXY_URL).belongs_to(None));
+        assert!(entry("https://data.source.coop").belongs_to(None));
         let bare = CacheEntry { sts: None, ..other };
         assert!(bare.belongs_to(None));
     }

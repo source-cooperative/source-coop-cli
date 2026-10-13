@@ -134,7 +134,7 @@ source-coop login
 ( source .env.staging && source-coop login )
 ```
 
-`creds` and `auth token` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment:
+`creds` and `auth token` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment, and without either they use production. A non-production profile must pass `--proxy-url`; one that relied on whichever environment was logged in last will now get production credentials:
 
 ```ini
 [profile source-coop]
@@ -221,7 +221,7 @@ When the OS keyring is unavailable (headless servers, containers, CI), the CLI f
 | Linux | `~/.cache/source-coop/credentials/<role>.json` |
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
-The session sits beside them, at `source-coop/session.json`. Other environments keep the same layout under `source-coop/env/<host>/` (e.g. `source-coop/env/data.staging.source.coop/session.json`).
+The session sits beside them, at `source-coop/session.json`. Other environments keep the same layout under `source-coop/env/<host>/`, or `source-coop/env/<host>/<port>/` for a non-default port (e.g. `source-coop/env/data.staging.source.coop/session.json`).
 
 The fallback is automatic — no configuration is needed.
 
