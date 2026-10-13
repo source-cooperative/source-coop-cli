@@ -43,6 +43,11 @@ pub struct ListArgs {
     #[arg(long, short = 'L', default_value_t = 30)]
     limit: usize,
 
+    /// Start after the products already listed: the cursor a previous list
+    /// printed for its next page
+    #[arg(long)]
+    cursor: Option<String>,
+
     /// Print the products as JSON
     #[arg(long)]
     json: bool,
@@ -214,7 +219,7 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
     // Follow next_cursor until there are enough, asking for no more per page
     // than the API's maximum.
     let mut items: Vec<Value> = vec![];
-    let mut cursor: Option<String> = None;
+    let mut cursor = args.cursor.clone();
     while items.len() < args.limit {
         let mut page_url = url.clone();
         {
@@ -231,7 +236,9 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
             break;
         }
     }
-    items.truncate(args.limit);
+    // ponytail: no truncating to the limit. A search page can hold more than
+    // asked for, and dropping the extra would skip them: the cursor resumes
+    // after the whole page.
 
     if args.json {
         print_json(&Value::Array(items));
@@ -239,6 +246,9 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
         eprintln!("No products found.");
     } else {
         print_table(&items);
+    }
+    if let Some(cursor) = cursor.filter(|_| std::io::stderr().is_terminal()) {
+        eprintln!("\nMore products: run again with --cursor {cursor}");
     }
     Ok(())
 }
@@ -626,18 +636,94 @@ fn print_json(v: &Value) {
 }
 
 fn print_product(p: &Value, site: &str) {
-    let name = name(p);
-    let mut state = str_field(p, "visibility").to_string();
-    if p.get("disabled").and_then(Value::as_bool) == Some(true) {
-        state.push_str(", deactivated");
+    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    for line in product_lines(p, site, color) {
+        println!("{line}");
     }
-    println!("{}", str_field(p, "title"));
-    println!("{name} ({state})");
+}
+
+/// The title, then one `Label  value` row per field the product has, then the
+/// description. `color` adds ANSI styling: bold title, dim labels, and the
+/// visibility and status in green, yellow or red.
+fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
+    let paint = |code: &str, s: &str| {
+        if color {
+            format!("\x1b[{code}m{s}\x1b[0m")
+        } else {
+            s.to_string()
+        }
+    };
+    let name = name(p);
+    let visibility = str_field(p, "visibility");
+    let disabled = p.get("disabled").and_then(Value::as_bool) == Some(true);
+    let account = p.get("account").map(|a| {
+        let label = match str_field(a, "name") {
+            "" => str_field(a, "account_id"),
+            n => n,
+        };
+        match str_field(a, "type") {
+            "" => label.to_string(),
+            t => format!("{label} ({t})"),
+        }
+    });
+    let date = |key: &str| {
+        chrono::DateTime::parse_from_rfc3339(str_field(p, key))
+            .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+            .ok()
+    };
+    let rows: Vec<(&str, String)> = [
+        ("Product", Some(name.clone())),
+        (
+            "Visibility",
+            Some(match visibility {
+                "public" => paint("32", visibility),
+                "" => String::new(),
+                v => paint("33", v),
+            }),
+        ),
+        (
+            "Status",
+            Some(if disabled {
+                paint("31", "deactivated")
+            } else {
+                paint("32", "active")
+            }),
+        ),
+        ("Data mode", Some(str_field(p, "data_mode").to_string())),
+        (
+            "Featured",
+            p.get("featured")
+                .and_then(Value::as_i64)
+                .filter(|&f| f > 0)
+                .map(|_| "yes".to_string()),
+        ),
+        ("Account", account),
+        ("Created", date("created_at")),
+        ("Updated", date("updated_at")),
+        (
+            "URL",
+            Some(paint(
+                "4",
+                &format!("{}/{name}", site.trim_end_matches('/')),
+            )),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(label, value)| value.filter(|v| !v.is_empty()).map(|v| (label, v)))
+    .collect();
+
+    let width = rows.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
+    let mut lines = vec![paint("1", str_field(p, "title")), String::new()];
+    lines.extend(
+        rows.iter()
+            .map(|(label, value)| format!("{}  {value}", paint("2", &format!("{label:<width$}")))),
+    );
     let description = str_field(p, "description");
     if !description.is_empty() {
-        println!("\n{description}");
+        lines.push(String::new());
+        lines.extend(description.lines().map(String::from));
     }
-    println!("\n{}/{name}", site.trim_end_matches('/'));
+    lines
 }
 
 /// On a terminal, `NAME  VISIBILITY  TITLE` under a header, padded to line
@@ -749,6 +835,37 @@ mod tests {
     }
 
     #[test]
+    fn view_lists_fields_with_labels_and_colors_only_when_asked() {
+        let p = json!({
+            "account_id": "acct", "product_id": "p", "title": "A product",
+            "visibility": "public", "disabled": false, "data_mode": "open",
+            "featured": 0, "created_at": "2024-12-13T20:32:55.681Z",
+            "account": {"account_id": "acct", "name": "Acct Inc", "type": "organization"},
+            "description": "Line one\nLine two"
+        });
+        assert_eq!(
+            product_lines(&p, "https://source.coop/", false),
+            [
+                "A product",
+                "",
+                "Product     acct/p",
+                "Visibility  public",
+                "Status      active",
+                "Data mode   open",
+                "Account     Acct Inc (organization)",
+                "Created     2024-12-13 20:32 UTC",
+                "URL         https://source.coop/acct/p",
+                "",
+                "Line one",
+                "Line two",
+            ]
+        );
+        let colored = product_lines(&p, "https://source.coop", true);
+        assert_eq!(colored[0], "\x1b[1mA product\x1b[0m");
+        assert!(colored[3].contains("\x1b[32mpublic\x1b[0m"));
+    }
+
+    #[test]
     fn table_lines_up_on_a_terminal_and_tabs_when_piped() {
         let items = [product("a", "one"), product("longer", "two")];
         assert_eq!(
@@ -811,6 +928,7 @@ mod tests {
             tags: None,
             featured: false,
             limit: 3,
+            cursor: None,
             json: true,
         };
         list(args, &client).await.unwrap();
