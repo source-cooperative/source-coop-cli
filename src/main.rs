@@ -1,6 +1,7 @@
 mod api;
 mod api_cmd;
 mod cache;
+mod draft;
 mod oidc;
 mod output;
 mod product;

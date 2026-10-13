@@ -2,6 +2,7 @@
 //! `/api/v1/products`.
 
 use crate::api::{ApiError, Client, Page};
+use crate::draft::Draft;
 use crate::prompt::Prompter;
 use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
@@ -357,6 +358,10 @@ async fn create(
     insert_some(&mut body, "visibility", args.visibility);
     insert_some(&mut body, "data_connection_id", args.data_connection_id);
 
+    // Before the first question, so nobody types a product only to be refused.
+    if prompter.is_some() {
+        client.check_signed_in().await?;
+    }
     let product = match (args.product, prompter.as_deref_mut()) {
         (Some(p), _) => p,
         (None, Some(ask)) => ask.input("Product (ACCOUNT/PRODUCT)", "", false)?.parse()?,
@@ -364,12 +369,22 @@ async fn create(
     };
     body.insert("product_id".into(), json!(product.product_id));
 
-    if let Some(ask) = prompter.as_deref_mut() {
-        prompt_new_product(ask, client, &product, &mut body).await?;
-    }
+    let draft = match prompter.as_deref_mut() {
+        Some(ask) => {
+            let draft = Draft::for_key(&format!("product-create/{product}"))?;
+            draft.resume(ask, &mut body)?;
+            prompt_new_product(ask, client, &product, &mut body).await?;
+            Some(draft)
+        }
+        None => None,
+    };
 
     let url = client.url(&["products", &product.account_id]);
-    let created = send_until_accepted(client, Method::POST, url, &mut body, prompter).await?;
+    let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter).await;
+    let created = match &draft {
+        Some(draft) => draft.finish(sent, &body)?,
+        None => sent?,
+    };
     report(&created, args.json, "Created", site);
     Ok(())
 }
@@ -558,6 +573,7 @@ async fn edit(
     }
     let url = product_url(client, &args.product);
 
+    let mut draft = None;
     if body.is_empty() {
         let Some(ask) = prompter.as_deref_mut() else {
             return Err(
@@ -565,15 +581,24 @@ async fn edit(
                     .into(),
             );
         };
-        let current: Value = client.get(url.clone()).await?;
-        prompt_edits(ask, &current, &mut body)?;
+        client.check_signed_in().await?;
+        let saved = Draft::for_key(&format!("product-edit/{}", args.product))?;
+        if !saved.resume(ask, &mut body)? {
+            let current: Value = client.get(url.clone()).await?;
+            prompt_edits(ask, &current, &mut body)?;
+        }
         if body.is_empty() {
             eprintln!("No changes to {}.", args.product);
             return Ok(());
         }
+        draft = Some(saved);
     }
 
-    let product = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await?;
+    let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await;
+    let product = match &draft {
+        Some(draft) => draft.finish(sent, &body)?,
+        None => sent?,
+    };
     report(&product, args.json, "Edited", site);
     Ok(())
 }
@@ -945,6 +970,83 @@ mod tests {
 
     /// Answer a POST to the account's products with the product, but only if
     /// the body is exactly `expected`.
+    /// A stand-in API that knows the caller, as `check_signed_in` asks before
+    /// any prompt.
+    async fn api_server() -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/whoami"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account_id": "acct"})))
+            .mount(&server)
+            .await;
+        server
+    }
+
+    #[tokio::test]
+    async fn create_checks_sign_in_before_asking_anything() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/whoami"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(
+                json!({"error": {"code": "unauthenticated", "message": "Authentication required"}}),
+            ))
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("stale".into()), false).unwrap();
+        // No scripted answers: a single question would panic.
+        let mut ask = Script::new([]);
+        let err = create(create_args(None), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap_err();
+        assert!(err.contains("run 'source-coop login'"), "{err}");
+        assert!(ask.asked.is_empty());
+    }
+
+    #[tokio::test]
+    async fn create_keeps_answers_from_a_failed_send_for_the_next_run() {
+        let server = api_server().await;
+        let expected = json!({"product_id": "drafted", "title": "T", "visibility": "public",
+                              "data_connection_id": "dc", "description": "Typed once"});
+        Mock::given(method("POST"))
+            .and(path("/api/v1/products/acct"))
+            .respond_with(ResponseTemplate::new(500))
+            .up_to_n_times(1)
+            .with_priority(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/products/acct"))
+            .and(body_json(&expected))
+            .respond_with(ResponseTemplate::new(201).set_body_json(product("acct", "drafted")))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let args = || {
+            let mut args = create_args(Some("acct/drafted"));
+            args.title = Some("T".into());
+            args.visibility = Some("public".into());
+            args.data_connection_id = Some("dc".into());
+            args
+        };
+
+        let mut first = Script::new([Text("Typed once")]);
+        let err = create(args(), &client, SITE, Some(&mut first))
+            .await
+            .unwrap_err();
+        assert!(err.contains("Your answers are saved"), "{err}");
+
+        // The next run offers them back and asks for nothing else.
+        let mut second = Script::new([Yes(true)]);
+        create(args(), &client, SITE, Some(&mut second))
+            .await
+            .unwrap();
+        assert_eq!(
+            second.asked,
+            ["Use the answers saved from your last try? [true]"]
+        );
+    }
+
     async fn expect_create(server: &MockServer, expected: Value) {
         Mock::given(method("POST"))
             .and(path("/api/v1/products/acct"))
@@ -1064,7 +1166,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_follows_cursors_up_to_the_limit() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct"))
             .and(query_param("cursor", "c1"))
@@ -1103,7 +1205,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_without_a_terminal_sends_only_what_it_was_given() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("POST"))
             .and(path("/api/v1/products/acct"))
             .and(header("authorization", "Bearer tkn"))
@@ -1130,7 +1232,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_prompts_for_what_is_missing_with_defaults() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/data-connections"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!([
@@ -1171,7 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_prompts_only_for_what_flags_and_file_leave_out() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         expect_create(
             &server,
             json!({"product_id": "prod", "title": "Flag wins", "description": "From file",
@@ -1203,7 +1305,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_asks_for_a_connection_id_when_none_can_be_listed() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/data-connections"))
             .respond_with(ResponseTemplate::new(500))
@@ -1230,7 +1332,7 @@ mod tests {
 
     #[tokio::test]
     async fn create_surfaces_the_apis_field_errors() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("POST"))
             .and(path("/api/v1/products/acct"))
             .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
@@ -1248,7 +1350,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_sends_disabled_and_without_a_terminal_refuses_an_empty_patch() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("PATCH"))
             .and(path("/api/v1/products/acct/prod"))
             .and(body_json(json!({"disabled": true})))
@@ -1269,7 +1371,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_prompts_from_current_values_and_sends_only_changes() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct/prod"))
             .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
@@ -1302,7 +1404,7 @@ mod tests {
 
     #[tokio::test]
     async fn edit_with_nothing_changed_sends_nothing() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct/prod"))
             .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
@@ -1335,7 +1437,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_with_yes_passes_preserve_data() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         expect_delete(&server, "true", 1).await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         delete(delete_args(true, true), &client, None)
@@ -1354,7 +1456,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_asks_about_data_then_for_the_name() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         expect_delete(&server, "true", 1).await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut ask = Script::new([Yes(true), Text("acct/prod")]);
@@ -1365,7 +1467,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_stops_on_the_wrong_name() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         expect_delete(&server, "false", 0).await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut ask = Script::new([Default, Text("acct/other")]);
@@ -1376,7 +1478,7 @@ mod tests {
     }
     #[tokio::test]
     async fn create_asks_again_for_just_the_rejected_fields() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("POST"))
             .and(path("/api/v1/products/acct"))
             .and(body_json(json!({"product_id": "Bad--ID", "title": "T", "description": "D",
@@ -1408,7 +1510,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rejection_naming_other_fields_is_just_an_error() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("POST"))
             .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
                 "code": "invalid", "message": "The request is invalid.",

@@ -200,6 +200,19 @@ impl Client {
     pub async fn get<T: DeserializeOwned>(&self, url: url::Url) -> Result<T, ApiError> {
         self.request(Method::GET, url, None::<&()>).await
     }
+
+    /// Fail before anyone is asked anything if changes can't be made as them:
+    /// no token, or one the API refuses (expired, or for another audience).
+    pub async fn check_signed_in(&self) -> Result<(), ApiError> {
+        if self.token.is_none() {
+            return Err(ApiError::other(
+                "Not signed in: run 'source-coop login'.".into(),
+            ));
+        }
+        self.get::<serde_json::Value>(self.url(&["whoami"]))
+            .await
+            .map(drop)
+    }
 }
 
 /// One page of a listing.
