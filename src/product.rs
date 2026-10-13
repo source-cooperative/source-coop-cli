@@ -1612,7 +1612,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_i_loads_more_deletes_through_the_menu_and_quits() {
-        let server = MockServer::start().await;
+        let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct"))
             .and(query_param("cursor", "c1"))
