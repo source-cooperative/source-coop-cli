@@ -81,6 +81,10 @@ struct ApiCommandArgs {
     #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
+    /// S3 proxy URL of the environment whose login session to use
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
     #[command(flatten)]
     request: api_cmd::ApiArgs,
 }
@@ -92,6 +96,10 @@ struct ProductArgs {
     /// source.coop site URL; the API is served under its `/api/v1`
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
+
+    /// S3 proxy URL of the environment whose login session to use
+    #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
 
     #[command(subcommand)]
     command: product::ProductCommand,
@@ -215,7 +223,7 @@ async fn main() {
             }
         }
         Commands::Api(args) => {
-            let token = api_token(verbose).await;
+            let token = api_token(&args.proxy_url, verbose).await;
             let result = match api::Client::new(&args.api_url, token, verbose) {
                 Ok(client) => api_cmd::run(args.request, &client).await,
                 Err(e) => Err(e),
@@ -226,7 +234,7 @@ async fn main() {
             }
         }
         Commands::Product(args) => {
-            let token = api_token(verbose).await;
+            let token = api_token(&args.proxy_url, verbose).await;
             let result = match api::Client::new(&args.api_url, token, verbose) {
                 Ok(client) => {
                     let mut tty = prompt::tty();
@@ -406,11 +414,15 @@ async fn mint(
 /// The bearer for the source.coop API: `SOURCE_TOKEN` if set (for a token
 /// obtained some other way), else the login session's access token. Without
 /// either, commands run signed out, which is enough to read public products.
-async fn api_token(verbose: bool) -> Option<String> {
+async fn api_token(proxy_url: &str, verbose: bool) -> Option<String> {
     if let Ok(token) = std::env::var("SOURCE_TOKEN") {
         return Some(token);
     }
-    match session::token(session::Want::Access, verbose).await {
+    let token = match cache::env(proxy_url) {
+        Ok(env) => session::token(env.as_deref(), session::Want::Access, verbose).await,
+        Err(e) => Err(e),
+    };
+    match token {
         Ok(token) => token,
         Err(e) => {
             eprintln!("Warning: continuing signed out: {e}");
