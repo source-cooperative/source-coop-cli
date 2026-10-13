@@ -13,8 +13,6 @@ use std::io::{IsTerminal, Read, Write};
 pub enum ProductCommand {
     /// List public products, or one account's products
     List(ListArgs),
-    /// Pick products from a list to view, open, edit or delete
-    Browse(BrowseArgs),
     /// Show one product
     View(ViewArgs),
     /// Create a product
@@ -25,7 +23,7 @@ pub enum ProductCommand {
     Delete(DeleteArgs),
 }
 
-/// Which products `list` and `browse` show.
+/// Which products `list` shows, or `list -i` picks from.
 #[derive(Args)]
 pub struct Filters {
     /// This account's products (all public products when omitted)
@@ -89,16 +87,14 @@ pub struct ListArgs {
     #[arg(long)]
     json: bool,
 
+    /// Pick a product from the list, then view, open, edit or delete it
+    #[arg(long, short = 'i', conflicts_with_all = ["json", "format", "cursor", "limit"])]
+    interactive: bool,
+
     /// Print straight to the terminal instead of through $SOURCE_PAGER,
     /// $PAGER or `less -FRX`
     #[arg(long)]
     no_pager: bool,
-}
-
-#[derive(Args)]
-pub struct BrowseArgs {
-    #[command(flatten)]
-    filters: Filters,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -244,8 +240,10 @@ pub async fn run(
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     match cmd {
+        ProductCommand::List(args) if args.interactive => {
+            pick(&args.filters, client, site, prompter).await
+        }
         ProductCommand::List(args) => list(args, client, site).await,
-        ProductCommand::Browse(args) => browse(args, client, site, prompter).await,
         ProductCommand::View(args) => view(args, client, site).await,
         ProductCommand::Create(args) => create(args, client, site, prompter).await,
         ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
@@ -310,21 +308,21 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
     Ok(())
 }
 
-/// How many products `browse` fetches at a time.
-const BROWSE_PAGE: usize = 50;
+/// How many products `list -i` fetches at a time.
+const PICK_PAGE: usize = 50;
 
-/// Pick a product from a list (typing narrows it), then act on it with the
-/// same code as `view`, `edit` and `delete`. The list ends with "Load more…"
-/// while the listing has more pages, and "Quit".
-async fn browse(
-    args: BrowseArgs,
+/// `list -i`: pick a product from a list (typing narrows it), then act on it
+/// with the same code as `view`, `edit` and `delete`. The list ends with
+/// "Load more…" while the listing has more pages, and "Quit".
+async fn pick(
+    filters: &Filters,
     client: &Client,
     site: &str,
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
-    let ask = prompter.ok_or("browse needs a terminal to pick from; try `product list`.")?;
-    let url = args.filters.url(client);
-    let first = fetch_page(client, &url, BROWSE_PAGE, None).await?;
+    let ask = prompter.ok_or("-i needs a terminal to pick from; drop it to print the list.")?;
+    let url = filters.url(client);
+    let first = fetch_page(client, &url, PICK_PAGE, None).await?;
     let (mut items, mut cursor) = (first.items, first.next_cursor);
     let mut at = 0;
     loop {
@@ -348,7 +346,7 @@ async fn browse(
             return Ok(());
         }
         if Some(pick) == load_more {
-            let page = fetch_page(client, &url, BROWSE_PAGE, cursor.as_deref()).await?;
+            let page = fetch_page(client, &url, PICK_PAGE, cursor.as_deref()).await?;
             at = items.len();
             items.extend(page.items);
             cursor = page.next_cursor;
@@ -1207,6 +1205,31 @@ mod tests {
     }
 
     #[test]
+    fn list_i_takes_filters_but_not_printing_flags() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            cmd: ProductCommand,
+        }
+        let parse = |args: &[&str]| Cli::try_parse_from([&["sc"], args].concat());
+        let Ok(Cli {
+            cmd: ProductCommand::List(list),
+        }) = parse(&["list", "acct", "-i", "-q", "crop"])
+        else {
+            panic!("list -i should parse");
+        };
+        assert!(list.interactive);
+        assert_eq!(list.filters.search.as_deref(), Some("crop"));
+        for flag in [&["--json"][..], &["--format", "table"], &["-L", "5"]] {
+            assert!(
+                parse(&[&["list", "-i"][..], flag].concat()).is_err(),
+                "{flag:?}"
+            );
+        }
+    }
+
+    #[test]
     fn parses_account_slash_product() {
         let r: ProductRef = "acct/prod".parse().unwrap();
         assert_eq!(r.to_string(), "acct/prod");
@@ -1348,6 +1371,7 @@ mod tests {
             limit: Some(3),
             cursor: None,
             json: true,
+            interactive: false,
             format: ListFormat::Table,
             no_pager: false,
         };
@@ -1587,7 +1611,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn browse_loads_more_deletes_through_the_menu_and_quits() {
+    async fn list_i_loads_more_deletes_through_the_menu_and_quits() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct"))
@@ -1612,13 +1636,11 @@ mod tests {
         expect_delete(&server, "false", 1).await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let args = BrowseArgs {
-            filters: Filters {
-                account: Some("acct".into()),
-                search: None,
-                tags: None,
-                featured: false,
-            },
+        let filters = Filters {
+            account: Some("acct".into()),
+            search: None,
+            tags: None,
+            featured: false,
         };
         let mut ask = Script::new([
             Pick(2),           // Load more…
@@ -1628,7 +1650,7 @@ mod tests {
             Text("acct/prod"), // confirm
             Pick(2),           // Quit
         ]);
-        browse(args, &client, "https://source.coop", Some(&mut ask))
+        pick(&filters, &client, "https://source.coop", Some(&mut ask))
             .await
             .unwrap();
 
