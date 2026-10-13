@@ -4,7 +4,7 @@
 //! are both terminals and `SOURCE_PROMPT_DISABLED` is unset. Otherwise a
 //! command sends what it was given, and the API says what's missing.
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Input, MultiSelect, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Editor, FuzzySelect, Input, MultiSelect, Select};
 use std::io::IsTerminal;
 
 pub trait Prompter {
@@ -12,6 +12,15 @@ pub trait Prompter {
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String>;
     /// Ask for one of `items`, starting on `default`; returns its index.
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String>;
+    /// `select` over a list long enough to want narrowing by typing.
+    fn fuzzy_select(
+        &mut self,
+        label: &str,
+        items: &[String],
+        default: usize,
+    ) -> Result<usize, String> {
+        self.select(label, items, default)
+    }
     /// Ask a yes/no question.
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String>;
     /// Ask for text that may run to paragraphs, starting from `current`: typed
@@ -54,6 +63,20 @@ impl Prompter for Tty {
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String> {
         Select::with_theme(&self.theme)
             .with_prompt(label)
+            .items(items)
+            .default(default)
+            .interact()
+            .map_err(failed)
+    }
+
+    fn fuzzy_select(
+        &mut self,
+        label: &str,
+        items: &[String],
+        default: usize,
+    ) -> Result<usize, String> {
+        FuzzySelect::with_theme(&self.theme)
+            .with_prompt(format!("{label} (type to filter)"))
             .items(items)
             .default(default)
             .interact()
