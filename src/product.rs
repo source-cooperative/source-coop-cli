@@ -764,7 +764,19 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
                 paint("32", "active")
             }),
         ),
-        ("Data mode", Some(str_field(p, "data_mode").to_string())),
+        (
+            "Tags",
+            p.pointer("/metadata/tags")
+                .and_then(Value::as_array)
+                .map(|tags| {
+                    // Some stored lists hold an empty string, e.g. `[""]`.
+                    tags.iter()
+                        .filter_map(Value::as_str)
+                        .filter(|t| !t.is_empty())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                }),
+        ),
         (
             "Featured",
             p.get("featured")
@@ -963,7 +975,7 @@ mod tests {
     fn view_lists_fields_with_labels_and_colors_only_when_asked() {
         let p = json!({
             "account_id": "acct", "product_id": "p", "title": "A product",
-            "visibility": "public", "disabled": false, "data_mode": "open",
+            "visibility": "public", "disabled": false, "data_mode": "open", "metadata": {"tags": ["geospatial", "", "open"]},
             "featured": 0, "created_at": "2024-12-13T20:32:55.681Z",
             "account": {"account_id": "acct", "name": "Acct Inc", "type": "organization"},
             "description": "Line one\nLine two"
@@ -976,7 +988,7 @@ mod tests {
                 "Product     acct/p",
                 "Visibility  public",
                 "Status      active",
-                "Data mode   open",
+                "Tags        geospatial, open",
                 "Account     Acct Inc (organization)",
                 "Created     2024-12-13 20:32 UTC",
                 "URL         https://source.coop/acct/p",
