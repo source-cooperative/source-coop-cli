@@ -246,7 +246,7 @@ Each environment's Ory project has two OAuth2 clients. Only the first belongs to
 | `source-coop-cli` client | `a79c9537-be78-454a-9ea1-b96a1be811cc` | `197e20e7-d52d-4d1d-9e54-4b73a342034b` |
 | `source.coop frontend` client | `1123dfa8-469f-44fe-b9f4-9b76f06fd325` | `fb15e9fb-00e7-4604-9df0-ac27ac5822f2` |
 
-**`source-coop-cli`** is configured as listed under [Client configuration](#client-configuration), with the audience matching its environment. It also has `skip_consent` set, so the browser returns straight to the CLI after login. Production's access token strategy is still `opaque`. It must be `jwt` before a CLI release that calls the source.coop API (source-cooperative/source.coop#654).
+**`source-coop-cli`** is configured as listed under [Client configuration](#client-configuration), with the audience matching its environment. It also has `skip_consent` set, so the browser returns straight to the CLI after login.
 
 **`source.coop frontend`** is the website's, not the CLI's. It's a confidential client (`client_secret_basic`, secret in Vercel as `ORY_OAUTH2_CLIENT_SECRET`) with only the Authorization Code grant and `openid offline_access`. The website runs its flow entirely server-side to get ID tokens for the data proxy's `/.sts`. Its redirect URI, `https://source.coop` on both projects, is never visited, but it must match the site's `CONFIG.auth.oauth2.redirectUri`. It has no audience and uses opaque access tokens; nothing needs either.
 
