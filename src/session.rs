@@ -18,6 +18,10 @@ const SKEW_SECONDS: i64 = 60;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// The proxy `login` was given, which names the session's environment.
+    /// Absent in sessions written before environments existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
     pub client_id: String,
     pub token_endpoint: String,
     /// What the access token was requested for, if anything.
@@ -45,12 +49,14 @@ pub enum Want {
 impl Session {
     pub fn new(
         tokens: oidc::Tokens,
+        proxy_url: String,
         client_id: String,
         token_endpoint: String,
         audience: Option<String>,
         now: i64,
     ) -> Self {
         let mut session = Session {
+            proxy_url: Some(proxy_url),
             client_id,
             token_endpoint,
             audience,
@@ -143,22 +149,23 @@ pub async fn ensure(
         .map_err(|()| "The refreshed token has already expired; check the system clock.".into())
 }
 
-/// The wanted token from the cached session, or `None` if there is no session
-/// (or it can't have that token). Refreshes under the session lock when needed.
-pub async fn token(want: Want, verbose: bool) -> Result<Option<String>, String> {
-    let Some(session) = cache::read_session()? else {
+/// The wanted token from `env`'s cached session, or `None` if there is no
+/// session (or it can't have that token). Refreshes under the session lock
+/// when needed.
+pub async fn token(env: Option<&str>, want: Want, verbose: bool) -> Result<Option<String>, String> {
+    let Some(session) = cache::read_session(env)? else {
         return Ok(None);
     };
     if let Ok(token) = session.current(want, now()) {
         return Ok(token.map(String::from));
     }
     // Re-read under the lock: another process may have refreshed already.
-    let _lock = cache::lock_session()?;
-    let Some(mut session) = cache::read_session()? else {
+    let _lock = cache::lock_session(env)?;
+    let Some(mut session) = cache::read_session(env)? else {
         return Ok(None);
     };
     ensure(&mut session, want, now(), verbose, |s| {
-        cache::write_session(s).map(drop)
+        cache::write_session(env, s).map(drop)
     })
     .await
 }
@@ -190,6 +197,7 @@ mod tests {
     fn session(server: &MockServer, t: oidc::Tokens) -> Session {
         Session::new(
             t,
+            "https://data.source.coop".into(),
             "cid".into(),
             format!("{}/oauth2/token", server.uri()),
             Some("https://source.coop".into()),

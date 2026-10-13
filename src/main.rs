@@ -71,7 +71,14 @@ enum Commands {
 enum AuthCommand {
     /// Print an access token for the source.coop API, refreshing it if expired
     /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
-    Token,
+    Token(TokenArgs),
+}
+
+#[derive(Parser)]
+struct TokenArgs {
+    /// S3 proxy URL of the environment whose login session to use
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
 }
 
 #[derive(Parser)]
@@ -129,7 +136,7 @@ struct CredsArgs {
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
 
-    /// S3 proxy URL for STS, for a role with nothing cached yet
+    /// S3 proxy URL: selects the environment whose cache and login session to use
     #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 
@@ -171,8 +178,8 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Commands::Auth(AuthCommand::Token) => {
-            if let Err(e) = run_auth_token(verbose).await {
+        Commands::Auth(AuthCommand::Token(args)) => {
+            if let Err(e) = run_auth_token(args, verbose).await {
                 eprintln!("Error: {e}");
                 std::process::exit(1);
             }
@@ -180,8 +187,9 @@ async fn main() {
     }
 }
 
-async fn run_auth_token(verbose: bool) -> Result<(), String> {
-    let token = session::token(session::Want::Access, verbose)
+async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
+    let env = cache::env(&args.proxy_url)?;
+    let token = session::token(env.as_deref(), session::Want::Access, verbose)
         .await?
         .ok_or("No access token cached. Run 'source-coop login' (with an API audience).")?;
     println!("{token}");
@@ -189,6 +197,8 @@ async fn run_auth_token(verbose: bool) -> Result<(), String> {
 }
 
 async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
+    let env = cache::env(&args.proxy_url)?;
+
     // 1. OIDC Discovery
     eprintln!("Discovering OIDC endpoints...");
     let endpoints = oidc::discover(&args.issuer, verbose).await?;
@@ -243,14 +253,15 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     }
     let session = session::Session::new(
         tokens,
+        args.proxy_url.clone(),
         args.client_id,
         endpoints.token_endpoint,
         audience.map(String::from),
         chrono::Utc::now().timestamp(),
     );
     {
-        let _lock = cache::lock_session()?;
-        cache::write_session(&session)?;
+        let _lock = cache::lock_session(env.as_deref())?;
+        cache::write_session(env.as_deref(), &session)?;
     }
     let entry = cache::CacheEntry {
         creds,
@@ -260,22 +271,27 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         }),
         refresh: None,
     };
-    let location = cache::write_credentials(&args.role_arn, &entry)?;
+    // Under the role's lock, so a `creds` minting from the old session can't
+    // overwrite this entry afterwards.
+    let _lock = cache::lock(env.as_deref(), &args.role_arn)?;
+    let location = cache::write_credentials(env.as_deref(), &args.role_arn, &entry)?;
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");
     Ok(())
 }
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    let cached = cache::read_credentials(&args.role_arn)?;
+    let env = cache::env(&args.proxy_url)?;
+    let env = env.as_deref();
+    let cached = cache::read_credentials(env, &args.role_arn)?;
     let entry = match cached {
         Some(entry) if !cache::is_expired(&entry.creds)? => entry,
         _ => {
             // Re-check under the lock: another process may have minted already.
-            let _lock = cache::lock(&args.role_arn)?;
-            match cache::read_credentials(&args.role_arn)? {
+            let _lock = cache::lock(env, &args.role_arn)?;
+            match cache::read_credentials(env, &args.role_arn)? {
                 Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-                stale => mint(&args, stale, verbose).await.map_err(|e| {
+                stale => mint(&args, env, stale, verbose).await.map_err(|e| {
                     format!("Couldn't get new credentials ({e}). Run 'source-coop login'.")
                 })?,
             }
@@ -295,10 +311,11 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 /// else exchanges the session's ID token, refreshing the session if need be.
 async fn mint(
     args: &CredsArgs,
+    env: Option<&str>,
     stale: Option<cache::CacheEntry>,
     verbose: bool,
 ) -> Result<cache::CacheEntry, String> {
-    let save = |e: &cache::CacheEntry| cache::write_credentials(&args.role_arn, e).map(drop);
+    let save = |e: &cache::CacheEntry| cache::write_credentials(env, &args.role_arn, e).map(drop);
     match stale {
         Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
             refresh(&args.role_arn, entry, verbose, save).await
@@ -308,7 +325,7 @@ async fn mint(
                 proxy_url: args.proxy_url.clone(),
                 duration: None,
             });
-            let id_token = session::token(session::Want::Id, verbose)
+            let id_token = session::token(env, session::Want::Id, verbose)
                 .await?
                 .ok_or("not logged in")?;
             let creds = sts::assume_role(
