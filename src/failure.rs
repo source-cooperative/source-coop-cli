@@ -132,7 +132,7 @@ mod tests {
         assert_eq!(classify(&api_error(404, "not_found", &[])).exit_code(), 5);
         assert_eq!(classify(&api_error(500, "internal", &[])).exit_code(), 1);
         assert_eq!(
-            classify("Not signed in: run 'source-coop login'.").exit_code(),
+            classify("Not signed in: run 'source-coop auth login'.").exit_code(),
             4
         );
         assert_eq!(classify(crate::prompt::INTERRUPTED).exit_code(), 130);

@@ -71,6 +71,10 @@ pub struct Tokens {
     pub refresh_token: Option<String>,
     pub access_token: Option<String>,
     pub expires_in: Option<i64>,
+    /// The refresh token's lifetime in seconds, from the providers that say
+    /// (`refresh_token_expires_in`, or `refresh_expires_in`). Ory doesn't:
+    /// its refresh tokens are opaque and their lifespan is server config.
+    pub refresh_expires_in: Option<i64>,
 }
 
 /// Run the browser-based OAuth2 Authorization Code flow with PKCE.
@@ -313,6 +317,9 @@ async fn token_request(
         refresh_token: body["refresh_token"].as_str().map(String::from),
         access_token: body["access_token"].as_str().map(String::from),
         expires_in: body["expires_in"].as_i64(),
+        refresh_expires_in: body["refresh_token_expires_in"]
+            .as_i64()
+            .or_else(|| body["refresh_expires_in"].as_i64()),
     })
 }
 
