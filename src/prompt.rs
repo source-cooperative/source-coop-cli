@@ -63,6 +63,32 @@ fn failed(e: dialoguer::Error) -> String {
     format!("Prompt failed: {e}")
 }
 
+/// What a prompt returns as its error when the person backs out with Esc (or
+/// `q`) on a choice: the command stops, having changed nothing. dialoguer's
+/// text prompts don't take Esc, so a text prompt that is the last step before
+/// something irreversible says how to back out instead (see `delete`).
+pub const CANCELLED: &str = "Cancelled; nothing was changed.";
+
+fn cancellable<T>(answer: dialoguer::Result<Option<T>>) -> Result<T, String> {
+    answer.map_err(failed)?.ok_or_else(|| CANCELLED.to_string())
+}
+
+/// The last step before something irreversible, for any kind of record: the
+/// person types `name` back. Enter on nothing backs out (text prompts can't
+/// take Esc); anything else that isn't `name` stops with `action` undone.
+pub fn confirm_by_name(ask: &mut dyn Prompter, name: &str, action: &str) -> Result<(), String> {
+    let typed = ask.input(
+        &format!("Type {name} to confirm (Enter to cancel)"),
+        "",
+        true,
+    )?;
+    match typed.trim() {
+        "" => Err(CANCELLED.into()),
+        t if t == name => Ok(()),
+        _ => Err(format!("Not confirmed; nothing was {action}.")),
+    }
+}
+
 impl Prompter for Tty {
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String> {
         let mut input = Input::<String>::with_theme(&self.theme)
@@ -75,12 +101,13 @@ impl Prompter for Tty {
     }
 
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String> {
-        Select::with_theme(&self.theme)
-            .with_prompt(label)
-            .items(items)
-            .default(default)
-            .interact()
-            .map_err(failed)
+        cancellable(
+            Select::with_theme(&self.theme)
+                .with_prompt(label)
+                .items(items)
+                .default(default)
+                .interact_opt(),
+        )
     }
 
     fn browse(
@@ -99,11 +126,12 @@ impl Prompter for Tty {
     }
 
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String> {
-        Confirm::with_theme(&self.theme)
-            .with_prompt(label)
-            .default(default)
-            .interact()
-            .map_err(failed)
+        cancellable(
+            Confirm::with_theme(&self.theme)
+                .with_prompt(label)
+                .default(default)
+                .interact_opt(),
+        )
     }
 
     /// gh's way: Enter keeps what's there, `e` opens `$VISUAL` or `$EDITOR`
@@ -132,11 +160,12 @@ impl Prompter for Tty {
     }
 
     fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
-        MultiSelect::with_theme(&self.theme)
-            .with_prompt(format!("{label} (Space to pick, Enter when done)"))
-            .items(items)
-            .interact()
-            .map_err(failed)
+        cancellable(
+            MultiSelect::with_theme(&self.theme)
+                .with_prompt(format!("{label} (Space to pick, Enter when done)"))
+                .items(items)
+                .interact_opt(),
+        )
     }
 }
 
@@ -158,6 +187,8 @@ pub mod scripted {
         Browse(usize, Action),
         /// At a `keypress`.
         Press(Action),
+        /// Back out, as Esc does on a choice.
+        Cancel,
     }
 
     #[derive(Default)]
@@ -206,6 +237,7 @@ pub mod scripted {
             Ok(match self.next(label) {
                 Answer::Default => default,
                 Answer::Pick(i) => i,
+                Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected a pick, scripted {a:?}"),
             })
         }
@@ -215,6 +247,7 @@ pub mod scripted {
             Ok(match self.next(label) {
                 Answer::Default => default,
                 Answer::Yes(y) => y,
+                Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected yes/no, scripted {a:?}"),
             })
         }
@@ -232,6 +265,7 @@ pub mod scripted {
             self.asked.push(format!("{label} of {}", items.join(" | ")));
             Ok(match self.next(label) {
                 Answer::Picks(p) => p.to_vec(),
+                Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected picks, scripted {a:?}"),
             })
         }
@@ -262,5 +296,22 @@ pub mod scripted {
                 a => panic!("{hint}: expected a key, scripted {a:?}"),
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::scripted::{Answer::*, Script};
+    use super::*;
+
+    #[test]
+    fn confirming_by_name_takes_the_name_backs_out_on_nothing_and_refuses_the_rest() {
+        let confirm = |answer| confirm_by_name(&mut Script::new([answer]), "acct/thing", "deleted");
+        assert_eq!(confirm(Text("acct/thing")), Ok(()));
+        assert_eq!(confirm(Text("  ")), Err(CANCELLED.to_string()));
+        assert_eq!(
+            confirm(Text("acct/other")),
+            Err("Not confirmed; nothing was deleted.".to_string())
+        );
     }
 }

@@ -199,6 +199,17 @@ enum OutputFormat {
     AwsCredentials,
 }
 
+/// Report a command's error and exit 1. Backing out of a prompt isn't a
+/// failure worth an "Error:", so that message stands alone.
+fn fail(e: String) -> ! {
+    if e == prompt::CANCELLED {
+        eprintln!("{e}");
+    } else {
+        eprintln!("Error: {e}");
+    }
+    std::process::exit(1);
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -208,20 +219,17 @@ async fn main() {
     match cli.command {
         Commands::Login(args) => {
             if let Err(e) = run_login(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e);
             }
         }
         Commands::Creds(args) => {
             if let Err(e) = run_creds(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e);
             }
         }
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e);
             }
         }
         Commands::Api(args) => {
@@ -231,8 +239,7 @@ async fn main() {
                 Err(e) => Err(e),
             };
             if let Err(e) = result {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e);
             }
         }
         Commands::Product(args) => {
@@ -246,8 +253,7 @@ async fn main() {
                 Err(e) => Err(e),
             };
             if let Err(e) = result {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e);
             }
         }
     }

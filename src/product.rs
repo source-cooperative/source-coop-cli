@@ -972,6 +972,7 @@ async fn delete(
                 target
             ));
         };
+        client.check_signed_in().await?;
         if !preserve_data {
             preserve_data = ask.confirm("Keep the product's data in storage?", false)?;
         }
@@ -981,10 +982,7 @@ async fn delete(
             "its data will be deleted too"
         };
         eprintln!("This deletes {} and {data}.", target);
-        let typed = ask.input(&format!("Type {} to confirm", target), "", true)?;
-        if typed.trim() != target.to_string() {
-            return Err("Not confirmed; nothing was deleted.".into());
-        }
+        crate::prompt::confirm_by_name(ask, &target.to_string(), "deleted")?;
     }
     let mut url = product_url(client, &target);
     url.query_pairs_mut()
@@ -1921,6 +1919,26 @@ mod tests {
         delete(delete_args(true, true), &client, None)
             .await
             .unwrap();
+    }
+
+    #[tokio::test]
+    async fn backing_out_of_delete_at_either_step_deletes_nothing() {
+        let server = api_server().await;
+        Mock::given(method("DELETE"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+
+        // Esc on "Keep the product's data?", then Enter on the name.
+        for script in [Script::new([Cancel]), Script::new([Yes(false), Text("")])] {
+            let mut ask = script;
+            let err = delete(delete_args(false, false), &client, Some(&mut ask))
+                .await
+                .unwrap_err();
+            assert_eq!(err, crate::prompt::CANCELLED);
+        }
     }
 
     #[tokio::test]
