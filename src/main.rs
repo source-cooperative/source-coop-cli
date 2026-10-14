@@ -327,6 +327,23 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
     Ok(())
 }
 
+/// The site a session's account lives on: the API audience it was issued
+/// for (`https://source.coop`, or a staging or preview site), else this
+/// build's.
+fn site(s: &session::Session) -> &str {
+    s.audience
+        .as_deref()
+        .filter(|a| !a.is_empty())
+        .unwrap_or(defaults::API_URL)
+        .trim_end_matches('/')
+}
+
+/// A Unix timestamp as RFC 3339, the API's date format.
+fn rfc3339(t: i64) -> Option<String> {
+    chrono::DateTime::from_timestamp(t, 0)
+        .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
 /// `<expires> <time>` for a Unix timestamp, or `expired <time>` (yellow)
 /// once it's past, as of `now`.
 fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
@@ -379,12 +396,33 @@ fn status_report(
                     None => style::paint(color, "2", "unknown until your next `auth login`"),
                 },
             ));
-            let refresh = if s.refresh_token.is_some() {
-                "yes"
-            } else {
-                "no"
+            if let Some(a) = &s.account {
+                rows.push((
+                    "Profile",
+                    style::paint(color, "4", &format!("{}/{}", site(s), a.account_id)),
+                ));
+            }
+            // Ory's refresh tokens are opaque and their lifespan is server
+            // config, so this can say when the login was last renewed, and
+            // when it expires only where the provider said.
+            let refresh = match (&s.refresh_token, s.refresh_token_issued_at) {
+                (None, _) => "none: log in again when the ID token expires".into(),
+                (Some(_), None) => "yes".into(),
+                (Some(_), Some(issued)) => {
+                    let ago = match chrono::DateTime::from_timestamp(issued, 0)
+                        .zip(chrono::DateTime::from_timestamp(now, 0))
+                    {
+                        Some((then, at)) => format!(" ({})", product::ago(then, at)),
+                        None => String::new(),
+                    };
+                    format!("yes, renewed {}{ago}", rfc3339(issued).unwrap_or_default())
+                }
             };
-            rows.push(("Refresh token", refresh.into()));
+            let refresh = match s.refresh_token_expires_at {
+                Some(exp) => format!("{refresh}; {}", expiry(Some(exp), now, "expires", color)),
+                None => refresh,
+            };
+            rows.push(("Refresh token", refresh));
             rows.push(("ID token", expiry(id_exp, now, "expires", color)));
             rows.push((
                 "Access token",
@@ -730,6 +768,8 @@ mod tests {
             access_token: Some("at".into()),
             access_token_expires_at: Some(now - 60),
             account,
+            refresh_token_issued_at: Some(now - 3 * 3600),
+            refresh_token_expires_at: None,
         }
     }
 
@@ -755,11 +795,36 @@ mod tests {
             "Environment    production (https://data.source.coop)\n\
              Login          logged in\n\
              Account        Anthony Lukach (alukach)\n\
-             Refresh token  yes\n\
+             Profile        https://source.coop/alukach\n\
+             Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
              ID token       expires 2026-10-13T18:00:00Z\n\
              Access token   for https://source.coop, expired 2026-10-13T16:59:00Z\n\
              Credentials    _default: expire 2026-10-13T18:30:00Z\n"
         );
+    }
+
+    #[test]
+    fn status_shows_the_refresh_tokens_expiry_where_the_provider_gave_one() {
+        let now = 1_791_910_800;
+        let mut s = live_session(now, None);
+        s.refresh_token_expires_at = Some(now + 30 * 86_400);
+        let report = status_report(
+            "https://data.source.coop",
+            None,
+            "_default",
+            Some(&s),
+            None,
+            now,
+            false,
+        );
+        assert!(
+            report.contains(
+                "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12T17:00:00Z\n"
+            ),
+            "{report}"
+        );
+        // No Profile row without a known account.
+        assert!(!report.contains("Profile"), "{report}");
     }
 
     #[test]

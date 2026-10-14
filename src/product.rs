@@ -1412,7 +1412,10 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
 
 /// How long ago `then` was, at `now`, in the largest whole unit: "just now",
 /// "5 minutes ago", "3 days ago", "2 years ago".
-fn ago(then: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> String {
+pub(crate) fn ago(
+    then: chrono::DateTime<chrono::Utc>,
+    now: chrono::DateTime<chrono::Utc>,
+) -> String {
     let secs = (now - then).num_seconds();
     if secs < 0 {
         return "in the future".into();

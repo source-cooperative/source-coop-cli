@@ -40,6 +40,14 @@ pub struct Session {
     /// (no access token) and in sessions written before it was kept.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<Account>,
+    /// When the refresh token was issued or last rotated, in Unix seconds:
+    /// how long ago the login was renewed. Absent in sessions written before
+    /// it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_issued_at: Option<i64>,
+    /// When the refresh token expires, in Unix seconds, if the provider said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_expires_at: Option<i64>,
 }
 
 /// The source.coop account a session acts as.
@@ -93,6 +101,8 @@ impl Session {
             access_token: None,
             access_token_expires_at: None,
             account: None,
+            refresh_token_issued_at: None,
+            refresh_token_expires_at: None,
         };
         session.apply(tokens, now);
         session
@@ -103,6 +113,8 @@ impl Session {
         self.id_token = tokens.id_token;
         if let Some(rotated) = tokens.refresh_token {
             self.refresh_token = Some(rotated);
+            self.refresh_token_issued_at = Some(now);
+            self.refresh_token_expires_at = tokens.refresh_expires_in.map(|s| now + s);
         }
         self.access_token_expires_at = tokens
             .expires_in
@@ -228,6 +240,7 @@ mod tests {
             refresh_token: Some("rt-1".into()),
             access_token: access.map(String::from),
             expires_in,
+            refresh_expires_in: None,
         }
     }
 
@@ -251,6 +264,33 @@ mod tests {
             .expect(times)
             .mount(server)
             .await;
+    }
+
+    #[test]
+    fn a_refresh_tokens_issue_time_follows_rotation_and_its_expiry_needs_saying() {
+        let mut s = Session::new(
+            tokens(NOW + 3600, None, None),
+            "https://data.source.coop".into(),
+            "cid".into(),
+            "https://auth.test/oauth2/token".into(),
+            None,
+            NOW,
+        );
+        assert_eq!(s.refresh_token_issued_at, Some(NOW));
+        // Ory says nothing of a refresh token's lifetime.
+        assert_eq!(s.refresh_token_expires_at, None);
+
+        // A refresh that doesn't rotate it leaves the time as it was...
+        let mut kept = tokens(NOW + 7200, None, None);
+        kept.refresh_token = None;
+        s.apply(kept, NOW + 100);
+        assert_eq!(s.refresh_token_issued_at, Some(NOW));
+        // ...and one that does, from a provider that gives a lifetime, moves both.
+        let mut rotated = tokens(NOW + 7200, None, None);
+        rotated.refresh_expires_in = Some(86_400);
+        s.apply(rotated, NOW + 200);
+        assert_eq!(s.refresh_token_issued_at, Some(NOW + 200));
+        assert_eq!(s.refresh_token_expires_at, Some(NOW + 200 + 86_400));
     }
 
     #[test]
