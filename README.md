@@ -257,7 +257,7 @@ Reading public data needs no credentials. Anything else acts as whoever ran `sou
 
 ### JSON output and exit codes
 
-Every command that reports information takes `--json`, such as `auth status`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
+Every command that reports information takes `--json`: `auth status`, and `product list`, `view`, `create`, `edit` and `delete` (which print the resulting record). Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
 
 A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
 
@@ -278,6 +278,46 @@ Exit codes are the same for every command:
 | 130 | Interrupted (Ctrl+C) |
 
 `creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
+
+## Managing products
+
+`source-coop product` lists, views, creates, edits and deletes products through the source.coop API (`/api/v1`), with the same rules as the web UI: the CLI checks nothing itself and shows the API's errors, field by field.
+
+```bash
+source-coop product list                      # public products
+source-coop product list my-org --json        # one account's products, as JSON
+source-coop product list --format table       # one row per product; tab-separated when piped
+source-coop product list my-org -i            # move through the products and act on them (keys below)
+source-coop product view my-org/my-product    # --web opens it in the browser
+source-coop product view my-org/my-product -i # the product with shortcuts; without a product, pick one
+source-coop product create my-org/my-product  # prompts for the rest
+source-coop product edit my-org/my-product --visibility unlisted
+source-coop product edit -i                   # pick one of your account's products to edit
+source-coop product delete my-org/my-product  # asks you to type the name back
+source-coop product delete -i                 # pick one of your account's products to delete
+```
+
+With `-i`, lists and products answer to keys:
+
+| Key | In a list | On a product |
+|-----|-----------|--------------|
+| ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
+| → Enter (`l`) | open the product | |
+| ← Esc (`h` `q`) | quit (from search results: back to the whole list) | back to the list |
+| `/` | filter by typed text (Esc clears it); among all public products, Enter searches them on the server | |
+| `b` | open in the browser | open in the browser |
+| `e` | | edit |
+| `d` | | delete |
+
+Editing or deleting takes opening the product first, so a stray key on a long list changes nothing. Edit and delete run exactly as `product edit` and `product delete` do, prompts included. Lists load more as you scroll, and `-i` takes the whole terminal while it runs, putting it back as it was when you leave.
+
+`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) with Ctrl+E. While `create` asks, ↑ (or ← at the start of a line, or in a list) goes back to the question before, starting from your answer there; once it has asked anything, it shows what it is about to create and asks you to confirm before sending, and ← from there goes back too. `edit` with no flags asks which fields to change and starts each from its current value. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
+
+To back out of any prompt, press Esc (or `q`) on a choice; on a text prompt that guards something irreversible, like typing a product's name to delete it, press Enter on nothing. The command stops with "Cancelled; nothing was changed."
+
+Before asking anything, `create`, `edit` and `delete` check that you're signed in, so you don't fill in a form only to be refused. If sending your answers fails anyway (a lost connection, an expired login, a server error), they're saved as a draft: run the same command again and you're offered them back, with any flags you pass taking precedence, or pass the saved file with `--from-file`. Drafts live where your OS keeps app state, not its cache: `~/.local/state/source-coop/drafts` on Linux (`$XDG_STATE_HOME`), `~/Library/Application Support/source-coop/drafts` on macOS, and `%LocalAppData%\source-coop\drafts` on Windows. A successful send removes the draft.
+
+Output is for people on a terminal and for scripts when piped: `list` shows each product's fields (`--format table` prints an aligned table with a header on a terminal, and tab-separated rows without one when piped); `create` and `edit` print the product's URL on stdout and their message on stderr, so `url=$(source-coop product create ...)` works.
 
 ## Credential storage
 
