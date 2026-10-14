@@ -775,6 +775,28 @@ fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
     (accounts, has_flag("admin"))
 }
 
+/// What `create` is about to send, as `Label  value` rows to look over: the
+/// description's first line only, marked when there's more.
+fn review_lines(name: &str, body: &Map<String, Value>) -> Vec<String> {
+    let field = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default();
+    let description = field("description");
+    let description = match description.lines().next() {
+        None => "(none)".to_string(),
+        Some(first) if description.trim_end() != first => format!("{first} …"),
+        Some(first) => first.to_string(),
+    };
+    [
+        ("Product", name.to_string()),
+        ("Title", field("title").to_string()),
+        ("Description", description),
+        ("Data connection", field("data_connection_id").to_string()),
+        ("Visibility", field("visibility").to_string()),
+    ]
+    .iter()
+    .map(|(label, value)| format!("{label:<15}  {value}"))
+    .collect()
+}
+
 /// `create`'s questions, in the order they're asked.
 #[derive(Clone, Copy)]
 enum Step {
@@ -785,6 +807,7 @@ enum Step {
     Description,
     Connection,
     Visibility,
+    Review,
 }
 
 /// Where a step leads: on to the next (None once all are answered), having
@@ -992,7 +1015,9 @@ async fn ask_create(
                     }
                 }
             }
-            Step::Visibility if given.iter().any(|k| k == "visibility") => Next::Skipped(None),
+            Step::Visibility if given.iter().any(|k| k == "visibility") => {
+                Next::Skipped(Some(Step::Review))
+            }
             Step::Visibility => {
                 let was = current(body, "visibility");
                 let at = allowed
@@ -1004,8 +1029,20 @@ async fn ask_create(
                     None => Next::Back,
                     Some(i) => {
                         body.insert("visibility".into(), json!(allowed[i]));
-                        Next::Asked(None)
+                        Next::Asked(Some(Step::Review))
                     }
+                }
+            }
+            // A last look at everything before anything is created, when
+            // something was asked: a run given every field by flag or file
+            // goes straight through, as it did.
+            Step::Review if asked.is_empty() => Next::Skipped(None),
+            Step::Review => {
+                let name = format!("{}/{product_id}", account.as_deref().unwrap_or(""));
+                match ask.confirm_or_back("Create this product?", &review_lines(&name, body))? {
+                    None => Next::Back,
+                    Some(true) => Next::Asked(None),
+                    Some(false) => return Err(crate::prompt::CANCELLED.into()),
                 }
             }
         };
@@ -1743,7 +1780,7 @@ mod tests {
             args
         };
 
-        let mut first = Script::new([Text("Typed once")]);
+        let mut first = Script::new([Text("Typed once"), Default]);
         let err = create(args(), &client, SITE, Some(&mut first))
             .await
             .unwrap_err();
@@ -1757,6 +1794,56 @@ mod tests {
         assert_eq!(
             second.asked,
             ["Use the answers saved from your last try? [true]"]
+        );
+    }
+
+    /// How the scripted prompter records create's review of `sent`.
+    fn review_asked(name: &str, sent: &Value) -> String {
+        let body = sent.as_object().unwrap();
+        format!(
+            "Create this product? {{{}}} [true]",
+            review_lines(name, body).join(" | ")
+        )
+    }
+
+    #[tokio::test]
+    async fn create_sends_nothing_when_the_review_is_declined() {
+        let server = api_server().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut args = create_args(Some("acct/prod"));
+        args.data_connection_id = Some("dc".into());
+        args.visibility = Some("public".into());
+        let mut ask = Script::new([Text("T"), Text("D"), Yes(false)]);
+        let err = create(args, &client, SITE, Some(&mut ask))
+            .await
+            .unwrap_err();
+        assert_eq!(err, crate::prompt::CANCELLED);
+    }
+
+    #[test]
+    fn review_lists_what_will_be_sent() {
+        let body = json!({"title": "T", "description": "First line\nmore", "data_connection_id": "dc",
+                          "visibility": "public"});
+        assert_eq!(
+            review_lines("acct/p", body.as_object().unwrap()),
+            [
+                "Product          acct/p",
+                "Title            T",
+                // Only the first line, marked when there's more.
+                "Description      First line …",
+                "Data connection  dc",
+                "Visibility       public",
+            ]
+        );
+        let empty = json!({"description": ""});
+        assert_eq!(
+            review_lines("acct/p", empty.as_object().unwrap())[2],
+            "Description      (none)"
         );
     }
 
@@ -2059,12 +2146,21 @@ mod tests {
         .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Default, Text("my-data"), Default, Default, Pick(1), Default]);
+        let mut ask = Script::new([
+            Default,
+            Text("my-data"),
+            Default,
+            Default,
+            Pick(1),
+            Default,
+            Default,
+        ]);
         create(create_args(None), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
+        let (review, questions) = ask.asked.split_last().unwrap();
         assert_eq!(
-            ask.asked,
+            questions,
             [
                 // Only the accounts they may create in: their own, then the org.
                 "Account [acct] of acct | org",
@@ -2077,6 +2173,10 @@ mod tests {
                 "Visibility [public] of restricted | public",
             ]
         );
+        // Then a last look at all of it before it's sent.
+        let sent = json!({"title": "My Data", "description": "", "data_connection_id": "mine",
+                          "visibility": "public"});
+        assert_eq!(review, &review_asked("acct/my-data", &sent));
     }
 
     #[tokio::test]
@@ -2114,12 +2214,27 @@ mod tests {
             Back,    // at Visibility: to Data connection
             Pick(0), // shared instead
             Default, // Visibility: public, of what shared allows
+            Back,    // at the review: to Visibility
+            Default, // public again
+            Default, // create it
         ]);
         create(create_args(None), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
+        let sent = json!({"title": "Better Title", "description": "first",
+                          "data_connection_id": "shared", "visibility": "public"});
+        let review = review_asked("acct/my-data", &sent);
+        let (last, before) = ask.asked.split_last().unwrap();
+        assert_eq!(last, &review);
         assert_eq!(
-            ask.asked,
+            before[before.len() - 2..],
+            [
+                format!("{} (back)", review.trim_end_matches(" [true]")),
+                "Visibility [public] of public | unlisted".to_string(),
+            ]
+        );
+        assert_eq!(
+            before[..before.len() - 2],
             [
                 "Account (back)",
                 "Account [acct] of acct | org",
@@ -2253,11 +2368,17 @@ mod tests {
         let mut args = create_args(Some("acct/prod"));
         args.title = Some("Flag wins".into());
         args.from_file = Some(f.to_str().unwrap().into());
-        let mut ask = Script::new([Pick(1)]);
+        let mut ask = Script::new([Pick(1), Default]);
         create(args, &client, SITE, Some(&mut ask)).await.unwrap();
+        let sent = json!({"title": "Flag wins", "description": "From file",
+                          "data_connection_id": "dc", "visibility": "unlisted"});
         assert_eq!(
             ask.asked,
-            ["Visibility [public] of public | unlisted | restricted"]
+            [
+                "Visibility [public] of public | unlisted | restricted".to_string(),
+                // The review shows flag and file answers too.
+                review_asked("acct/prod", &sent),
+            ]
         );
         std::fs::remove_dir_all(dir).ok();
     }
@@ -2278,7 +2399,7 @@ mod tests {
         .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Text("T"), Text("D"), Text("typed"), Default]);
+        let mut ask = Script::new([Text("T"), Text("D"), Text("typed"), Default, Default]);
         create(
             create_args(Some("acct/prod")),
             &client,

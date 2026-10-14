@@ -453,11 +453,13 @@ pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
 
 /// One of `items`, as dialoguer's `Select` asks for it, plus going back:
 /// ↑/↓ (k/j) move, Enter (or →) chooses, Esc cancels, and with `back`, ←
-/// returns None to ask the question before again.
+/// returns None to ask the question before again. `details` are shown under
+/// the question while it's asked (a summary to confirm, say), and go with it.
 // ponytail: no scrolling; its lists (accounts, data connections,
 // visibilities) fit a screen. Window it like `browse` if one grows past that.
 pub fn select(
     label: &str,
+    details: &[String],
     items: &[String],
     default: usize,
     back: bool,
@@ -491,6 +493,7 @@ pub fn select(
             style("?").yellow().bold(),
             style(label).bold()
         )];
+        lines.extend(details.iter().map(|d| format!("    {d}")));
         for (i, item) in items.iter().enumerate() {
             lines.push(if i == at {
                 format!("{} {}", style("›").cyan(), style(item).cyan())

@@ -101,6 +101,18 @@ pub trait Prompter {
     fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String> {
         self.long_text(label, current).map(Some)
     }
+    /// Show `details` (what's about to be sent) and ask `question`, yes by
+    /// default. None means back to the question before.
+    fn confirm_or_back(
+        &mut self,
+        question: &str,
+        details: &[String],
+    ) -> Result<Option<bool>, String> {
+        for line in details {
+            eprintln!("    {line}");
+        }
+        self.confirm(question, true).map(Some)
+    }
 }
 
 /// Prompts on the terminal, written to stderr so stdout stays clean for output.
@@ -225,7 +237,16 @@ impl Prompter for Tty {
         items: &[String],
         default: usize,
     ) -> Result<Option<usize>, String> {
-        crate::picker::select(label, items, default, true)
+        crate::picker::select(label, &[], items, default, true)
+    }
+
+    fn confirm_or_back(
+        &mut self,
+        question: &str,
+        details: &[String],
+    ) -> Result<Option<bool>, String> {
+        let options = ["Yes".to_string(), "No, cancel".to_string()];
+        Ok(crate::picker::select(question, details, &options, 0, true)?.map(|i| i == 0))
     }
 
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String> {
@@ -385,6 +406,19 @@ pub mod scripted {
                 return Ok(None);
             }
             self.long_text(label, current).map(Some)
+        }
+
+        /// Recorded as `question {detail | detail | …} [true]`.
+        fn confirm_or_back(
+            &mut self,
+            question: &str,
+            details: &[String],
+        ) -> Result<Option<bool>, String> {
+            let label = format!("{question} {{{}}}", details.join(" | "));
+            if self.went_back(&label) {
+                return Ok(None);
+            }
+            self.confirm(&label, true).map(Some)
         }
 
         fn input(&mut self, label: &str, default: &str, _: bool) -> Result<String, String> {
