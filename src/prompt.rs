@@ -95,7 +95,13 @@ pub fn tty() -> Option<Tty> {
 }
 
 fn failed(e: dialoguer::Error) -> String {
-    format!("Prompt failed: {e}")
+    match e {
+        // Ctrl+C, which `console` raises as a signal, interrupting the read.
+        dialoguer::Error::IO(ref io) if io.kind() == std::io::ErrorKind::Interrupted => {
+            INTERRUPTED.into()
+        }
+        e => format!("Prompt failed: {e}"),
+    }
 }
 
 /// What a prompt returns as its error when the person backs out with Esc (or
@@ -107,16 +113,24 @@ pub const CANCELLED: &str = "Cancelled; nothing was changed.";
 /// An error as the person should see it. Backing out of a prompt isn't a
 /// failure worth an "Error:", so that message stands alone.
 pub fn describe(e: &str) -> String {
-    if e == CANCELLED {
+    if e == CANCELLED || e == INTERRUPTED {
         e.to_string()
     } else {
         format!("Error: {e}")
     }
 }
 
+/// What a prompt returns as its error on Ctrl+C. Like backing out, it's the
+/// person's own doing, so it's reported without an "Error:".
+pub const INTERRUPTED: &str = "Interrupted.";
+
 /// Print an error on stderr, as `describe` puts it.
 pub fn report(e: &str) {
-    eprintln!("{}", describe(e));
+    if e == INTERRUPTED {
+        crate::picker::say_interrupted();
+    } else {
+        eprintln!("{}", describe(e));
+    }
 }
 
 fn cancellable<T>(answer: dialoguer::Result<Option<T>>) -> Result<T, String> {

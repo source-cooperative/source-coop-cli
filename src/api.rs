@@ -212,15 +212,15 @@ impl Client {
 
     /// Fail before anyone is asked anything if changes can't be made as them:
     /// no token, or one the API refuses (expired, or for another audience).
-    pub async fn check_signed_in(&self) -> Result<(), ApiError> {
+    /// Returns the `/whoami` session, which says who they are and what they're
+    /// a member of.
+    pub async fn check_signed_in(&self) -> Result<serde_json::Value, ApiError> {
         if self.token.is_none() {
             return Err(ApiError::other(
                 "Not signed in: run 'source-coop login'.".into(),
             ));
         }
-        self.get::<serde_json::Value>(self.url(&["whoami"]))
-            .await
-            .map(drop)
+        self.get(self.url(&["whoami"])).await
     }
 }
 

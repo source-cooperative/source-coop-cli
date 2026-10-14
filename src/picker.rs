@@ -25,22 +25,39 @@ pub struct FullScreen;
 /// Whether the alternate screen is up, for the Ctrl+C handler.
 static IN_FULLSCREEN: AtomicBool = AtomicBool::new(false);
 
+/// Put the terminal back on Ctrl+C, however it arrives. Our own prompts read
+/// it as a key, but dialoguer's choices have `console` raise it as a signal,
+/// and so does a Ctrl+C while a request is running: the default handler would
+/// end the process with the cursor dialoguer hid still hidden, and inside the
+/// alternate screen. Installed once, as a handler stays for the process.
+pub fn handle_interrupts() {
+    static HANDLER: Once = Once::new();
+    HANDLER.call_once(|| {
+        tokio::spawn(async {
+            if tokio::signal::ctrl_c().await.is_ok() {
+                if IN_FULLSCREEN.load(Ordering::SeqCst) {
+                    eprint!("\x1b[?1049l");
+                }
+                eprint!("\x1b[?25h");
+                say_interrupted();
+                std::process::exit(130);
+            }
+        });
+    });
+}
+
+/// Print "Interrupted." once: the handler above and the prompt whose read the
+/// signal interrupted can both get there.
+pub fn say_interrupted() {
+    static SAID: AtomicBool = AtomicBool::new(false);
+    if !SAID.swap(true, Ordering::SeqCst) {
+        eprintln!("\n{}", crate::prompt::INTERRUPTED);
+    }
+}
+
 impl FullScreen {
     pub fn enter() -> FullScreen {
-        // Ctrl+C while a page loads is a signal, not a key the picker reads:
-        // put the terminal back before exiting as the default handler would.
-        // Spawned once, as a handler stays installed for the process.
-        static HANDLER: Once = Once::new();
-        HANDLER.call_once(|| {
-            tokio::spawn(async {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    if IN_FULLSCREEN.load(Ordering::SeqCst) {
-                        eprint!("\x1b[?1049l\x1b[?25h");
-                    }
-                    std::process::exit(130);
-                }
-            });
-        });
+        handle_interrupts();
         IN_FULLSCREEN.store(true, Ordering::SeqCst);
         eprint!("\x1b[?1049h\x1b[H");
         FullScreen
@@ -59,7 +76,7 @@ fn failed(e: std::io::Error) -> String {
 }
 
 fn interrupted() -> String {
-    "Interrupted.".into()
+    crate::prompt::INTERRUPTED.into()
 }
 
 /// `line` cut to `cols` columns, keeping its styling.

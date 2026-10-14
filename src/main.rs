@@ -203,7 +203,8 @@ enum OutputFormat {
 /// Report a command's error (see `prompt::report`) and exit 1.
 fn fail(e: String) -> ! {
     prompt::report(&e);
-    std::process::exit(1);
+    // 130 for Ctrl+C, as a shell reports a process interrupted by SIGINT.
+    std::process::exit(if e == prompt::INTERRUPTED { 130 } else { 1 });
 }
 
 #[tokio::main]
@@ -243,6 +244,9 @@ async fn main() {
             let result = match api::Client::new(&args.api_url, token, verbose) {
                 Ok(client) => {
                     let mut tty = prompt::tty();
+                    if tty.is_some() {
+                        picker::handle_interrupts();
+                    }
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
                     product::run(args.command, &client, &args.api_url, prompter).await
                 }

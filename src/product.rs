@@ -732,6 +732,82 @@ async fn view(
 
 const VISIBILITIES: [&str; 3] = ["public", "unlisted", "restricted"];
 
+/// The accounts `me`, a `/whoami` session, may create products under, as
+/// source.coop decides (`createRepository` in its authz): their own when it
+/// has the `create_repositories` flag, then each organization they're an
+/// org-wide owner or maintainer of; none for a disabled or service account.
+/// The flag says whether they're an admin, who may create under any account.
+/// The API still decides; this only chooses what to offer.
+fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
+    let account = me.get("account").unwrap_or(&Value::Null);
+    let has_flag = |flag: &str| {
+        account
+            .get("flags")
+            .and_then(Value::as_array)
+            .is_some_and(|fs| fs.iter().any(|f| f.as_str() == Some(flag)))
+    };
+    if account.get("disabled").and_then(Value::as_bool) == Some(true)
+        || str_field(account, "type") == "service"
+        || str_field(account, "account_id").is_empty()
+    {
+        return (vec![], false);
+    }
+    let mut accounts = vec![];
+    if has_flag("create_repositories") || has_flag("admin") {
+        accounts.push(str_field(account, "account_id").to_string());
+    }
+    let orgs = me
+        .get("memberships")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|m| {
+            str_field(m, "state") == "member"
+                && m.get("repository_id").is_none_or(Value::is_null)
+                && matches!(str_field(m, "role"), "owners" | "maintainers")
+        })
+        .map(|m| str_field(m, "membership_account_id").to_string());
+    for org in orgs {
+        if !org.is_empty() && !accounts.contains(&org) {
+            accounts.push(org);
+        }
+    }
+    (accounts, has_flag("admin"))
+}
+
+/// Ask which account a new product goes under, from the ones they may create
+/// in, then its ID.
+fn ask_new_product(ask: &mut dyn Prompter, me: &Value) -> Result<ProductRef, String> {
+    const ANOTHER: &str = "Another account…";
+    let (accounts, anywhere) = creatable_accounts(me);
+    let account = match accounts.as_slice() {
+        [] if !anywhere => {
+            return Err("You can't create products yet: your own account needs \
+                 permission from source.coop, or an organization's owner can make \
+                 you one of its maintainers."
+                .into())
+        }
+        [only] if !anywhere => {
+            eprintln!("Creating under {only}, the only account you can create products in.");
+            only.clone()
+        }
+        _ => {
+            let mut options = accounts.clone();
+            if anywhere {
+                options.push(ANOTHER.into());
+            }
+            let picked = &options[ask.select("Account", &options, 0)?];
+            if picked == ANOTHER {
+                ask.input("Account ID", "", false)?
+            } else {
+                picked.clone()
+            }
+        }
+    };
+    let id = ask.input("Product ID", "", false)?;
+    format!("{account}/{}", id.trim()).parse()
+}
+
 async fn create(
     args: CreateArgs,
     client: &Client,
@@ -745,13 +821,14 @@ async fn create(
     insert_some(&mut body, "data_connection_id", args.data_connection_id);
 
     // Before the first question, so nobody types a product only to be refused.
-    if prompter.is_some() {
-        client.check_signed_in().await?;
-    }
-    let product = match (args.product, prompter.as_deref_mut()) {
-        (Some(p), _) => p,
-        (None, Some(ask)) => ask.input("Product (ACCOUNT/PRODUCT)", "", false)?.parse()?,
-        (None, None) => return Err("Name the product to create, as ACCOUNT/PRODUCT.".into()),
+    let me = match prompter {
+        Some(_) => Some(client.check_signed_in().await?),
+        None => None,
+    };
+    let product = match (args.product, prompter.as_deref_mut(), &me) {
+        (Some(p), _, _) => p,
+        (None, Some(ask), Some(me)) => ask_new_product(ask, me)?,
+        _ => return Err("Name the product to create, as ACCOUNT/PRODUCT.".into()),
     };
     body.insert("product_id".into(), json!(product.product_id));
 
@@ -1448,11 +1525,14 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/whoami"))
-            // A UserSession, as source.coop's /whoami returns it.
-            .respond_with(
-                ResponseTemplate::new(200)
-                    .set_body_json(json!({"account": {"account_id": "acct"}})),
-            )
+            // A UserSession, as source.coop's /whoami returns it: an account
+            // that may create products, and a maintainer of the org "org".
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "account": {"account_id": "acct", "type": "individual",
+                            "flags": ["create_repositories"]},
+                "memberships": [{"account_id": "acct", "membership_account_id": "org",
+                                 "role": "maintainers", "state": "member"}]
+            })))
             .mount(&server)
             .await;
         server
@@ -1822,14 +1902,16 @@ mod tests {
         .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Text("acct/my-data"), Default, Default, Pick(1), Default]);
+        let mut ask = Script::new([Default, Text("my-data"), Default, Default, Pick(1), Default]);
         create(create_args(None), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
         assert_eq!(
             ask.asked,
             [
-                "Product (ACCOUNT/PRODUCT) []",
+                // Only the accounts they may create in: their own, then the org.
+                "Account [acct] of acct | org",
+                "Product ID []",
                 "Title [My Data]",
                 "Description (long) []",
                 // Someone else's connection isn't offered.
@@ -1838,6 +1920,96 @@ mod tests {
                 "Visibility [public] of restricted | public",
             ]
         );
+    }
+
+    #[test]
+    fn creatable_accounts_follow_source_coops_rule() {
+        let session = |account: Value, memberships: Value| json!({"account": account, "memberships": memberships});
+        let org = |id: &str, role: &str, state: &str| json!({"membership_account_id": id, "role": role, "state": state});
+        let me = json!({"account_id": "me", "type": "individual", "flags": []});
+
+        // Org-wide owners and maintainers; not other roles, pending invites,
+        // or product-scoped memberships. Own account only with the flag.
+        let memberships = json!([
+            org("owned", "owners", "member"),
+            org("kept", "maintainers", "member"),
+            org("read", "read_data", "member"),
+            org("invited", "owners", "invited"),
+            {"membership_account_id": "scoped", "role": "owners", "state": "member",
+             "repository_id": "one-product"}
+        ]);
+        assert_eq!(
+            creatable_accounts(&session(me.clone(), memberships)),
+            (vec!["owned".to_string(), "kept".to_string()], false)
+        );
+
+        let mut flagged = me.clone();
+        flagged["flags"] = json!(["create_repositories"]);
+        assert_eq!(
+            creatable_accounts(&session(flagged, json!([]))),
+            (vec!["me".to_string()], false)
+        );
+
+        let mut admin = me.clone();
+        admin["flags"] = json!(["admin"]);
+        assert_eq!(
+            creatable_accounts(&session(admin, json!([]))),
+            (vec!["me".to_string()], true)
+        );
+
+        let mut disabled = me.clone();
+        disabled["flags"] = json!(["create_repositories"]);
+        disabled["disabled"] = json!(true);
+        let owner = json!([org("owned", "owners", "member")]);
+        assert_eq!(
+            creatable_accounts(&session(disabled, owner.clone())),
+            (vec![], false)
+        );
+        let service = json!({"account_id": "bot", "type": "service", "flags": ["admin"]});
+        assert_eq!(
+            creatable_accounts(&session(service, owner)),
+            (vec![], false)
+        );
+    }
+
+    #[tokio::test]
+    async fn create_offers_no_account_choice_with_only_one() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/whoami"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "account": {"account_id": "solo", "flags": ["create_repositories"]}
+            })))
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        // Esc at the product ID: only that was asked, with no account picker.
+        let mut ask = Script::new([Cancel]);
+        let err = create(create_args(None), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap_err();
+        assert_eq!(err, crate::prompt::CANCELLED);
+        assert_eq!(ask.asked, ["Product ID []"]);
+    }
+
+    #[tokio::test]
+    async fn create_refuses_someone_who_can_create_nowhere_before_asking() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/whoami"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"account": {"account_id": "me", "flags": []}})),
+            )
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([]);
+        let err = create(create_args(None), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap_err();
+        assert!(err.starts_with("You can't create products yet"), "{err}");
+        assert!(ask.asked.is_empty());
     }
 
     #[tokio::test]
