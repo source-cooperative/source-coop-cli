@@ -35,6 +35,42 @@ pub struct Session {
     /// When the access token expires, in Unix seconds.
     #[serde(default)]
     pub access_token_expires_at: Option<i64>,
+    /// Who logged in, as the API's `/whoami` said at login, for `auth status`
+    /// to show without going to the network. Absent when it couldn't be asked
+    /// (no access token) and in sessions written before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<Account>,
+    /// When the refresh token was issued or last rotated, in Unix seconds:
+    /// how long ago the login was renewed. Absent in sessions written before
+    /// it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_issued_at: Option<i64>,
+    /// When the refresh token expires, in Unix seconds, if the provider said.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh_token_expires_at: Option<i64>,
+}
+
+/// The source.coop account a session acts as.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Account {
+    pub account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl Account {
+    /// The account in a `/whoami` response, if it names one.
+    pub fn from_whoami(me: &serde_json::Value) -> Option<Account> {
+        let account = me.get("account")?;
+        Some(Account {
+            account_id: account.get("account_id")?.as_str()?.to_string(),
+            name: account
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|n| !n.is_empty())
+                .map(String::from),
+        })
+    }
 }
 
 /// Which token a caller needs from the session.
@@ -64,6 +100,9 @@ impl Session {
             id_token: String::new(),
             access_token: None,
             access_token_expires_at: None,
+            account: None,
+            refresh_token_issued_at: None,
+            refresh_token_expires_at: None,
         };
         session.apply(tokens, now);
         session
@@ -74,6 +113,8 @@ impl Session {
         self.id_token = tokens.id_token;
         if let Some(rotated) = tokens.refresh_token {
             self.refresh_token = Some(rotated);
+            self.refresh_token_issued_at = Some(now);
+            self.refresh_token_expires_at = tokens.refresh_expires_in.map(|s| now + s);
         }
         self.access_token_expires_at = tokens
             .expires_in
@@ -110,7 +151,7 @@ impl Session {
 
 /// The `exp` claim of a JWT, read without verifying it: only to know when to
 /// refresh, never to trust the token.
-fn jwt_exp(token: &str) -> Option<i64> {
+pub(crate) fn jwt_exp(token: &str) -> Option<i64> {
     let payload = URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?;
     serde_json::from_slice::<serde_json::Value>(&payload)
         .ok()?
@@ -122,7 +163,7 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-const EXPIRED: &str = "Your login has expired. Run 'source-coop login'.";
+const EXPIRED: &str = "Your login has expired. Run 'source-coop auth login'.";
 
 /// The wanted token from `session`, refreshing the session first if that
 /// token has expired. `save` persists the session after a refresh, before the
@@ -199,6 +240,7 @@ mod tests {
             refresh_token: Some("rt-1".into()),
             access_token: access.map(String::from),
             expires_in,
+            refresh_expires_in: None,
         }
     }
 
@@ -222,6 +264,33 @@ mod tests {
             .expect(times)
             .mount(server)
             .await;
+    }
+
+    #[test]
+    fn a_refresh_tokens_issue_time_follows_rotation_and_its_expiry_needs_saying() {
+        let mut s = Session::new(
+            tokens(NOW + 3600, None, None),
+            "https://data.source.coop".into(),
+            "cid".into(),
+            "https://auth.test/oauth2/token".into(),
+            None,
+            NOW,
+        );
+        assert_eq!(s.refresh_token_issued_at, Some(NOW));
+        // Ory says nothing of a refresh token's lifetime.
+        assert_eq!(s.refresh_token_expires_at, None);
+
+        // A refresh that doesn't rotate it leaves the time as it was...
+        let mut kept = tokens(NOW + 7200, None, None);
+        kept.refresh_token = None;
+        s.apply(kept, NOW + 100);
+        assert_eq!(s.refresh_token_issued_at, Some(NOW));
+        // ...and one that does, from a provider that gives a lifetime, moves both.
+        let mut rotated = tokens(NOW + 7200, None, None);
+        rotated.refresh_expires_in = Some(86_400);
+        s.apply(rotated, NOW + 200);
+        assert_eq!(s.refresh_token_issued_at, Some(NOW + 200));
+        assert_eq!(s.refresh_token_expires_at, Some(NOW + 200 + 86_400));
     }
 
     #[test]
@@ -276,6 +345,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_zero_refresh_lifetime_means_no_known_expiry() {
+        let server = MockServer::start().await;
+        mock_refresh(
+            &server,
+            json!({"id_token": jwt(NOW + 3600), "refresh_token": "rt-2",
+                   "refresh_expires_in": 0}),
+            1,
+        )
+        .await;
+        let mut s = session(&server, tokens(NOW - 10, None, None));
+        ensure(&mut s, Want::Id, NOW, false, |_| Ok(()))
+            .await
+            .unwrap();
+        // Keycloak's offline tokens send 0 for "never", not "now".
+        assert_eq!(s.refresh_token_expires_at, None);
+    }
+
+    #[tokio::test]
     async fn an_expired_id_token_refreshes_for_sts() {
         let server = MockServer::start().await;
         mock_refresh(&server, json!({"id_token": jwt(NOW + 3600)}), 1).await;
@@ -317,7 +404,7 @@ mod tests {
         let err = ensure(&mut s, Want::Access, NOW, false, |_| Ok(()))
             .await
             .unwrap_err();
-        assert!(err.contains("source-coop login"));
+        assert!(err.contains("source-coop auth login"));
     }
 
     #[test]

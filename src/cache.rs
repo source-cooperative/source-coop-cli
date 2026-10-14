@@ -211,6 +211,19 @@ pub fn write_credentials(
 /// the production slot, so an environment with nothing of its own takes its
 /// entry from there, copying it into its own slot.
 pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
+    find_credentials(env, role_arn, true)
+}
+
+/// `read_credentials` without the copy, for reporting: writes nothing.
+pub fn peek_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
+    find_credentials(env, role_arn, false)
+}
+
+fn find_credentials(
+    env: Option<&str>,
+    role_arn: &str,
+    migrate: bool,
+) -> Result<Option<CacheEntry>, String> {
     let slot = role_slot(env, role_arn)?;
     let entry: Option<CacheEntry> = read_slot(&slot)?;
     if entry.is_some() || env.is_none() {
@@ -221,7 +234,9 @@ pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<Cach
     let Some(legacy) = legacy.filter(|e| e.minted_in(env)) else {
         return Ok(None);
     };
-    write_slot(&slot, &legacy)?;
+    if migrate {
+        write_slot(&slot, &legacy)?;
+    }
     Ok(Some(legacy))
 }
 
@@ -234,6 +249,57 @@ pub fn write_session(env: Option<&str>, session: &Session) -> Result<String, Str
 pub fn read_session(env: Option<&str>) -> Result<Option<Session>, String> {
     let session: Option<Session> = read_slot(&session_slot(env)?)?;
     Ok(session.filter(|s| s.proxy_url.as_deref().is_none_or(|p| in_env(p, env))))
+}
+
+/// Remove the role's cached credentials. Returns whether there were any.
+pub fn delete_credentials(env: Option<&str>, role_arn: &str) -> Result<bool, String> {
+    let slot = role_slot(env, role_arn)?;
+    // Production's slot may still hold another environment's entry from
+    // before environments existed: that's for its own environment's logout.
+    let mut removed = match env {
+        None if read_slot::<CacheEntry>(&slot)?.is_some_and(|e| !e.belongs_to(None)) => false,
+        _ => delete_slot(&slot)?,
+    };
+    // Otherwise `read_credentials` would copy a legacy entry for `env` back
+    // out of production's slot.
+    if env.is_some() {
+        let legacy = role_slot(None, role_arn)?;
+        if read_slot::<CacheEntry>(&legacy)?.is_some_and(|e| e.minted_in(env)) {
+            removed |= delete_slot(&legacy)?;
+        }
+    }
+    Ok(removed)
+}
+
+/// Remove `env`'s login session. Returns whether there was one.
+pub fn delete_session(env: Option<&str>) -> Result<bool, String> {
+    delete_slot(&session_slot(env)?)
+}
+
+/// Remove a slot from both the keyring and its file, under the slot's lock.
+fn delete_slot(slot: &Slot) -> Result<bool, String> {
+    let _lock = lock_slot(slot)?;
+    let keyring = match keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
+        Err(_) => Ok(false),
+        Ok(entry) => match entry.delete_credential() {
+            Ok(()) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(ref e) if is_keyring_unavailable(e) => Ok(false),
+            Err(e) => Err(format!("Failed to delete from keyring: {e}")),
+        },
+    };
+    // The file goes even when the keyring fails, so no copy outlives a logout.
+    let file = remove_file(&slot.path)?;
+    Ok(keyring? || file)
+}
+
+/// Remove a cache file. Returns whether it existed.
+fn remove_file(path: &Path) -> Result<bool, String> {
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("Failed to remove cache {}: {e}", path.display())),
+    }
 }
 
 fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
@@ -279,13 +345,24 @@ pub(crate) fn write_file(path: &Path, json: &str) -> Result<String, String> {
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
-    fs::write(path, json).map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
+    // Owner-only before anything is written, so a refresh token is never
+    // readable by others, even briefly.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
     #[cfg(unix)]
     {
+        // An existing file keeps its mode through `open`.
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        file.set_permissions(fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("Failed to set permissions on {}: {e}", path.display()))?;
     }
+    io::Write::write_all(&mut file, json.as_bytes())
+        .map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
     Ok(path.display().to_string())
 }
 
@@ -395,6 +472,16 @@ mod tests {
         assert!(bare.belongs_to(None));
         // A bare entry stays where it is: migration never hands it to another environment.
         assert!(!bare.minted_in(Some("data.staging.source.coop")));
+    }
+
+    #[test]
+    fn remove_file_reports_whether_it_existed() {
+        let path =
+            std::env::temp_dir().join(format!("source-coop-test-{}.json", std::process::id()));
+        write_file(&path, "{}").unwrap();
+        assert!(remove_file(&path).unwrap());
+        assert!(!path.exists());
+        assert!(!remove_file(&path).unwrap());
     }
 
     #[test]

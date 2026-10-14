@@ -48,7 +48,10 @@ impl fmt::Display for ApiError {
             }
         }
         if self.status == Some(StatusCode::UNAUTHORIZED) {
-            write!(f, "\nThis needs you signed in: run 'source-coop login'.")?;
+            write!(
+                f,
+                "\nThis needs you signed in: run 'source-coop auth login'."
+            )?;
         }
         Ok(())
     }
@@ -218,7 +221,7 @@ impl Client {
     pub async fn check_signed_in(&self) -> Result<serde_json::Value, ApiError> {
         if self.token.is_none() {
             return Err(ApiError::other(
-                "Not signed in: run 'source-coop login'.".into(),
+                "Not signed in: run 'source-coop auth login'.".into(),
             ));
         }
         self.get(self.url(&["whoami"])).await
@@ -305,6 +308,6 @@ mod tests {
     fn says_how_to_authenticate_on_401() {
         let body = r#"{"error":{"code":"unauthenticated","message":"Sign in first."}}"#;
         let e = ApiError::from_response(StatusCode::UNAUTHORIZED, body);
-        assert!(e.to_string().contains("source-coop login"));
+        assert!(e.to_string().contains("source-coop auth login"));
     }
 }
