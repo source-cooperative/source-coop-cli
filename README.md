@@ -221,13 +221,13 @@ With `-i`, lists and products answer to keys:
 |-----|-----------|--------------|
 | ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
 | → Enter (`l`) | open the product | |
-| ← Esc (`h` `q`) | quit | back to the list |
-| `/` | filter by typed text (Enter keeps it, Esc clears it) | |
+| ← Esc (`h` `q`) | quit (from search results: back to the whole list) | back to the list |
+| `/` | filter by typed text (Esc clears it); among all public products, Enter searches them on the server | |
 | `b` | open in the browser | open in the browser |
-| `e` | edit | edit |
-| `d` | delete | delete |
+| `e` | | edit |
+| `d` | | delete |
 
-Edit and delete run exactly as `product edit` and `product delete` do, prompts included.
+Editing or deleting takes opening the product first, so a stray key on a long list changes nothing. Edit and delete run exactly as `product edit` and `product delete` do, prompts included. Lists load more as you scroll, and `-i` takes the whole terminal while it runs, putting it back as it was when you leave.
 
 `create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) by answering `e`. `edit` with no flags asks which fields to change and starts each from its current value. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
 

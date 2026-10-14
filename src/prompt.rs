@@ -353,6 +353,10 @@ pub mod scripted {
             match self.next(label) {
                 Answer::Browse(i, action) => {
                     assert!(more || action != Action::More, "More without more");
+                    // As the picker ignores keys it wasn't given.
+                    if let Action::Key(c) = action {
+                        assert!(keys.contains(c), "{c} isn't a key here ({keys})");
+                    }
                     place.at = i;
                     Ok(action)
                 }

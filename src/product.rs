@@ -367,8 +367,12 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
 const PICK_PAGE: usize = 50;
 
 /// The shortcuts on a product, wherever one is highlighted or shown.
-const KEYS: &str = "bed";
-const LIST_HINT: &str = "↑↓ move · → open · b browser · e edit · d delete · / filter · ← quit";
+/// Shortcuts in the list: only harmless ones. Editing or deleting a product
+/// takes opening it first, so a stray key on a long list changes nothing.
+const LIST_KEYS: &str = "b";
+/// Shortcuts on an opened product.
+const SCREEN_KEYS: &str = "bed";
+const LIST_HINT: &str = "↑↓ move · → open to edit or delete · b browser · / filter · ← quit";
 const CHOOSE_HINT: &str = "↑↓ move · → choose · / filter · ← quit";
 const SCREEN_HINT: &str = "b browser · e edit · d delete · ← back";
 
@@ -441,7 +445,7 @@ async fn browse_products(
     let (keys, hint) = if choosing {
         ("", CHOOSE_HINT)
     } else {
-        (KEYS, LIST_HINT)
+        (LIST_KEYS, LIST_HINT)
     };
     let mut listing = Listing::open(client, url.clone()).await?;
     if listing.is_empty() {
@@ -558,7 +562,7 @@ async fn product_screen(
         if let Some(n) = notice.take() {
             eprintln!("{}", crate::style::paint(color, "33", &n));
         }
-        match ask.keypress(SCREEN_HINT, KEYS)? {
+        match ask.keypress(SCREEN_HINT, SCREEN_KEYS)? {
             // keypress never pages or searches; those are only from browse.
             Action::Back | Action::Open | Action::More | Action::Search => {
                 return Ok((After::Kept, None))
@@ -2033,15 +2037,17 @@ mod tests {
             featured: false,
         };
         let mut ask = Script::new([
-            Browse(1, Action::More),     // the highlight nears the end
-            Browse(1, Action::Open),     // into acct/prod
-            Press(Action::Key('d')),     // delete it
-            Yes(false),                  // don't keep the data
-            Text("acct/prod"),           // confirm
-            Browse(1, Action::Key('d')), // d on acct/c, from the list
-            Default,                     // keep the data? no
-            Text("not it"),              // a wrong confirmation: nothing deleted
-            Browse(1, Action::Back),     // quit
+            Browse(1, Action::More), // the highlight nears the end
+            Browse(1, Action::Open), // into acct/prod
+            Press(Action::Key('d')), // delete it
+            Yes(false),              // don't keep the data
+            Text("acct/prod"),       // confirm
+            Browse(1, Action::Open), // into acct/c: d isn't a list key
+            Press(Action::Key('d')), // delete it
+            Default,                 // keep the data? no
+            Text("not it"),          // a wrong confirmation: nothing deleted
+            Press(Action::Back),     // back to the list
+            Browse(1, Action::Back), // quit
         ]);
         let url = filters.url(&client);
         browse_products(url, &client, "https://source.coop", &mut ask, false)
@@ -2051,25 +2057,29 @@ mod tests {
         // No "Load more…" item: the picker is told there's more instead.
         assert_eq!(
             ask.asked[0],
-            "Products [acct/a  a title  public] of acct/a  a title  public | acct/prod  prod title  public (more) (keys bed)"
+            "Products [acct/a  a title  public] of acct/a  a title  public | acct/prod  prod title  public (more) (keys b)"
         );
         // The next page is appended with the highlight where it was, and the
         // picker stops asking once the listing runs out.
         assert_eq!(
             ask.asked[1],
-            "Products [acct/prod  prod title  public] of acct/a  a title  public | acct/prod  prod title  public | acct/c  c title  public (keys bed)"
+            "Products [acct/prod  prod title  public] of acct/a  a title  public | acct/prod  prod title  public | acct/c  c title  public (keys b)"
         );
+        // The list offers only the browser; edit and delete are on a product.
+        assert!(ask.asked[0].ends_with("(keys b)"), "{}", ask.asked[0]);
         assert_eq!(ask.asked[2], format!("{SCREEN_HINT} (keys bed)"));
         // The deleted product is gone, the cursor sits on the one after it, and
         // the list says what happened, as a cleared screen wouldn't otherwise.
         assert_eq!(
             ask.asked[5],
-            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public !Deleted acct/prod. (keys bed)"
+            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public !Deleted acct/prod. (keys b)"
         );
-        // A refused delete leaves the list as it was, and says so.
+        // A refused delete stays on the product's screen, and the list it goes
+        // back to is as it was.
+        assert_eq!(ask.asked[9], format!("{SCREEN_HINT} (keys bed)"));
         assert_eq!(
-            ask.asked[8],
-            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public !Error: Not confirmed; nothing was deleted. (keys bed)"
+            ask.asked[10],
+            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public (keys b)"
         );
     }
 
