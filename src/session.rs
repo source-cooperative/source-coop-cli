@@ -35,6 +35,34 @@ pub struct Session {
     /// When the access token expires, in Unix seconds.
     #[serde(default)]
     pub access_token_expires_at: Option<i64>,
+    /// Who logged in, as the API's `/whoami` said at login, for `auth status`
+    /// to show without going to the network. Absent when it couldn't be asked
+    /// (no access token) and in sessions written before it was kept.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<Account>,
+}
+
+/// The source.coop account a session acts as.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct Account {
+    pub account_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+impl Account {
+    /// The account in a `/whoami` response, if it names one.
+    pub fn from_whoami(me: &serde_json::Value) -> Option<Account> {
+        let account = me.get("account")?;
+        Some(Account {
+            account_id: account.get("account_id")?.as_str()?.to_string(),
+            name: account
+                .get("name")
+                .and_then(serde_json::Value::as_str)
+                .filter(|n| !n.is_empty())
+                .map(String::from),
+        })
+    }
 }
 
 /// Which token a caller needs from the session.
@@ -64,6 +92,7 @@ impl Session {
             id_token: String::new(),
             access_token: None,
             access_token_expires_at: None,
+            account: None,
         };
         session.apply(tokens, now);
         session

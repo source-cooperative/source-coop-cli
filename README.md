@@ -95,16 +95,20 @@ source-coop --version
 
 ### Checking login status
 
-`auth status` shows whether you're logged in, and when the cached tokens and a role's credentials expire. It works from the cache: nothing is refreshed and nothing is sent over the network.
+`auth status` shows whether you're logged in and as whom, and when the cached tokens and a role's credentials expire. It works from the cache: nothing is refreshed and nothing is sent over the network. The account is the one `auth login` looked up (through the API at `--api-url`) when you logged in; for a login from before it did, `auth status` says so until you log in again. On a terminal, labels are dim and the login's state is green or red.
 
 ```bash
 source-coop auth status
 ```
 
 ```
-Environment: production (https://data.source.coop)
-Login session: logged in (refresh token: yes; ID token expires 2026-10-13T18:00:00Z; access token for https://source.coop expires 2026-10-13T18:00:00Z)
-Role _default: credentials expire 2026-10-13T18:30:00Z
+Environment    production (https://data.source.coop)
+Login          logged in
+Account        Anthony Lukach (alukach)
+Refresh token  yes
+ID token       expires 2026-10-13T18:00:00Z
+Access token   for https://source.coop, expires 2026-10-13T18:00:00Z
+Credentials    _default: expire 2026-10-13T18:30:00Z
 ```
 
 The keyring can't list its entries, so `auth status` reports on one environment and role. Pass `--proxy-url` and `--role-arn` (or set `SOURCE_PROXY_URL` and `SOURCE_ROLE_ARN`) to check others.
@@ -177,6 +181,7 @@ endpoint_url = https://data.staging.source.coop
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
 | `--scope` | | `openid offline_access` | OAuth2 scopes (`offline_access` enables automatic refresh in `creds`) |
 | `--audience` | `SOURCE_API_AUDIENCE` | `https://source.coop` | Audience of the access token for the source.coop API; empty to request none |
+| `--api-url` | `SOURCE_API_URL` | `https://source.coop` | source.coop site whose API names the account you logged in as, for `auth status` |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |
 

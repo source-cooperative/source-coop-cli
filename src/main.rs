@@ -176,6 +176,11 @@ struct LoginArgs {
     #[arg(long, env = "SOURCE_API_AUDIENCE", default_value = defaults::API_URL)]
     audience: String,
 
+    /// source.coop site URL whose API names the account you logged in as,
+    /// shown by `auth status`
+    #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
     /// Local callback port (0 for random available port)
     #[arg(long, default_value = "0")]
     port: u16,
@@ -282,6 +287,27 @@ async fn main() {
     }
 }
 
+/// The account `access_token` acts as, from the API's `/whoami`, to keep
+/// with the session. None without a token; a failed lookup is noted, not an
+/// error, since the login itself worked.
+async fn whoami(
+    api_url: &str,
+    access_token: Option<String>,
+    verbose: bool,
+) -> Option<session::Account> {
+    let client = api::Client::new(api_url, Some(access_token?), verbose).ok()?;
+    match client
+        .get::<serde_json::Value>(client.url(&["whoami"]))
+        .await
+    {
+        Ok(me) => session::Account::from_whoami(&me),
+        Err(e) => {
+            eprintln!("Couldn't look up your account ({e}); `auth status` won't name it.");
+            None
+        }
+    }
+}
+
 fn run_status(args: StatusArgs) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let session = cache::read_session(env.as_deref())?;
@@ -295,30 +321,31 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
             session.as_ref(),
             entry.as_ref().map(|e| &e.creds),
             chrono::Utc::now().timestamp(),
+            style::wanted(std::io::IsTerminal::is_terminal(&std::io::stdout())),
         )
     );
     Ok(())
 }
 
-/// `<expires> <time>` or `expired <time>` for a Unix timestamp, as of `now`.
-fn expiry(exp: Option<i64>, now: i64, expires: &str) -> String {
+/// `<expires> <time>` for a Unix timestamp, or `expired <time>` (yellow)
+/// once it's past, as of `now`.
+fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
     match exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)) {
         None => "expiry unknown".into(),
         Some(t) => {
-            let verb = if t.timestamp() > now {
-                expires
+            let when = t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
+            if t.timestamp() > now {
+                format!("{expires} {when}")
             } else {
-                "expired"
-            };
-            format!(
-                "{verb} {}",
-                t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
-            )
+                style::paint(color, "33", &format!("expired {when}"))
+            }
         }
     }
 }
 
-/// The `auth status` report for one environment and role, as of `now`.
+/// The `auth status` report for one environment and role, as of `now`: a
+/// `Label  value` row each, labels dim and the login's state green (logged
+/// in) or red (expired, not logged in) when `color`.
 fn status_report(
     proxy_url: &str,
     env: Option<&str>,
@@ -326,54 +353,77 @@ fn status_report(
     session: Option<&session::Session>,
     creds: Option<&sts::Credentials>,
     now: i64,
+    color: bool,
 ) -> String {
-    let mut out = format!(
-        "Environment: {} ({proxy_url})\n",
-        env.unwrap_or("production")
-    );
-    let login = match session {
-        None => "not logged in".to_string(),
+    let mut rows = vec![(
+        "Environment",
+        format!("{} ({proxy_url})", env.unwrap_or("production")),
+    )];
+    match session {
+        None => rows.push(("Login", style::paint(color, "31", "not logged in"))),
         Some(s) => {
             let id_exp = session::jwt_exp(&s.id_token);
             // Without a refresh token, the session ends when its ID token does.
             let state = match (&s.refresh_token, id_exp) {
-                (None, Some(exp)) if exp <= now => "expired",
-                _ => "logged in",
+                (None, Some(exp)) if exp <= now => style::paint(color, "31", "expired"),
+                _ => style::paint(color, "32", "logged in"),
             };
-            let access = match (&s.access_token, &s.audience) {
-                (None, _) => "no access token".to_string(),
-                (Some(_), aud) => format!(
-                    "access token{} {}",
-                    aud.as_deref()
-                        .map(|a| format!(" for {a}"))
-                        .unwrap_or_default(),
-                    expiry(s.access_token_expires_at, now, "expires")
-                ),
-            };
+            rows.push(("Login", state));
+            rows.push((
+                "Account",
+                match &s.account {
+                    Some(a) => match &a.name {
+                        Some(name) => format!("{name} ({})", style::id(color, &a.account_id)),
+                        None => a.account_id.clone(),
+                    },
+                    None => style::paint(color, "2", "unknown until your next `auth login`"),
+                },
+            ));
             let refresh = if s.refresh_token.is_some() {
                 "yes"
             } else {
                 "no"
             };
-            format!(
-                "{state} (refresh token: {refresh}; ID token {}; {access})",
-                expiry(id_exp, now, "expires")
-            )
+            rows.push(("Refresh token", refresh.into()));
+            rows.push(("ID token", expiry(id_exp, now, "expires", color)));
+            rows.push((
+                "Access token",
+                match &s.access_token {
+                    None => "none".into(),
+                    Some(_) => format!(
+                        "{}{}",
+                        s.audience
+                            .as_deref()
+                            .map(|a| format!("for {a}, "))
+                            .unwrap_or_default(),
+                        expiry(s.access_token_expires_at, now, "expires", color)
+                    ),
+                },
+            ));
         }
-    };
-    out += &format!("Login session: {login}\n");
-    let role = match creds {
-        None => "no cached credentials".to_string(),
-        Some(c) => {
-            let exp = chrono::DateTime::parse_from_rfc3339(&c.expiration).ok();
+    }
+    rows.push((
+        "Credentials",
+        match creds {
+            None => format!("{role_arn}: none cached"),
+            Some(c) => {
+                let exp = chrono::DateTime::parse_from_rfc3339(&c.expiration).ok();
+                format!(
+                    "{role_arn}: {}",
+                    expiry(exp.map(|t| t.timestamp()), now, "expire", color)
+                )
+            }
+        },
+    ));
+    let width = rows.iter().map(|(label, _)| label.len()).max().unwrap_or(0);
+    rows.iter()
+        .map(|(label, value)| {
             format!(
-                "credentials {}",
-                expiry(exp.map(|t| t.timestamp()), now, "expire")
+                "{}  {value}\n",
+                style::paint(color, "2", &format!("{label:<width$}"))
             )
-        }
-    };
-    out += &format!("Role {role_arn}: {role}\n");
-    out
+        })
+        .collect()
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
@@ -440,7 +490,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             "No access token issued; commands that call the source.coop API will run signed out."
         );
     }
-    let session = session::Session::new(
+    let mut session = session::Session::new(
         tokens,
         args.proxy_url.clone(),
         args.client_id,
@@ -448,6 +498,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         audience.map(String::from),
         chrono::Utc::now().timestamp(),
     );
+    session.account = whoami(&args.api_url, session.access_token.clone(), verbose).await;
     {
         let _lock = cache::lock_session(env.as_deref())?;
         cache::write_session(env.as_deref(), &session)?;
@@ -668,11 +719,8 @@ mod tests {
         format!("e30.{claims}.sig")
     }
 
-    #[test]
-    fn status_reports_a_live_session_and_credentials() {
-        // 2026-10-13T17:00:00Z
-        let now = 1_791_910_800;
-        let session = session::Session {
+    fn live_session(now: i64, account: Option<session::Account>) -> session::Session {
+        session::Session {
             proxy_url: Some("https://data.source.coop".into()),
             client_id: "cid".into(),
             token_endpoint: "https://auth.test/oauth2/token".into(),
@@ -681,40 +729,151 @@ mod tests {
             id_token: jwt(now + 3600),
             access_token: Some("at".into()),
             access_token_expires_at: Some(now - 60),
+            account,
+        }
+    }
+
+    #[test]
+    fn status_names_who_is_logged_in() {
+        // 2026-10-13T17:00:00Z
+        let now = 1_791_910_800;
+        let me = session::Account {
+            account_id: "alukach".into(),
+            name: Some("Anthony Lukach".into()),
         };
         let report = status_report(
             "https://data.source.coop",
             None,
             "_default",
-            Some(&session),
+            Some(&live_session(now, Some(me))),
             Some(&creds("2026-10-13T18:30:00Z")),
             now,
+            false,
         );
         assert_eq!(
             report,
-            "Environment: production (https://data.source.coop)\n\
-             Login session: logged in (refresh token: yes; ID token expires 2026-10-13T18:00:00Z; \
-             access token for https://source.coop expired 2026-10-13T16:59:00Z)\n\
-             Role _default: credentials expire 2026-10-13T18:30:00Z\n"
+            "Environment    production (https://data.source.coop)\n\
+             Login          logged in\n\
+             Account        Anthony Lukach (alukach)\n\
+             Refresh token  yes\n\
+             ID token       expires 2026-10-13T18:00:00Z\n\
+             Access token   for https://source.coop, expired 2026-10-13T16:59:00Z\n\
+             Credentials    _default: expire 2026-10-13T18:30:00Z\n"
         );
     }
 
     #[test]
-    fn status_reports_nothing_cached() {
-        let report = status_report(
+    fn status_says_when_the_account_is_unknown_or_nobody_is_logged_in() {
+        let now = 1_791_910_800;
+        let unknown = status_report(
+            "https://data.source.coop",
+            None,
+            "_default",
+            Some(&live_session(now, None)),
+            None,
+            now,
+            false,
+        );
+        assert!(
+            unknown.contains("Account        unknown until your next `auth login`\n"),
+            "{unknown}"
+        );
+        assert!(
+            unknown.ends_with("Credentials    _default: none cached\n"),
+            "{unknown}"
+        );
+
+        let nobody = status_report(
             "https://data.staging.source.coop",
             Some("data.staging.source.coop"),
             "_default",
             None,
             None,
             0,
+            false,
         );
         assert_eq!(
-            report,
-            "Environment: data.staging.source.coop (https://data.staging.source.coop)\n\
-             Login session: not logged in\n\
-             Role _default: no cached credentials\n"
+            nobody,
+            "Environment  data.staging.source.coop (https://data.staging.source.coop)\n\
+             Login        not logged in\n\
+             Credentials  _default: none cached\n"
         );
+    }
+
+    #[test]
+    fn status_colours_labels_and_the_login_state() {
+        let now = 1_791_910_800;
+        let me = session::Account {
+            account_id: "alukach".into(),
+            name: Some("A".into()),
+        };
+        let report = status_report(
+            "https://data.source.coop",
+            None,
+            "_default",
+            Some(&live_session(now, Some(me))),
+            None,
+            now,
+            true,
+        );
+        assert!(
+            report.contains("\x1b[2mLogin        \x1b[0m  \x1b[32mlogged in\x1b[0m"),
+            "{report:?}"
+        );
+        // The ID in gray, and a past expiry in yellow.
+        assert!(report.contains("A (\x1b[90malukach\x1b[0m)"), "{report:?}");
+        assert!(
+            report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z\x1b[0m"),
+            "{report:?}"
+        );
+        let nobody = status_report(
+            "https://data.source.coop",
+            None,
+            "_default",
+            None,
+            None,
+            now,
+            true,
+        );
+        assert!(
+            nobody.contains("\x1b[31mnot logged in\x1b[0m"),
+            "{nobody:?}"
+        );
+    }
+
+    #[test]
+    fn the_account_comes_from_whoami() {
+        let me =
+            serde_json::json!({"account": {"account_id": "alukach", "name": "Anthony Lukach"}});
+        assert_eq!(
+            session::Account::from_whoami(&me),
+            Some(session::Account {
+                account_id: "alukach".into(),
+                name: Some("Anthony Lukach".into())
+            })
+        );
+        // Signed in without an account yet.
+        assert_eq!(
+            session::Account::from_whoami(&serde_json::json!({"account": null})),
+            None
+        );
+    }
+
+    #[tokio::test]
+    async fn login_looks_up_the_account_only_with_an_access_token() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/whoami"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                serde_json::json!({"account": {"account_id": "alukach", "name": "Anthony Lukach"}}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let found = whoami(&server.uri(), Some("at".into()), false).await;
+        assert_eq!(found.map(|a| a.account_id), Some("alukach".to_string()));
+        // No token, no request (the mock expects exactly one).
+        assert_eq!(whoami(&server.uri(), None, false).await, None);
     }
 
     /// `login` moved under `auth`; the old name still works, unlisted.
