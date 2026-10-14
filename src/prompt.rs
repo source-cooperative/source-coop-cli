@@ -33,7 +33,7 @@ pub trait Prompter {
         keys: &str,
         hint: &str,
     ) -> Result<(usize, Action), String>;
-    /// Wait for back, open or one of `keys`, showing `hint`.
+    /// Wait for back or one of `keys`, showing `hint`.
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String>;
     /// Ask a yes/no question.
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String>;

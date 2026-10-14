@@ -259,7 +259,11 @@ pub async fn run(
 ) -> Result<(), String> {
     match cmd {
         ProductCommand::List(args) if args.interactive => {
-            pick(&args.filters, client, site, prompter).await
+            let ask = prompter.ok_or(NEEDS_TERMINAL)?;
+            let url = args.filters.url(client);
+            browse_products(url, client, site, ask, false)
+                .await
+                .map(drop)
         }
         ProductCommand::List(args) => list(args, client, site).await,
         ProductCommand::View(args) => view(args, client, site, prompter).await,
@@ -268,19 +272,21 @@ pub async fn run(
         // as if it had been named.
         ProductCommand::Edit(mut args) if args.product.is_none() => {
             let ask = prompter.ok_or(NEEDS_TERMINAL)?;
-            match choose(own_products(client).await?, client, &mut *ask).await? {
-                Some(p) => args.product = Some(p),
-                None => return Ok(()),
-            }
+            let url = own_products(client).await?;
+            let Some(p) = browse_products(url, client, site, &mut *ask, true).await? else {
+                return Ok(());
+            };
+            args.product = Some(p);
             edit(args, client, site, Some(ask)).await
         }
         ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
         ProductCommand::Delete(mut args) if args.product.is_none() => {
             let ask = prompter.ok_or(NEEDS_TERMINAL)?;
-            match choose(own_products(client).await?, client, &mut *ask).await? {
-                Some(p) => args.product = Some(p),
-                None => return Ok(()),
-            }
+            let url = own_products(client).await?;
+            let Some(p) = browse_products(url, client, site, &mut *ask, true).await? else {
+                return Ok(());
+            };
+            args.product = Some(p);
             delete(args, client, Some(ask)).await
         }
         ProductCommand::Delete(args) => delete(args, client, prompter).await,
@@ -412,50 +418,21 @@ impl Listing {
     }
 }
 
-/// `list -i`: move through the products and act on one with the shortcuts,
-/// or open it to see it as `view` shows it.
-async fn pick(
-    filters: &Filters,
-    client: &Client,
-    site: &str,
-    prompter: Option<&mut dyn Prompter>,
-) -> Result<(), String> {
-    let ask = prompter.ok_or("-i needs a terminal to pick from; drop it to print the list.")?;
-    let mut listing = Listing::open(client, filters.url(client)).await?;
-    let mut at = 0;
-    loop {
-        if listing.is_empty() {
-            eprintln!("No products found.");
-            return Ok(());
-        }
-        let (i, action) = ask.browse("Products", &listing.labels(), at, KEYS, LIST_HINT)?;
-        at = i;
-        if listing.is_load_more(i) {
-            match action {
-                Action::Back => return Ok(()),
-                Action::Open => listing.more(client).await?,
-                Action::Key(_) => {}
-            }
-            continue;
-        }
-        let after = match action {
-            Action::Back => return Ok(()),
-            Action::Open => product_screen(&mut listing.items[i], client, site, ask).await?,
-            Action::Key(key) => act(key, &mut listing.items[i], client, site, ask).await?,
-        };
-        if after == After::Deleted {
-            listing.items.remove(i);
-        }
-    }
-}
-
-/// `view|edit|delete -i` without a product: choose one from `url`'s listing.
-/// None if they backed out.
-async fn choose(
+/// Move through `url`'s products until they back out (None). For `list -i`,
+/// opening one shows it as `view` does and the shortcuts act on it; when
+/// `choosing` (`view|edit|delete -i` without a product), opening one returns it.
+async fn browse_products(
     url: url::Url,
     client: &Client,
+    site: &str,
     ask: &mut dyn Prompter,
+    choosing: bool,
 ) -> Result<Option<ProductRef>, String> {
+    let (keys, hint) = if choosing {
+        ("", CHOOSE_HINT)
+    } else {
+        (KEYS, LIST_HINT)
+    };
     let mut listing = Listing::open(client, url).await?;
     let mut at = 0;
     loop {
@@ -463,13 +440,21 @@ async fn choose(
             eprintln!("No products found.");
             return Ok(None);
         }
-        let (i, action) = ask.browse("Products", &listing.labels(), at, "", CHOOSE_HINT)?;
+        let (i, action) = ask.browse("Products", &listing.labels(), at, keys, hint)?;
         at = i;
-        match action {
+        let after = match action {
             Action::Back => return Ok(None),
-            Action::Open if listing.is_load_more(i) => listing.more(client).await?,
-            Action::Open => return name(&listing.items[i]).parse().map(Some),
-            Action::Key(_) => {}
+            Action::Open if listing.is_load_more(i) => {
+                listing.more(client).await?;
+                After::Kept
+            }
+            Action::Key(_) if listing.is_load_more(i) => After::Kept,
+            Action::Open if choosing => return name(&listing.items[i]).parse().map(Some),
+            Action::Open => product_screen(&mut listing.items[i], client, site, ask).await?,
+            Action::Key(key) => act(key, &mut listing.items[i], client, site, ask).await?,
+        };
+        if after == After::Deleted {
+            listing.items.remove(i);
         }
     }
 }
@@ -507,8 +492,7 @@ async fn product_screen(
         }
         println!();
         match ask.keypress(SCREEN_HINT, KEYS)? {
-            Action::Back => return Ok(After::Kept),
-            Action::Open => {}
+            Action::Back | Action::Open => return Ok(After::Kept),
             Action::Key(key) => {
                 if act(key, product, client, site, ask).await? == After::Deleted {
                     return Ok(After::Deleted);
@@ -641,13 +625,13 @@ async fn view(
 ) -> Result<(), String> {
     if args.interactive {
         let ask = prompter.ok_or(NEEDS_TERMINAL)?;
-        let p = match args.product {
-            Some(p) => p,
-            None => match choose(Filters::default().url(client), client, ask).await? {
-                Some(p) => p,
-                None => return Ok(()),
-            },
+        let chosen = match args.product {
+            None => {
+                browse_products(Filters::default().url(client), client, site, ask, true).await?
+            }
+            named => named,
         };
+        let Some(p) = chosen else { return Ok(()) };
         let mut product: Value = client.get(product_url(client, &p)).await?;
         product_screen(&mut product, client, site, ask).await?;
         return Ok(());
@@ -1847,7 +1831,8 @@ mod tests {
             Text("not it"),              // a wrong confirmation: nothing deleted
             Browse(1, Action::Back),     // quit
         ]);
-        pick(&filters, &client, "https://source.coop", Some(&mut ask))
+        let url = filters.url(&client);
+        browse_products(url, &client, "https://source.coop", &mut ask, false)
             .await
             .unwrap();
 

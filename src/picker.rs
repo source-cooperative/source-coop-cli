@@ -147,7 +147,7 @@ pub fn browse(
     }
 }
 
-/// Wait for ←/Esc/h/q (back), →/Enter/l (open) or one of `keys`, showing
+/// Wait for ←/Esc/h/q (back) or one of `keys`, showing
 /// `hint` meanwhile.
 pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     let term = Term::stderr();
@@ -158,7 +158,6 @@ pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     let action = loop {
         match term.read_key_raw().map_err(failed)? {
             Key::ArrowLeft | Key::Escape | Key::Char('h' | 'q') => break Action::Back,
-            Key::Enter | Key::ArrowRight | Key::Char('l') => break Action::Open,
             Key::CtrlC => return Err(interrupted()),
             Key::Char(c) if keys.contains(c) => break Action::Key(c),
             _ => {}
