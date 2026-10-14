@@ -16,6 +16,22 @@ pub enum Action {
     Back,
     /// One of the shortcut keys asked for.
     Key(char),
+    /// Only from `browse`, when told there's more: the highlight neared the
+    /// end of the items. Load the next page and browse again from `Place`.
+    More,
+}
+
+/// Where someone is in a `browse` list, kept between calls so loading more
+/// items (`Action::More`) doesn't lose their place or their filter.
+#[derive(Default)]
+pub struct Place {
+    /// The highlighted item.
+    pub at: usize,
+    pub filter: String,
+    /// Typing a filter, rather than moving.
+    pub filtering: bool,
+    /// Lines left on screen while more load, for the next call to redraw over.
+    pub drawn: usize,
 }
 
 pub trait Prompter {
@@ -23,16 +39,19 @@ pub trait Prompter {
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String>;
     /// Ask for one of `items`, starting on `default`; returns its index.
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String>;
-    /// Let someone move through `items` from `at` and act on one: returns its
-    /// index and what they pressed (see `crate::picker::browse`).
+    /// Let someone move through `items` from `place` and act on one: returns
+    /// what they pressed, with `place.at` the item it was pressed on. With
+    /// `more`, nearing the end returns `Action::More` (see
+    /// `crate::picker::browse`).
     fn browse(
         &mut self,
         label: &str,
         items: &[String],
-        at: usize,
+        place: &mut Place,
+        more: bool,
         keys: &str,
         hint: &str,
-    ) -> Result<(usize, Action), String>;
+    ) -> Result<Action, String>;
     /// Wait for back or one of `keys`, showing `hint`.
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String>;
     /// Ask a yes/no question.
@@ -124,11 +143,12 @@ impl Prompter for Tty {
         &mut self,
         label: &str,
         items: &[String],
-        at: usize,
+        place: &mut Place,
+        more: bool,
         keys: &str,
         hint: &str,
-    ) -> Result<(usize, Action), String> {
-        crate::picker::browse(label, items, at, keys, hint)
+    ) -> Result<Action, String> {
+        crate::picker::browse(label, items, place, more, keys, hint)
     }
 
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String> {
@@ -284,19 +304,25 @@ pub mod scripted {
             &mut self,
             label: &str,
             items: &[String],
-            at: usize,
+            place: &mut super::Place,
+            more: bool,
             keys: &str,
             _: &str,
-        ) -> Result<(usize, Action), String> {
+        ) -> Result<Action, String> {
+            let more_note = if more { " (more)" } else { "" };
             self.asked.push(format!(
-                "{label} [{}] of {} (keys {keys})",
-                items[at],
+                "{label} [{}] of {}{more_note} (keys {keys})",
+                items[place.at],
                 items.join(" | ")
             ));
-            Ok(match self.next(label) {
-                Answer::Browse(i, action) => (i, action),
+            match self.next(label) {
+                Answer::Browse(i, action) => {
+                    assert!(more || action != Action::More, "More without more");
+                    place.at = i;
+                    Ok(action)
+                }
                 a => panic!("{label}: expected a browse, scripted {a:?}"),
-            })
+            }
         }
 
         fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String> {

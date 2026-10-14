@@ -3,7 +3,7 @@
 
 use crate::api::{ApiError, Client, Page};
 use crate::draft::Draft;
-use crate::prompt::{Action, Prompter};
+use crate::prompt::{Action, Place, Prompter};
 use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
@@ -372,8 +372,8 @@ const LIST_HINT: &str = "↑↓ move · → open · b browser · e edit · d del
 const CHOOSE_HINT: &str = "↑↓ move · → choose · / filter · ← quit";
 const SCREEN_HINT: &str = "b browser · e edit · d delete · ← back";
 
-/// A listing being picked from, a page at a time. Its labels end with
-/// "Load more…" while there are pages left.
+/// A listing being picked from, a page at a time; the picker asks for the
+/// next page as the highlight nears the end.
 struct Listing {
     url: url::Url,
     items: Vec<Value>,
@@ -402,22 +402,13 @@ impl Listing {
     }
 
     fn labels(&self) -> Vec<String> {
-        let mut labels: Vec<String> = self
-            .items
+        self.items
             .iter()
             .map(|p| {
                 let id = crate::style::id(crate::style::on_stderr(), &name(p));
                 format!("{id}  {}", str_field(p, "title"))
             })
-            .collect();
-        if self.cursor.is_some() {
-            labels.push("Load more…".into());
-        }
-        labels
-    }
-
-    fn is_load_more(&self, i: usize) -> bool {
-        i == self.items.len()
+            .collect()
     }
 }
 
@@ -437,21 +428,21 @@ async fn browse_products(
         (KEYS, LIST_HINT)
     };
     let mut listing = Listing::open(client, url).await?;
-    let mut at = 0;
+    let mut place = Place::default();
     loop {
         if listing.is_empty() {
             eprintln!("No products found.");
             return Ok(None);
         }
-        let (i, action) = ask.browse("Products", &listing.labels(), at, keys, hint)?;
-        at = i;
+        let more = listing.cursor.is_some();
+        let action = ask.browse("Products", &listing.labels(), &mut place, more, keys, hint)?;
+        let i = place.at;
         let after = match action {
             Action::Back => return Ok(None),
-            Action::Open if listing.is_load_more(i) => {
+            Action::More => {
                 listing.more(client).await?;
                 After::Kept
             }
-            Action::Key(_) if listing.is_load_more(i) => After::Kept,
             Action::Open if choosing => return name(&listing.items[i]).parse().map(Some),
             Action::Open => product_screen(&mut listing.items[i], client, site, ask).await?,
             Action::Key(key) => act(key, &mut listing.items[i], client, site, ask).await?,
@@ -495,7 +486,8 @@ async fn product_screen(
         }
         println!();
         match ask.keypress(SCREEN_HINT, KEYS)? {
-            Action::Back | Action::Open => return Ok(After::Kept),
+            // keypress never pages; More is only from browse.
+            Action::Back | Action::Open | Action::More => return Ok(After::Kept),
             Action::Key(key) => {
                 if act(key, product, client, site, ask).await? == After::Deleted {
                     return Ok(After::Deleted);
@@ -1812,7 +1804,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn list_i_loads_more_deletes_through_the_menu_and_quits() {
+    async fn list_i_pages_itself_deletes_through_the_menu_and_quits() {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct"))
@@ -1844,7 +1836,7 @@ mod tests {
             featured: false,
         };
         let mut ask = Script::new([
-            Browse(2, Action::Open),     // Load more…
+            Browse(1, Action::More),     // the highlight nears the end
             Browse(1, Action::Open),     // into acct/prod
             Press(Action::Key('d')),     // delete it
             Yes(false),                  // don't keep the data
@@ -1859,15 +1851,16 @@ mod tests {
             .await
             .unwrap();
 
+        // No "Load more…" item: the picker is told there's more instead.
         assert_eq!(
             ask.asked[0],
-            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title | Load more… (keys bed)"
+            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title (more) (keys bed)"
         );
-        // Load more keeps the cursor on the first new product, and goes once
-        // the listing runs out.
+        // The next page is appended with the highlight where it was, and the
+        // picker stops asking once the listing runs out.
         assert_eq!(
             ask.asked[1],
-            "Products [acct/c  c title] of acct/a  a title | acct/prod  prod title | acct/c  c title (keys bed)"
+            "Products [acct/prod  prod title] of acct/a  a title | acct/prod  prod title | acct/c  c title (keys bed)"
         );
         assert_eq!(ask.asked[2], format!("{SCREEN_HINT} (keys bed)"));
         // The deleted product is gone, and the cursor sits on the one after it.

@@ -3,7 +3,7 @@
 //! dialoguer's pickers take no shortcuts, so this is a small one of our own
 //! on `console`, which dialoguer already brings in.
 
-use crate::prompt::Action;
+use crate::prompt::{Action, Place};
 use console::{style, Key, Term};
 
 /// Restores the cursor however the picker ends.
@@ -28,17 +28,27 @@ fn fit(line: &str, cols: u16) -> String {
     console::truncate_str(line, (cols as usize).max(1), "…").into_owned()
 }
 
-/// Move through `items` and return the highlighted one's index with what was
-/// pressed: ↑/↓ (or k/j, PgUp/PgDn) move, →/Enter/l open, ←/Esc/h/q go back,
-/// `/` narrows the list by typed text, and any key in `keys` comes back as
-/// `Action::Key`.
+/// How close to the end of the items the highlight gets before more are asked
+/// for, so they're usually there before it arrives.
+const LOOKAHEAD: usize = 3;
+
+/// Move through `items` from `place` and return what was pressed, with
+/// `place.at` the highlighted item: ↑/↓ (or k/j, PgUp/PgDn) move, →/Enter/l
+/// open, ←/Esc/h/q go back, `/` narrows the list by typed text, and any key in
+/// `keys` comes back as `Action::Key`.
+///
+/// With `more`, the list pages itself: once the highlight is within
+/// `LOOKAHEAD` of the last item shown (or a filter matches nothing), it shows
+/// "Loading more…" and returns `Action::More`, leaving the list on screen for
+/// the next call, with the extra items, to redraw in place.
 pub fn browse(
     label: &str,
     items: &[String],
-    at: usize,
+    place: &mut Place,
+    more: bool,
     keys: &str,
     hint: &str,
-) -> Result<(usize, Action), String> {
+) -> Result<Action, String> {
     let term = Term::stderr();
     term.hide_cursor().map_err(failed)?;
     let _visible = Visible(&term);
@@ -51,11 +61,11 @@ pub fn browse(
         .iter()
         .map(|i| console::strip_ansi_codes(i).into_owned())
         .collect();
-    let mut filter = String::new();
-    let mut filtering = false;
+    let mut filter = std::mem::take(&mut place.filter);
+    let mut filtering = place.filtering;
     // The highlighted item, as an index into `items`.
-    let mut current = at.min(items.len().saturating_sub(1));
-    let mut drawn = 0;
+    let mut current = place.at.min(items.len().saturating_sub(1));
+    let mut drawn = place.drawn;
     loop {
         let needle = filter.to_lowercase();
         let shown: Vec<usize> = (0..items.len())
@@ -65,6 +75,7 @@ pub fn browse(
         if let Some(&i) = shown.get(sel) {
             current = i;
         }
+        let near_end = more && sel + LOOKAHEAD >= shown.len();
         let top = sel
             .saturating_sub(height - 1)
             .min(shown.len().saturating_sub(height));
@@ -86,7 +97,9 @@ pub fn browse(
             });
         }
         lines.push(
-            style(if filtering {
+            style(if near_end {
+                "Loading more…"
+            } else if filtering {
                 "type to filter · Enter/↓ done · Esc clear"
             } else {
                 hint
@@ -101,6 +114,15 @@ pub fn browse(
             term.write_line(&fit(line, cols)).map_err(failed)?;
         }
         drawn = lines.len();
+        if near_end {
+            *place = Place {
+                at: current,
+                filter,
+                filtering,
+                drawn,
+            };
+            return Ok(Action::More);
+        }
 
         let key = term.read_key_raw().map_err(failed)?;
         // The item `by` rows from the highlighted one, staying in the list.
@@ -148,7 +170,14 @@ pub fn browse(
         }
         if let Some(action) = action {
             term.clear_last_lines(drawn).map_err(failed)?;
-            return Ok((current, action));
+            // The filter stays for when they come back to the list.
+            *place = Place {
+                at: current,
+                filter,
+                filtering: false,
+                drawn: 0,
+            };
+            return Ok(action);
         }
     }
 }
