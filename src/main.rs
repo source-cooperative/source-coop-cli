@@ -1,8 +1,24 @@
+mod api_cmd;
 mod cache;
+mod failure;
 mod oidc;
-mod output;
 mod session;
 mod sts;
+// Reusable pieces for the commands built on them (resources such as
+// products, and `auth`). Parts are unused until those land; each command PR
+// removes the allowances it no longer needs.
+#[allow(dead_code)]
+mod api;
+#[allow(dead_code)]
+mod draft;
+#[allow(dead_code)]
+mod output;
+#[allow(dead_code)]
+mod picker;
+#[allow(dead_code)]
+mod prompt;
+#[allow(dead_code)]
+mod style;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -65,6 +81,22 @@ enum Commands {
     /// Work with the login session
     #[command(subcommand)]
     Auth(AuthCommand),
+    /// Make any request to the source.coop API, signed in as you
+    Api(ApiCommandArgs),
+}
+
+#[derive(Parser)]
+struct ApiCommandArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    /// S3 proxy URL of the environment whose login session to use
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    #[command(flatten)]
+    request: api_cmd::ApiArgs,
 }
 
 #[derive(Subcommand)]
@@ -159,6 +191,19 @@ enum OutputFormat {
     AwsCredentials,
 }
 
+/// Report a command's error and exit with the code for its kind (see
+/// `failure::Failure::exit_code`): as JSON on stderr when the command was
+/// asked for `--json`, otherwise as `prompt::report` puts it.
+fn fail(e: String, json: bool) -> ! {
+    let failure = failure::classify(&e);
+    if json {
+        eprintln!("{}", failure.to_json());
+    } else {
+        prompt::report(&e);
+    }
+    std::process::exit(failure.exit_code());
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
@@ -168,23 +213,51 @@ async fn main() {
     match cli.command {
         Commands::Login(args) => {
             if let Err(e) = run_login(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e, false);
             }
         }
         Commands::Creds(args) => {
             if let Err(e) = run_creds(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e, false);
             }
         }
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
-                eprintln!("Error: {e}");
-                std::process::exit(1);
+                fail(e, false);
+            }
+        }
+        Commands::Api(args) => {
+            let token = api_token(&args.proxy_url, verbose).await;
+            let result = async {
+                let client = api::Client::new(&args.api_url, token, verbose)?;
+                api_cmd::run(args.request, &client).await
+            };
+            if let Err(e) = result.await {
+                fail(e, false);
             }
         }
     }
+}
+
+/// The bearer for the source.coop API: `SOURCE_TOKEN` if set (for a token
+/// obtained some other way), else the login session's access token. Without
+/// either, commands run signed out, which is enough to read public data.
+async fn api_token(proxy_url: &str, verbose: bool) -> Option<String> {
+    // Set but empty is unset, so `SOURCE_TOKEN=` doesn't skip the session.
+    if let Some(token) = std::env::var("SOURCE_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    {
+        return Some(token);
+    }
+    let token = async {
+        let env = cache::env(proxy_url)?;
+        session::token(env.as_deref(), session::Want::Access, verbose).await
+    };
+    token.await.unwrap_or_else(|e| {
+        eprintln!("Warning: continuing signed out: {e}");
+        None
+    })
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
@@ -384,8 +457,38 @@ async fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
     use wiremock::matchers::{body_string_contains, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Every runnable command, as its words after `source-coop`.
+    fn commands(cmd: &clap::Command, path: &str, out: &mut Vec<String>) {
+        // Hidden ones are old names kept working, documented under the new.
+        for sub in cmd
+            .get_subcommands()
+            .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+        {
+            let words = format!("{path} {}", sub.get_name()).trim().to_string();
+            if sub.has_subcommands() {
+                commands(sub, &words, out);
+            } else {
+                out.push(words);
+            }
+        }
+    }
+
+    #[test]
+    fn every_command_is_in_the_readme() {
+        let readme = include_str!("../README.md");
+        let mut all = vec![];
+        commands(&Cli::command(), "", &mut all);
+        let missing: Vec<_> = all
+            .iter()
+            .filter(|c| !readme.contains(&format!("source-coop {c}")))
+            .collect();
+        assert!(all.len() >= 4, "found too few commands: {all:?}");
+        assert!(missing.is_empty(), "not in README.md: {missing:?}");
+    }
 
     const STS_OK: &str = "<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult>\
         <Credentials><AccessKeyId>NEWKEY</AccessKeyId><SecretAccessKey>NEWSECRET</SecretAccessKey>\

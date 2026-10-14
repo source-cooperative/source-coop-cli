@@ -1,5 +1,14 @@
 use crate::sts::Credentials;
 
+/// Print a command's `--json` output: one document on stdout and nothing
+/// else there (see AGENTS.md, "JSON output").
+pub fn json(value: &impl serde::Serialize) {
+    println!(
+        "{}",
+        serde_json::to_string_pretty(value).expect("JSON output serializes")
+    );
+}
+
 /// Print credentials in AWS credential_process JSON format.
 pub fn print_credential_process(creds: &Credentials) {
     let json = serde_json::json!({

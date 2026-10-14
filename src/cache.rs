@@ -156,7 +156,7 @@ fn is_keyring_unavailable(err: &keyring::Error) -> bool {
 }
 
 /// Replace any character that isn't alphanumeric or in `keep` with `_`.
-fn sanitize(s: &str, keep: &[char]) -> String {
+pub(crate) fn sanitize(s: &str, keep: &[char]) -> String {
     s.chars()
         .map(|c| {
             if c.is_ascii_alphanumeric() || keep.contains(&c) {
@@ -275,7 +275,7 @@ fn read_slot<T: DeserializeOwned>(slot: &Slot) -> Result<Option<T>, String> {
 }
 
 /// Write a cache file readable only by its owner. Returns the file path.
-fn write_file(path: &Path, json: &str) -> Result<String, String> {
+pub(crate) fn write_file(path: &Path, json: &str) -> Result<String, String> {
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;

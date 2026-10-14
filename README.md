@@ -197,6 +197,43 @@ Use `--profile` to change the section name.
 > [!TIP]
 > The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We recommend the utilizing `credential-process` in `~/.aws/config` rather storing temporary credentials in `~/.aws/credentials`.
 
+### Any API request
+
+`source-coop api` sends any request to `/api/v1`, signed in as you, and prints the response:
+
+```bash
+source-coop api products/my-org -X GET -F limit=5
+source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
+  -f visibility=public -f data_connection_id=my-connection
+source-coop api products/my-org/new -X PATCH --input changes.json
+```
+
+`-f key=value` sends a string, and `-F key=value` sends `true`, `false`, `null` and numbers as JSON. Fields go in the query string for `GET` and in a JSON body otherwise, and the method is `POST` when fields or `--input` are given; a `GET` takes no `--input`. Paths stay under `/api/v1`. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
+
+Reading public data needs no credentials. Anything else acts as whoever ran `source-coop login`, which asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
+
+### JSON output and exit codes
+
+Commands that report information take `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed. `creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`.
+
+A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
+
+```json
+{"error": {"code": "invalid_input", "message": "…", "status": 400, "field_errors": {"title": ["…"]}}}
+```
+
+Exit codes are the same for every command:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Any other failure, including cancelling a prompt |
+| 2 | Bad command-line usage |
+| 3 | The API rejected the input (HTTP 400, 409, 422): fix the named fields and retry |
+| 4 | Not signed in, or not allowed (HTTP 401, 403) |
+| 5 | Not found (HTTP 404) |
+| 130 | Interrupted (Ctrl+C) |
+
 ## Credential storage
 
 The CLI caches the login session (the Ory refresh, ID and access tokens) and the temporary STS credentials for each role, so that `creds` and API commands work without re-authenticating. The refresh token is kept in the session only: it rotates on use, so every role and every API call refreshes through it, one at a time.
