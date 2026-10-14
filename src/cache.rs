@@ -253,7 +253,13 @@ pub fn read_session(env: Option<&str>) -> Result<Option<Session>, String> {
 
 /// Remove the role's cached credentials. Returns whether there were any.
 pub fn delete_credentials(env: Option<&str>, role_arn: &str) -> Result<bool, String> {
-    let mut removed = delete_slot(&role_slot(env, role_arn)?)?;
+    let slot = role_slot(env, role_arn)?;
+    // Production's slot may still hold another environment's entry from
+    // before environments existed: that's for its own environment's logout.
+    let mut removed = match env {
+        None if read_slot::<CacheEntry>(&slot)?.is_some_and(|e| !e.belongs_to(None)) => false,
+        _ => delete_slot(&slot)?,
+    };
     // Otherwise `read_credentials` would copy a legacy entry for `env` back
     // out of production's slot.
     if env.is_some() {

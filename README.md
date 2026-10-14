@@ -95,7 +95,7 @@ source-coop --version
 
 ### Checking login status
 
-`auth status` shows whether you're logged in and as whom, and when the cached tokens and a role's credentials expire. It works from the cache: nothing is refreshed and nothing is sent over the network. The account is the one `auth login` looked up (through the API at `--api-url`) when you logged in; for a login from before it did, `auth status` says so until you log in again. On a terminal, labels are dim and the login's state is green or red.
+`auth status` shows whether you're logged in and as whom, and when the cached tokens and a role's credentials expire. It works from the cache: nothing is refreshed and nothing is sent over the network. The account is the one `auth login` looked up, through the API its access token is for (`--audience`), when you logged in; for a login from before it did, `auth status` says so until you log in again. On a terminal, labels are dim and the login's state is green or red.
 
 ```bash
 source-coop auth status
@@ -112,9 +112,9 @@ Access token   for https://source.coop, expires 2026-10-13T18:00:00Z
 Credentials    _default: expire 2026-10-13T18:30:00Z
 ```
 
-**How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime, and a value it can't read is ignored with a warning. Where a provider does give an expiry, that's shown instead. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
+**How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime, and a value it can't read is ignored with a warning. Where a provider does give an expiry, that's shown instead. Once that expiry, or the estimate, has passed, the login shows as expired. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
 
-`--json` prints the same as data, for scripts and agents: `logged_in` (false once the login has expired, too), times in RFC 3339 with an `expired` flag, the account's `profile_url`, and, when the provider gave no refresh-token expiry, `estimated_lapse_at` with the `assumed_lifetime` it was counted from.
+`--json` prints the same as data, for scripts and agents: `logged_in` (false once the login has expired, including by the estimate), times in RFC 3339 with an `expired` flag, the account's `profile_url`, and, when the provider gave no refresh-token expiry, `estimated_lapse_at` with the `assumed_lifetime` it was counted from.
 
 ```bash
 source-coop auth status --json | jq -r .login.refresh_token.issued_at
@@ -202,7 +202,6 @@ Like `creds`, it takes `--proxy-url` (`SOURCE_PROXY_URL`) and `--role-arn` (`SOU
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
 | `--scope` | | `openid offline_access` | OAuth2 scopes (`offline_access` enables automatic refresh in `creds`) |
 | `--audience` | `SOURCE_API_AUDIENCE` | `https://source.coop` | Audience of the access token for the source.coop API; empty to request none |
-| `--api-url` | `SOURCE_API_URL` | `https://source.coop` | source.coop site whose API names the account you logged in as, for `auth status` |
 | `--port` | | `0` (random) | Local callback port |
 | `--no-cache` | | | Skip caching credentials (just print to stdout) |
 
@@ -278,7 +277,7 @@ Exit codes are the same for every command:
 | 5 | Not found (HTTP 404) |
 | 130 | Interrupted (Ctrl+C) |
 
-`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`.
+`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
 
 ## Credential storage
 

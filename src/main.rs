@@ -194,11 +194,6 @@ struct LoginArgs {
     #[arg(long, env = "SOURCE_API_AUDIENCE", default_value = defaults::API_URL)]
     audience: String,
 
-    /// source.coop site URL whose API names the account you logged in as,
-    /// shown by `auth status`
-    #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
-    api_url: String,
-
     /// Local callback port (0 for random available port)
     #[arg(long, default_value = "0")]
     port: u16,
@@ -301,8 +296,8 @@ async fn main() {
     }
 }
 
-/// The account `access_token` acts as, from the API's `/whoami`, to keep
-/// with the session. None without a token; a failed lookup is noted, not an
+/// The account `access_token` acts as, from `/whoami` on the API at
+/// `api_url` (the one the token is for), to keep with the session. None without a token; a failed lookup is noted, not an
 /// error, since the login itself worked.
 async fn whoami(
     api_url: &str,
@@ -413,12 +408,23 @@ fn rfc3339(t: i64) -> Option<String> {
         .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
+/// When `s`'s refresh token lapses, if it has one and that's known: the
+/// provider's expiry, else (`true`) an estimate, the last renewal plus
+/// `lifetime`. Ory gives no expiry, so there it's always the estimate.
+fn refresh_expiry(s: &session::Session, lifetime: Option<(i64, &str)>) -> Option<(i64, bool)> {
+    s.refresh_token.as_ref()?;
+    match s.refresh_token_expires_at {
+        Some(at) => Some((at, false)),
+        None => Some((s.refresh_token_issued_at? + lifetime?.0, true)),
+    }
+}
+
 /// Whether `s` can no longer be used without logging in again: its refresh
-/// token is past the expiry the provider gave, or, without one, its ID token
+/// token has lapsed (by `refresh_expiry`), or, without one, its ID token
 /// has expired.
-fn login_expired(s: &session::Session, now: i64) -> bool {
+fn login_expired(s: &session::Session, now: i64, lifetime: Option<(i64, &str)>) -> bool {
     match &s.refresh_token {
-        Some(_) => s.refresh_token_expires_at.is_some_and(|e| e <= now),
+        Some(_) => refresh_expiry(s, lifetime).is_some_and(|(at, _)| at <= now),
         None => session::jwt_exp(&s.id_token).is_some_and(|e| e <= now),
     }
 }
@@ -440,14 +446,11 @@ fn status_json(
     };
     let login = session.map(|s| {
         let id_exp = session::jwt_exp(&s.id_token);
-        let expired = login_expired(s, now);
-        let estimate = match (&s.refresh_token, s.refresh_token_expires_at) {
-            (Some(_), None) => s
-                .refresh_token_issued_at
-                .zip(refresh_lifetime)
-                .map(|(issued, (secs, label))| (issued + secs, label)),
-            _ => None,
-        };
+        let expired = login_expired(s, now, refresh_lifetime);
+        let estimate = refresh_expiry(s, refresh_lifetime)
+            .filter(|(_, estimated)| *estimated)
+            .zip(refresh_lifetime)
+            .map(|((at, _), (_, label))| (at, label));
         json!({
             "state": if expired { "expired" } else { "logged_in" },
             "account": s.account.as_ref().map(|a| json!({
@@ -531,7 +534,7 @@ fn status_report(
         None => rows.push(("Login", style::paint(color, "31", "not logged in"))),
         Some(s) => {
             let id_exp = session::jwt_exp(&s.id_token);
-            let state = if login_expired(s, now) {
+            let state = if login_expired(s, now, refresh_lifetime) {
                 style::paint(color, "31", "expired")
             } else {
                 style::paint(color, "32", "logged in")
@@ -567,18 +570,16 @@ fn status_report(
                     relative(issued, now)
                 ),
             };
-            let expires = match (s.refresh_token_expires_at, s.refresh_token_issued_at) {
-                (Some(exp), _) => Some((exp, rfc3339(exp).unwrap_or_default())),
-                (None, Some(issued)) => refresh_lifetime.map(|(secs, _)| {
-                    let at = issued + secs;
-                    let day = chrono::DateTime::from_timestamp(at, 0)
+            let expires = refresh_expiry(s, refresh_lifetime).map(|(at, estimated)| {
+                let when = match estimated {
+                    true => chrono::DateTime::from_timestamp(at, 0)
                         .map(|d| d.format("%Y-%m-%d").to_string())
-                        .unwrap_or_default();
-                    (at, day)
-                }),
-                _ => None,
-            };
-            let refresh = match expires.filter(|_| s.refresh_token.is_some()) {
+                        .unwrap_or_default(),
+                    false => rfc3339(at).unwrap_or_default(),
+                };
+                (at, when)
+            });
+            let refresh = match expires {
                 Some((at, when)) if at > now => {
                     format!("{refresh}; expires {when} ({})", relative(at, now))
                 }
@@ -718,7 +719,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             "No access token issued; commands that call the source.coop API will run signed out."
         );
     }
-    let mut session = session::Session::new(
+    let session = session::Session::new(
         tokens,
         args.proxy_url.clone(),
         args.client_id,
@@ -726,7 +727,6 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         audience.map(String::from),
         chrono::Utc::now().timestamp(),
     );
-    session.account = whoami(&args.api_url, session.access_token.clone(), verbose).await;
     {
         let _lock = cache::lock_session(env.as_deref())?;
         cache::write_session(env.as_deref(), &session)?;
@@ -741,10 +741,23 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     };
     // Under the role's lock, so a `creds` minting from the old session can't
     // overwrite this entry afterwards.
-    let _lock = cache::lock(env.as_deref(), &args.role_arn)?;
-    let location = cache::write_credentials(env.as_deref(), &args.role_arn, &entry)?;
+    let location = {
+        let _lock = cache::lock(env.as_deref(), &args.role_arn)?;
+        cache::write_credentials(env.as_deref(), &args.role_arn, &entry)?
+    };
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");
+
+    // Last, once the login is saved: the lookup only names the account for
+    // `auth status`, so a slow or failing API can't cost the login.
+    if let Some(account) = whoami(site(&session), session.access_token.clone(), verbose).await {
+        let _lock = cache::lock_session(env.as_deref())?;
+        // Read again: a `creds` may have renewed the session meanwhile.
+        if let Some(mut saved) = cache::read_session(env.as_deref())? {
+            saved.account = Some(account);
+            cache::write_session(env.as_deref(), &saved)?;
+        }
+    }
     Ok(())
 }
 
@@ -951,6 +964,41 @@ mod tests {
         );
         assert_eq!(json["logged_in"], false);
         assert_eq!(json["login"]["state"], "expired");
+
+        // Ory gives no expiry: the estimate decides, past it the login lapsed.
+        let mut s = live_session(now, None);
+        s.refresh_token_issued_at = Some(now - 40 * 86_400);
+        let lifetime = Some((30 * 86_400, "30d"));
+        let report = status_report(
+            "https://data.source.coop",
+            "_default",
+            Some(&s),
+            None,
+            now,
+            lifetime,
+            false,
+        );
+        assert!(report.contains("Login          expired\n"), "{report}");
+        let json = status_json(
+            "https://data.source.coop",
+            "_default",
+            Some(&s),
+            None,
+            now,
+            lifetime,
+        );
+        assert_eq!(json["logged_in"], false);
+        // Within it, still logged in.
+        s.refresh_token_issued_at = Some(now - 20 * 86_400);
+        let json = status_json(
+            "https://data.source.coop",
+            "_default",
+            Some(&s),
+            None,
+            now,
+            lifetime,
+        );
+        assert_eq!(json["logged_in"], true);
     }
 
     #[test]
