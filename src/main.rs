@@ -64,7 +64,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Log in, and print tokens for the source.coop API
+    /// Log in, log out, and print tokens for the source.coop API
     #[command(subcommand)]
     Auth(AuthCommand),
     /// Output cached credentials as credential_process JSON, shell env vars,
@@ -114,9 +114,24 @@ enum AuthCommand {
     /// Log in through the browser, keeping the session and a role's S3
     /// credentials for `creds` and the API
     Login(LoginArgs),
+    /// Remove an environment's login session and a role's cached credentials.
+    /// Other roles' credentials can't be found to remove; they stay usable
+    /// until they expire, but can't be renewed without the session
+    Logout(LogoutArgs),
     /// Print an access token for the source.coop API, refreshing it if expired
     /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
     Token(TokenArgs),
+}
+
+#[derive(Parser)]
+struct LogoutArgs {
+    /// S3 proxy URL: selects the environment to log out of
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    /// Role ARN whose cached credentials to remove
+    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
+    role_arn: String,
 }
 
 #[derive(Parser)]
@@ -228,6 +243,11 @@ async fn main() {
                 fail(e);
             }
         }
+        Commands::Auth(AuthCommand::Logout(args)) => {
+            if let Err(e) = run_logout(args) {
+                fail(e);
+            }
+        }
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
                 fail(e);
@@ -261,6 +281,21 @@ async fn main() {
             }
         }
     }
+}
+
+fn run_logout(args: LogoutArgs) -> Result<(), String> {
+    let env = cache::env(&args.proxy_url)?;
+    let name = env.as_deref().unwrap_or("production");
+    // The session first: a `creds` that still had it may be minting, and the
+    // role's lock makes us wait for it before removing what it caches.
+    let session = cache::delete_session(env.as_deref())?;
+    let creds = cache::delete_credentials(env.as_deref(), &args.role_arn)?;
+    if session || creds {
+        eprintln!("Logged out of {name} ({}).", args.proxy_url);
+    } else {
+        eprintln!("Not logged in to {name} ({}).", args.proxy_url);
+    }
+    Ok(())
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {

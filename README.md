@@ -148,6 +148,17 @@ credential_process = source-coop creds --proxy-url https://data.staging.source.c
 endpoint_url = https://data.staging.source.coop
 ```
 
+### Logging out
+
+`auth logout` removes an environment's login session and one role's cached credentials, from both the keyring and the [file fallback](#file-fallback):
+
+```bash
+source-coop auth logout
+source-coop auth logout --proxy-url https://data.staging.source.coop --role-arn reader-role
+```
+
+Like `creds`, it takes `--proxy-url` (`SOURCE_PROXY_URL`) and `--role-arn` (`SOURCE_ROLE_ARN`). The keyring can't list its entries, so other roles' cached credentials stay usable until they expire, though without the session `creds` can't renew them. To remove them now, run `auth logout --role-arn <role>` for each role. Tokens aren't revoked at the identity provider.
+
 ### Login options
 
 | Flag | Env var | Default | Description |
