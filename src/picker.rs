@@ -5,6 +5,8 @@
 
 use crate::prompt::{Action, Place};
 use console::{style, Key, Term};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 /// Restores the cursor however the picker ends.
 struct Visible<'a>(&'a Term);
@@ -12,6 +14,43 @@ struct Visible<'a>(&'a Term);
 impl Drop for Visible<'_> {
     fn drop(&mut self) {
         let _ = self.0.show_cursor();
+    }
+}
+
+/// The terminal's alternate screen, as `less` and `vim` use it, held for an
+/// `-i` session: each screen clears and redraws rather than piling up, and
+/// dropping the guard puts back what was on the terminal before.
+pub struct FullScreen;
+
+/// Whether the alternate screen is up, for the Ctrl+C handler.
+static IN_FULLSCREEN: AtomicBool = AtomicBool::new(false);
+
+impl FullScreen {
+    pub fn enter() -> FullScreen {
+        // Ctrl+C while a page loads is a signal, not a key the picker reads:
+        // put the terminal back before exiting as the default handler would.
+        // Spawned once, as a handler stays installed for the process.
+        static HANDLER: Once = Once::new();
+        HANDLER.call_once(|| {
+            tokio::spawn(async {
+                if tokio::signal::ctrl_c().await.is_ok() {
+                    if IN_FULLSCREEN.load(Ordering::SeqCst) {
+                        eprint!("\x1b[?1049l\x1b[?25h");
+                    }
+                    std::process::exit(130);
+                }
+            });
+        });
+        IN_FULLSCREEN.store(true, Ordering::SeqCst);
+        eprint!("\x1b[?1049h\x1b[H");
+        FullScreen
+    }
+}
+
+impl Drop for FullScreen {
+    fn drop(&mut self) {
+        IN_FULLSCREEN.store(false, Ordering::SeqCst);
+        eprint!("\x1b[?1049l");
     }
 }
 
@@ -53,7 +92,6 @@ pub fn browse(
     term.hide_cursor().map_err(failed)?;
     let _visible = Visible(&term);
     let (rows, cols) = term.size();
-    let height = (rows as usize).saturating_sub(3).max(3);
 
     // Items may carry styling (a gray ID): filter on the text alone, and
     // highlight it whole rather than let an item's own reset end the cyan.
@@ -66,7 +104,11 @@ pub fn browse(
     // The highlighted item, as an index into `items`.
     let mut current = place.at.min(items.len().saturating_sub(1));
     let mut drawn = place.drawn;
+    let mut notice = place.notice.take();
     loop {
+        let height = (rows as usize)
+            .saturating_sub(3 + usize::from(notice.is_some()))
+            .max(3);
         let needle = filter.to_lowercase();
         let shown: Vec<usize> = (0..items.len())
             .filter(|&i| needle.is_empty() || plain[i].to_lowercase().contains(&needle))
@@ -75,7 +117,10 @@ pub fn browse(
         if let Some(&i) = shown.get(sel) {
             current = i;
         }
-        let near_end = more && sel + LOOKAHEAD >= shown.len();
+        // While a filter is typed for the server to search, wait for Enter
+        // rather than page through everything loaded meanwhile.
+        let near_end =
+            more && !(filtering && place.server_search) && sel + LOOKAHEAD >= shown.len();
         let top = sel
             .saturating_sub(height - 1)
             .min(shown.len().saturating_sub(height));
@@ -96,9 +141,14 @@ pub fn browse(
                 format!("  {}", fit(&items[i], cols.saturating_sub(2)))
             });
         }
+        if let Some(n) = &notice {
+            lines.push(style(n).yellow().to_string());
+        }
         lines.push(
             style(if near_end {
                 "Loading more…"
+            } else if filtering && place.server_search {
+                "type to filter · Enter search all · ↓ done · Esc clear"
             } else if filtering {
                 "type to filter · Enter/↓ done · Esc clear"
             } else {
@@ -115,16 +165,17 @@ pub fn browse(
         }
         drawn = lines.len();
         if near_end {
-            *place = Place {
-                at: current,
-                filter,
-                filtering,
-                drawn,
-            };
+            place.at = current;
+            place.filter = filter;
+            place.filtering = filtering;
+            place.drawn = drawn;
+            place.notice = notice;
             return Ok(Action::More);
         }
 
         let key = term.read_key_raw().map_err(failed)?;
+        // A notice is read once; the next key clears it.
+        notice = None;
         // The item `by` rows from the highlighted one, staying in the list.
         let n = shown.len() as isize;
         let step = |by: isize| (n > 0).then(|| shown[(sel as isize + by).clamp(0, n - 1) as usize]);
@@ -133,6 +184,14 @@ pub fn browse(
                 Key::Escape => {
                     filter.clear();
                     filtering = false;
+                }
+                Key::Enter if place.server_search && !filter.trim().is_empty() => {
+                    term.clear_last_lines(drawn).map_err(failed)?;
+                    place.at = current;
+                    place.filter = filter;
+                    place.filtering = false;
+                    place.drawn = 0;
+                    return Ok(Action::Search);
                 }
                 Key::Enter | Key::ArrowDown => filtering = false,
                 Key::Backspace => {
@@ -171,12 +230,10 @@ pub fn browse(
         if let Some(action) = action {
             term.clear_last_lines(drawn).map_err(failed)?;
             // The filter stays for when they come back to the list.
-            *place = Place {
-                at: current,
-                filter,
-                filtering: false,
-                drawn: 0,
-            };
+            place.at = current;
+            place.filter = filter;
+            place.filtering = false;
+            place.drawn = 0;
             return Ok(action);
         }
     }

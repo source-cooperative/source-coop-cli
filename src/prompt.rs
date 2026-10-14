@@ -19,6 +19,9 @@ pub enum Action {
     /// Only from `browse`, when told there's more: the highlight neared the
     /// end of the items. Load the next page and browse again from `Place`.
     More,
+    /// Only from `browse` with `Place::server_search`: a filter was submitted
+    /// with Enter. Search for `Place::filter` and browse the results.
+    Search,
 }
 
 /// Where someone is in a `browse` list, kept between calls so loading more
@@ -32,6 +35,11 @@ pub struct Place {
     pub filtering: bool,
     /// Lines left on screen while more load, for the next call to redraw over.
     pub drawn: usize,
+    /// Whether the list can be searched on the server: Enter on a filter
+    /// returns `Action::Search` instead of only narrowing what's loaded.
+    pub server_search: bool,
+    /// A message for the person, shown once in the list (e.g. "Deleted …").
+    pub notice: Option<String>,
 }
 
 pub trait Prompter {
@@ -54,6 +62,13 @@ pub trait Prompter {
     ) -> Result<Action, String>;
     /// Wait for back or one of `keys`, showing `hint`.
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String>;
+    /// Take over the screen until the returned guard is dropped (see
+    /// `crate::picker::FullScreen`); None where there's no screen to take.
+    fn fullscreen(&mut self) -> Option<crate::picker::FullScreen> {
+        None
+    }
+    /// Start a fresh screen, inside `fullscreen`.
+    fn clear(&mut self) {}
     /// Ask a yes/no question.
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String>;
     /// Ask for text that may run to paragraphs, starting from `current`: typed
@@ -88,14 +103,19 @@ fn failed(e: dialoguer::Error) -> String {
 /// something irreversible says how to back out instead (see `delete`).
 pub const CANCELLED: &str = "Cancelled; nothing was changed.";
 
-/// Print an error on stderr. Backing out of a prompt isn't a failure worth an
-/// "Error:", so that message stands alone.
-pub fn report(e: &str) {
+/// An error as the person should see it. Backing out of a prompt isn't a
+/// failure worth an "Error:", so that message stands alone.
+pub fn describe(e: &str) -> String {
     if e == CANCELLED {
-        eprintln!("{e}");
+        e.to_string()
     } else {
-        eprintln!("Error: {e}");
+        format!("Error: {e}")
     }
+}
+
+/// Print an error on stderr, as `describe` puts it.
+pub fn report(e: &str) {
+    eprintln!("{}", describe(e));
 }
 
 fn cancellable<T>(answer: dialoguer::Result<Option<T>>) -> Result<T, String> {
@@ -153,6 +173,14 @@ impl Prompter for Tty {
 
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String> {
         crate::picker::keypress(hint, keys)
+    }
+
+    fn fullscreen(&mut self) -> Option<crate::picker::FullScreen> {
+        Some(crate::picker::FullScreen::enter())
+    }
+
+    fn clear(&mut self) {
+        let _ = console::Term::stderr().clear_screen();
     }
 
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String> {
@@ -215,6 +243,8 @@ pub mod scripted {
         Yes(bool),
         /// In a `browse` list: highlight item `.0` and press `.1`.
         Browse(usize, Action),
+        /// In a `browse` list: type `/` and this, then Enter to search.
+        Search(&'static str),
         /// At a `keypress`.
         Press(Action),
         /// Back out, as Esc does on a choice.
@@ -310,9 +340,14 @@ pub mod scripted {
             _: &str,
         ) -> Result<Action, String> {
             let more_note = if more { " (more)" } else { "" };
+            // A notice is shown once, as the picker does.
+            let notice = place
+                .notice
+                .take()
+                .map_or(String::new(), |n| format!(" !{n}"));
             self.asked.push(format!(
-                "{label} [{}] of {}{more_note} (keys {keys})",
-                items[place.at],
+                "{label} [{}] of {}{more_note}{notice} (keys {keys})",
+                items.get(place.at).map_or("", String::as_str),
                 items.join(" | ")
             ));
             match self.next(label) {
@@ -320,6 +355,11 @@ pub mod scripted {
                     assert!(more || action != Action::More, "More without more");
                     place.at = i;
                     Ok(action)
+                }
+                Answer::Search(text) => {
+                    assert!(place.server_search, "Search on a list that can't");
+                    place.filter = text.to_string();
+                    Ok(Action::Search)
                 }
                 a => panic!("{label}: expected a browse, scripted {a:?}"),
             }

@@ -427,21 +427,54 @@ async fn browse_products(
     } else {
         (KEYS, LIST_HINT)
     };
-    let mut listing = Listing::open(client, url).await?;
-    let mut place = Place::default();
+    let mut listing = Listing::open(client, url.clone()).await?;
+    if listing.is_empty() {
+        eprintln!("No products found.");
+        return Ok(None);
+    }
+    // Only the listing of all public products takes a search (`q`); an
+    // account's is filtered on what's loaded.
+    let server_search = url.path() == client.url(&["products"]).path();
+    let fresh = || Place {
+        server_search,
+        ..Place::default()
+    };
+    let mut place = fresh();
+    // The search the listing shows, from `/` and Enter.
+    let mut query: Option<String> = None;
+    // Every screen clears and redraws until they leave, and leaving puts the
+    // terminal back as it was. Errors propagate after it's dropped.
+    let _screen = ask.fullscreen();
     loop {
-        if listing.is_empty() {
-            eprintln!("No products found.");
-            return Ok(None);
+        // While more load, the list stays up to be redrawn in place.
+        if place.drawn == 0 {
+            ask.clear();
         }
+        let label = match &query {
+            Some(q) => format!("Products matching \"{q}\""),
+            None => "Products".into(),
+        };
         let more = listing.cursor.is_some();
-        let action = ask.browse("Products", &listing.labels(), &mut place, more, keys, hint)?;
+        let action = ask.browse(&label, &listing.labels(), &mut place, more, keys, hint)?;
         let i = place.at;
-        let after = match action {
+        let (after, notice) = match action {
+            // Back from search results is back to the whole listing.
+            Action::Back if query.take().is_some() => {
+                listing = Listing::open(client, url.clone()).await?;
+                place = fresh();
+                continue;
+            }
             Action::Back => return Ok(None),
+            Action::Search => {
+                let q = std::mem::take(&mut place.filter).trim().to_string();
+                listing = Listing::open(client, with_query(&url, &q)).await?;
+                query = Some(q);
+                place = fresh();
+                continue;
+            }
             Action::More => {
                 listing.more(client).await?;
-                After::Kept
+                continue;
             }
             Action::Open if choosing => return name(&listing.items[i]).parse().map(Some),
             Action::Open => product_screen(&mut listing.items[i], client, site, ask).await?,
@@ -450,7 +483,25 @@ async fn browse_products(
         if after == After::Deleted {
             listing.items.remove(i);
         }
+        place.notice = notice;
     }
+}
+
+/// `url` searching for `q`, in place of any search it had (`-q`), keeping its
+/// other filters.
+fn with_query(url: &url::Url, q: &str) -> url::Url {
+    let kept: Vec<(String, String)> = url
+        .query_pairs()
+        .filter(|(k, _)| k != "q")
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let mut searched = url.clone();
+    searched
+        .query_pairs_mut()
+        .clear()
+        .extend_pairs(kept)
+        .append_pair("q", q);
+    searched
 }
 
 /// The listing of the signed-in account's products, for `edit -i` and
@@ -471,50 +522,59 @@ enum After {
     Deleted,
 }
 
-/// One product as `view` shows it, with the shortcuts, until back.
+/// One product as `view` shows it, with the shortcuts, until back. Returns
+/// what happened to it and anything to tell the list about.
 async fn product_screen(
     product: &mut Value,
     client: &Client,
     site: &str,
     ask: &mut dyn Prompter,
-) -> Result<After, String> {
+) -> Result<(After, Option<String>), String> {
     let color = crate::style::wanted(std::io::stdout().is_terminal());
+    let mut notice: Option<String> = None;
     loop {
-        println!();
+        ask.clear();
         for line in product_lines(product, site, color) {
             println!("{line}");
         }
         println!();
+        // What the last shortcut did, once, as the screen redraws.
+        if let Some(n) = notice.take() {
+            eprintln!("{}", crate::style::paint(color, "33", &n));
+        }
         match ask.keypress(SCREEN_HINT, KEYS)? {
-            // keypress never pages; More is only from browse.
-            Action::Back | Action::Open | Action::More => return Ok(After::Kept),
-            Action::Key(key) => {
-                if act(key, product, client, site, ask).await? == After::Deleted {
-                    return Ok(After::Deleted);
-                }
+            // keypress never pages or searches; those are only from browse.
+            Action::Back | Action::Open | Action::More | Action::Search => {
+                return Ok((After::Kept, None))
             }
+            Action::Key(key) => match act(key, product, client, site, ask).await? {
+                (After::Deleted, said) => return Ok((After::Deleted, said)),
+                (After::Kept, said) => notice = said,
+            },
         }
     }
 }
 
 /// Run a shortcut on `product` with the same code as the commands: `b` opens
 /// it in the browser, `e` edits it (then fetches it as it now is), `d`
-/// deletes it. A failed action is reported, not returned, so the list or
-/// screen it came from carries on.
+/// deletes it. Returns what happened to it and what to tell the person, so a
+/// screen that redraws can still say it; a failed action is told, not
+/// returned, so the list or screen it came from carries on.
 async fn act(
     key: char,
     product: &mut Value,
     client: &Client,
     site: &str,
     ask: &mut dyn Prompter,
-) -> Result<After, String> {
+) -> Result<(After, Option<String>), String> {
     let p: ProductRef = name(product).parse()?;
-    match key {
+    let told = |e: String| Some(crate::prompt::describe(&e));
+    let notice = match key {
         'b' => {
             let url = p.web_url(site);
-            eprintln!("Opening {url} in your browser.");
-            if let Err(e) = open::that(&url) {
-                eprintln!("Couldn't open a browser: {e}");
+            match open::that(&url) {
+                Ok(()) => Some(format!("Opened {url} in your browser.")),
+                Err(e) => Some(format!("Couldn't open a browser: {e}")),
             }
         }
         'e' => {
@@ -537,26 +597,30 @@ async fn act(
                 Err(e) => Err(e),
             };
             match refetched {
-                Ok(now) => *product = now,
-                Err(e) => crate::prompt::report(&e),
+                Ok(now) if now == *product => Some(format!("No changes to {p}.")),
+                Ok(now) => {
+                    *product = now;
+                    Some(format!("Edited {p}."))
+                }
+                Err(e) => told(e),
             }
         }
         'd' => {
             let args = DeleteArgs {
-                product: Some(p),
+                product: Some(p.clone()),
                 interactive: false,
                 preserve_data: false,
                 yes: false,
                 json: false,
             };
             match delete(args, client, Some(&mut *ask)).await {
-                Ok(()) => return Ok(After::Deleted),
-                Err(e) => crate::prompt::report(&e),
+                Ok(()) => return Ok((After::Deleted, Some(format!("Deleted {p}.")))),
+                Err(e) => told(e),
             }
         }
-        _ => {}
-    }
-    Ok(After::Kept)
+        _ => None,
+    };
+    Ok((After::Kept, notice))
 }
 
 /// One page of a listing: up to `limit` products (the API caps a page at
@@ -1863,13 +1927,67 @@ mod tests {
             "Products [acct/prod  prod title] of acct/a  a title | acct/prod  prod title | acct/c  c title (keys bed)"
         );
         assert_eq!(ask.asked[2], format!("{SCREEN_HINT} (keys bed)"));
-        // The deleted product is gone, and the cursor sits on the one after it.
+        // The deleted product is gone, the cursor sits on the one after it, and
+        // the list says what happened, as a cleared screen wouldn't otherwise.
         assert_eq!(
             ask.asked[5],
-            "Products [acct/c  c title] of acct/a  a title | acct/c  c title (keys bed)"
+            "Products [acct/c  c title] of acct/a  a title | acct/c  c title !Deleted acct/prod. (keys bed)"
         );
-        // A refused delete leaves the list as it was.
-        assert_eq!(ask.asked[8], ask.asked[5]);
+        // A refused delete leaves the list as it was, and says so.
+        assert_eq!(
+            ask.asked[8],
+            "Products [acct/c  c title] of acct/a  a title | acct/c  c title !Error: Not confirmed; nothing was deleted. (keys bed)"
+        );
+    }
+
+    #[tokio::test]
+    async fn list_i_searches_public_products_on_the_server_and_backs_out_to_all() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products"))
+            .and(query_param("q", "crop"))
+            .and(query_param("featured", "true"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"items": [product("ag", "crop")], "next_cursor": null})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products"))
+            .and(query_param_is_missing("q"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"items": [product("a", "one"), product("b", "two")], "next_cursor": null}),
+            ))
+            // Opened, then again on backing out of the search.
+            .expect(2)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let filters = Filters {
+            account: None,
+            search: None,
+            tags: None,
+            featured: true,
+        };
+        let mut ask = Script::new([
+            Search("crop"),          // `/crop`, Enter
+            Browse(0, Action::Back), // back from the results
+            Browse(0, Action::Back), // quit
+        ]);
+        browse_products(filters.url(&client), &client, SITE, &mut ask, true)
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "Products [a/one  one title] of a/one  one title | b/two  two title (keys )",
+                "Products matching \"crop\" [ag/crop  crop title] of ag/crop  crop title (keys )",
+                "Products [a/one  one title] of a/one  one title | b/two  two title (keys )",
+            ]
+        );
     }
 
     #[tokio::test]
