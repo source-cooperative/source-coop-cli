@@ -132,6 +132,21 @@ eval $(source-coop creds --format env)
 
 This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` in your current shell.
 
+### Running a command with your credentials (`exec`)
+
+`source-coop exec` runs any S3 tool with your credentials and the data proxy as its endpoint, without a profile or exported variables, as `aws-vault exec` does for AWS:
+
+```bash
+source-coop exec -- aws s3 ls s3://my-org/my-product/
+source-coop exec -- aws s3 sync ./data s3://my-org/my-product/data/
+source-coop exec -- s5cmd cp 's3://my-org/my-product/*.parquet' ./local/
+( source .env.staging && source-coop exec -- aws s3 ls s3://my-org/ )   # staging
+```
+
+The command gets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and `AWS_CREDENTIAL_EXPIRATION`, and the proxy URL as `AWS_ENDPOINT_URL_S3` (the AWS CLI v2.13+ and SDKs, for S3 only, so calls to other AWS services are unaffected) and `S3_ENDPOINT_URL` (s5cmd). `AWS_REGION` is set to `us-east-1` only if no region is set already (an empty one counts as unset). `AWS_PROFILE` and `AWS_DEFAULT_PROFILE` are removed so a profile's own credentials can't be mistaken for these, and `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` is removed so the command can't send them to AWS instead of the proxy. `--role-arn` and `--proxy-url` (or `SOURCE_ROLE_ARN` and `SOURCE_PROXY_URL`) pick the role and environment, as for `creds`. Everything after `--` is the command, flags included.
+
+The command's exit code is passed on. Credentials are fetched once, when it starts: cached ones are used only with at least 15 minutes left, otherwise new ones are fetched. A command still running when they expire (an hour after they're fetched, unless you logged in with `--duration`) needs running again. If you're not signed in, `exec` exits with 4 without running the command.
+
 ### Multiple roles
 
 > [!WARNING]
