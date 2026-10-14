@@ -20,6 +20,7 @@ mod defaults {
     pub const PROXY_URL: &str = "https://data.staging.source.coop";
     pub const ROLE_ARN: &str = "_default";
     pub const API_URL: &str = "https://staging.source.coop";
+    pub const REFRESH_TOKEN_LIFETIME: &str = "30d";
 }
 
 #[cfg(not(feature = "staging"))]
@@ -29,6 +30,10 @@ mod defaults {
     pub const PROXY_URL: &str = "https://data.source.coop";
     pub const ROLE_ARN: &str = "_default";
     pub const API_URL: &str = "https://source.coop";
+    /// Ory's default `oauth2.ttl.refresh_token`: its refresh tokens carry no
+    /// expiry and the token response gives none, so `auth status` counts from
+    /// the last renewal. Overridden by `SOURCE_REFRESH_TOKEN_LIFETIME`.
+    pub const REFRESH_TOKEN_LIFETIME: &str = "30d";
 }
 
 /// Parse a duration into seconds. Accepts a bare number (seconds) or a value
@@ -312,6 +317,7 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let session = cache::read_session(env.as_deref())?;
     let entry = cache::read_credentials(env.as_deref(), &args.role_arn)?;
+    let lifetime = refresh_lifetime()?;
     print!(
         "{}",
         status_report(
@@ -321,10 +327,25 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
             session.as_ref(),
             entry.as_ref().map(|e| &e.creds),
             chrono::Utc::now().timestamp(),
+            Some((lifetime.0, lifetime.1.as_str())),
             style::wanted(std::io::IsTerminal::is_terminal(&std::io::stdout())),
         )
     );
     Ok(())
+}
+
+/// How long a refresh token lasts unused, in seconds, with how it was given
+/// (`30d`): `SOURCE_REFRESH_TOKEN_LIFETIME`, else this build's default. The
+/// provider doesn't say, so this is what `auth status` estimates from. It's
+/// only for display: OAuth2 has no way to ask for a refresh token's lifetime,
+/// so nothing sent at login depends on it; Ory's project config decides.
+fn refresh_lifetime() -> Result<(i64, String), String> {
+    let text = std::env::var("SOURCE_REFRESH_TOKEN_LIFETIME")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| defaults::REFRESH_TOKEN_LIFETIME.to_string());
+    let secs = parse_duration(&text).map_err(|e| format!("SOURCE_REFRESH_TOKEN_LIFETIME: {e}"))?;
+    Ok((secs as i64, text.trim().to_string()))
 }
 
 /// The site a session's account lives on: the API audience it was issued
@@ -362,7 +383,10 @@ fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
 
 /// The `auth status` report for one environment and role, as of `now`: a
 /// `Label  value` row each, labels dim and the login's state green (logged
-/// in) or red (expired, not logged in) when `color`.
+/// in) or red (expired, not logged in) when `color`. `refresh_lifetime`, the
+/// assumed lifetime and how it was given, estimates when an unused login lapses.
+// Every input is a separate fact the report shows; a struct would only rename them.
+#[allow(clippy::too_many_arguments)]
 fn status_report(
     proxy_url: &str,
     env: Option<&str>,
@@ -370,6 +394,7 @@ fn status_report(
     session: Option<&session::Session>,
     creds: Option<&sts::Credentials>,
     now: i64,
+    refresh_lifetime: Option<(i64, &str)>,
     color: bool,
 ) -> String {
     let mut rows = vec![(
@@ -418,9 +443,34 @@ fn status_report(
                     format!("yes, renewed {}{ago}", rfc3339(issued).unwrap_or_default())
                 }
             };
-            let refresh = match s.refresh_token_expires_at {
-                Some(exp) => format!("{refresh}; {}", expiry(Some(exp), now, "expires", color)),
-                None => refresh,
+            // An expiry the provider gave is exact. Otherwise, estimate it from
+            // the last renewal and the configured lifetime, and say so: the
+            // real lifetime is server config this can't see.
+            let refresh = match (
+                &s.refresh_token,
+                s.refresh_token_expires_at,
+                s.refresh_token_issued_at.zip(refresh_lifetime),
+            ) {
+                (_, Some(exp), _) => {
+                    format!("{refresh}; {}", expiry(Some(exp), now, "expires", color))
+                }
+                (Some(_), None, Some((issued, (secs, label)))) => {
+                    let at = issued + secs;
+                    let day = chrono::DateTime::from_timestamp(at, 0)
+                        .map(|d| d.format("%Y-%m-%d").to_string())
+                        .unwrap_or_default();
+                    let note = if at > now {
+                        format!("if unused, lapses around {day} (assuming a {label} lifetime)")
+                    } else {
+                        style::paint(
+                            color,
+                            "33",
+                            &format!("probably lapsed around {day} (assuming a {label} lifetime)"),
+                        )
+                    };
+                    format!("{refresh}; {note}")
+                }
+                _ => refresh,
             };
             rows.push(("Refresh token", refresh));
             rows.push(("ID token", expiry(id_exp, now, "expires", color)));
@@ -788,6 +838,7 @@ mod tests {
             Some(&live_session(now, Some(me))),
             Some(&creds("2026-10-13T18:30:00Z")),
             now,
+            None,
             false,
         );
         assert_eq!(
@@ -815,6 +866,7 @@ mod tests {
             Some(&s),
             None,
             now,
+            None,
             false,
         );
         assert!(
@@ -828,6 +880,60 @@ mod tests {
     }
 
     #[test]
+    fn status_estimates_when_an_unused_login_lapses_and_says_it_is_an_estimate() {
+        let now = 1_791_910_800; // 2026-10-13T17:00:00Z, renewed 3 hours before
+        let row = |s: &session::Session, lifetime| {
+            let report = status_report(
+                "https://data.source.coop",
+                None,
+                "_default",
+                Some(s),
+                None,
+                now,
+                Some(lifetime),
+                false,
+            );
+            report
+                .lines()
+                .find(|l| l.starts_with("Refresh token"))
+                .unwrap()
+                .to_string()
+        };
+        let s = live_session(now, None);
+        assert_eq!(
+            row(&s, (30 * 86_400, "30d")),
+            "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); \
+             if unused, lapses around 2026-11-12 (assuming a 30d lifetime)"
+        );
+        // Renewed longer ago than the lifetime: probably lapsed.
+        assert_eq!(
+            row(&s, (3600, "1h")),
+            "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); \
+             probably lapsed around 2026-10-13 (assuming a 1h lifetime)"
+        );
+        // An expiry the provider gave is exact, and beats the estimate.
+        let mut exact = live_session(now, None);
+        exact.refresh_token_expires_at = Some(now + 86_400);
+        assert!(row(&exact, (30 * 86_400, "30d")).ends_with("; expires 2026-10-14T17:00:00Z"));
+        // Without a renewal time there's nothing to count from.
+        let mut unknown = live_session(now, None);
+        unknown.refresh_token_issued_at = None;
+        assert_eq!(row(&unknown, (30 * 86_400, "30d")), "Refresh token  yes");
+    }
+
+    #[test]
+    fn a_bad_refresh_lifetime_override_says_which_variable() {
+        let err = parse_duration("forever").unwrap_err();
+        assert!(err.contains("invalid duration"), "{err}");
+        // refresh_lifetime() names SOURCE_REFRESH_TOKEN_LIFETIME around that;
+        // the default must always parse.
+        assert_eq!(
+            parse_duration(defaults::REFRESH_TOKEN_LIFETIME),
+            Ok(30 * 86_400)
+        );
+    }
+
+    #[test]
     fn status_says_when_the_account_is_unknown_or_nobody_is_logged_in() {
         let now = 1_791_910_800;
         let unknown = status_report(
@@ -837,6 +943,7 @@ mod tests {
             Some(&live_session(now, None)),
             None,
             now,
+            None,
             false,
         );
         assert!(
@@ -855,6 +962,7 @@ mod tests {
             None,
             None,
             0,
+            None,
             false,
         );
         assert_eq!(
@@ -879,6 +987,7 @@ mod tests {
             Some(&live_session(now, Some(me))),
             None,
             now,
+            None,
             true,
         );
         assert!(
@@ -898,6 +1007,7 @@ mod tests {
             None,
             None,
             now,
+            None,
             true,
         );
         assert!(
