@@ -1748,7 +1748,7 @@ mod tests {
         let err = create(create_args(None), &client, SITE, Some(&mut ask))
             .await
             .unwrap_err();
-        assert!(err.contains("run 'source-coop login'"), "{err}");
+        assert!(err.contains("run 'source-coop auth login'"), "{err}");
         assert!(ask.asked.is_empty());
     }
 

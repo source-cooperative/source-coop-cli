@@ -40,8 +40,10 @@ cargo install --git https://github.com/source-cooperative/source-coop-cli
 1. Log in once (opens browser, caches credentials to the OS keyring):
 
 ```bash
-source-coop login
+source-coop auth login
 ```
+
+   `source-coop login`, its name before `auth` held it, still works.
 
 2. Configure `~/.aws/config` to use cached credentials:
 
@@ -57,9 +59,9 @@ endpoint_url = https://data.source.coop
 aws s3 ls s3://my-account/my-product --profile source-coop
 ```
 
-When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop login` again only when that fails (e.g. the refresh token has expired or been revoked).
+When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop auth login` again only when that fails (e.g. the refresh token has expired or been revoked).
 
-`login` keeps one session for everything: `creds` for any role exchanges its ID token at the proxy, and commands that call the source.coop API send its access token. `source-coop auth token` prints that access token, refreshed if it has expired:
+`auth login` keeps one session for everything: `creds` for any role exchanges its ID token at the proxy, and commands that call the source.coop API send its access token. `source-coop auth token` prints that access token, refreshed if it has expired:
 
 ```bash
 curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
@@ -67,7 +69,7 @@ curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/ap
 
 ### Logging in on a remote server (no browser)
 
-`login` receives the OAuth2 redirect on a local port, so on a headless machine, forward that port over SSH and complete the login in your local browser:
+`auth login` receives the OAuth2 redirect on a local port, so on a headless machine, forward that port over SSH and complete the login in your local browser:
 
 1. Connect with a port forward (any free port works; `8400` is used here):
 
@@ -78,7 +80,7 @@ ssh -L 8400:127.0.0.1:8400 user@server
 2. On the server, log in using the forwarded port:
 
 ```bash
-source-coop login --port 8400
+source-coop auth login --port 8400
 ```
 
 3. Open the URL the CLI prints in your local browser. After you sign in, the redirect to `http://127.0.0.1:8400/callback` travels through the tunnel to the CLI on the server.
@@ -109,8 +111,8 @@ This sets `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, and `AWS_SESSION_TOKEN` 
 Each role's credentials are cached separately:
 
 ```bash
-source-coop login --role-arn reader-role
-source-coop login --role-arn admin-role
+source-coop auth login --role-arn reader-role
+source-coop auth login --role-arn admin-role
 ```
 
 Use `creds` with `--role-arn` to select which role to output:
@@ -130,8 +132,8 @@ endpoint_url = https://data.source.coop
 Each proxy host is its own environment, with its own login session and credentials, so production and staging logins live side by side:
 
 ```bash
-source-coop login
-( source .env.staging && source-coop login )
+source-coop auth login
+( source .env.staging && source-coop auth login )
 ```
 
 `creds` and `auth token` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment, and without either they use production. A non-production profile must pass `--proxy-url`; one that relied on whichever environment was logged in last will now get production credentials:
@@ -164,7 +166,7 @@ endpoint_url = https://data.staging.source.coop
 
 ### Output formats
 
-Both `login` and `creds` support `--format` to control output:
+Both `auth login` and `creds` support `--format` to control output:
 
 **credential-process** (default) — AWS credential_process JSON:
 
@@ -250,7 +252,7 @@ source-coop api products/my-org/new -X PATCH --input changes.json
 
 `-f key=value` sends a string, and `-F key=value` sends `true`, `false`, `null` and numbers as JSON. Fields go in the query string for `GET` and in a JSON body otherwise, and the method is `POST` when fields or `--input` are given. A status other than success exits non-zero.
 
-Reading public products needs no credentials. Anything else acts as whoever ran `source-coop login`: login asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
+Reading public products needs no credentials. Anything else acts as whoever ran `source-coop auth login`, which asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
 
 ## Credential storage
 
@@ -297,7 +299,7 @@ The CLI defaults to `--port 0` (OS-assigned random available port), which works 
 Register a specific redirect URI (e.g. `http://127.0.0.1:8400/callback`) and run the CLI with the matching port:
 
 ```bash
-source-coop login --role-arn <ARN> --port 8400
+source-coop auth login --role-arn <ARN> --port 8400
 ```
 
 ### Client configuration

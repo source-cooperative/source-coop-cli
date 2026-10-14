@@ -64,14 +64,15 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Authenticate via OIDC and obtain temporary S3 credentials
-    Login(LoginArgs),
+    /// Log in, and print tokens for the source.coop API
+    #[command(subcommand)]
+    Auth(AuthCommand),
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile, refreshing them first if expired
     Creds(CredsArgs),
-    /// Work with the login session
-    #[command(subcommand)]
-    Auth(AuthCommand),
+    /// Log in through the browser (now `auth login`; this name still works)
+    #[command(hide = true)]
+    Login(LoginArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
     /// Make any request to the source.coop API, signed in as you
@@ -110,6 +111,9 @@ struct ProductArgs {
 
 #[derive(Subcommand)]
 enum AuthCommand {
+    /// Log in through the browser, keeping the session and a role's S3
+    /// credentials for `creds` and the API
+    Login(LoginArgs),
     /// Print an access token for the source.coop API, refreshing it if expired
     /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
     Token(TokenArgs),
@@ -214,7 +218,7 @@ async fn main() {
     let verbose = cli.verbose;
 
     match cli.command {
-        Commands::Login(args) => {
+        Commands::Auth(AuthCommand::Login(args)) | Commands::Login(args) => {
             if let Err(e) = run_login(args, verbose).await {
                 fail(e);
             }
@@ -263,7 +267,7 @@ async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let token = session::token(env.as_deref(), session::Want::Access, verbose)
         .await?
-        .ok_or("No access token cached. Run 'source-coop login' (with an API audience).")?;
+        .ok_or("No access token cached. Run 'source-coop auth login' (with an API audience).")?;
     println!("{token}");
     Ok(())
 }
@@ -315,7 +319,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
 
     if tokens.refresh_token.is_none() {
         eprintln!(
-            "No refresh token issued; run 'source-coop login' again when credentials expire."
+            "No refresh token issued; run 'source-coop auth login' again when credentials expire."
         );
     }
     if audience.is_some() && tokens.access_token.is_none() {
@@ -364,7 +368,7 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
             match cache::read_credentials(env, &args.role_arn)? {
                 Some(entry) if !cache::is_expired(&entry.creds)? => entry,
                 stale => mint(&args, env, stale, verbose).await.map_err(|e| {
-                    format!("Couldn't get new credentials ({e}). Run 'source-coop login'.")
+                    format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'.")
                 })?,
             }
         }
@@ -486,7 +490,11 @@ mod tests {
 
     /// Every runnable command, as its words after `source-coop`.
     fn commands(cmd: &clap::Command, path: &str, out: &mut Vec<String>) {
-        for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+        // Hidden ones are old names kept working, documented under the new.
+        for sub in cmd
+            .get_subcommands()
+            .filter(|s| s.get_name() != "help" && !s.is_hide_set())
+        {
             let words = format!("{path} {}", sub.get_name()).trim().to_string();
             if sub.has_subcommands() {
                 commands(sub, &words, out);
@@ -528,6 +536,25 @@ mod tests {
         check(&Cli::command(), &mut resources, &mut problems);
         assert!(resources > 0, "found no resource commands to check");
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// `login` moved under `auth`; the old name still works, unlisted.
+    #[test]
+    fn login_still_works_by_its_old_name() {
+        let parse = |args: &[&str]| Cli::try_parse_from([&["source-coop"], args].concat());
+        assert!(matches!(
+            parse(&["auth", "login"]).map(|c| c.command),
+            Ok(Commands::Auth(AuthCommand::Login(_)))
+        ));
+        assert!(matches!(
+            parse(&["login", "--role-arn", "r"]).map(|c| c.command),
+            Ok(Commands::Login(_))
+        ));
+        let help = Cli::command().render_help().to_string();
+        assert!(
+            !help.contains("\n  login"),
+            "login should be hidden:\n{help}"
+        );
     }
 
     /// AGENTS.md: the README documents the CLI as it is, starting with every

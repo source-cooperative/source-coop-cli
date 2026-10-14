@@ -122,7 +122,7 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-const EXPIRED: &str = "Your login has expired. Run 'source-coop login'.";
+const EXPIRED: &str = "Your login has expired. Run 'source-coop auth login'.";
 
 /// The wanted token from `session`, refreshing the session first if that
 /// token has expired. `save` persists the session after a refresh, before the
@@ -317,7 +317,7 @@ mod tests {
         let err = ensure(&mut s, Want::Access, NOW, false, |_| Ok(()))
             .await
             .unwrap_err();
-        assert!(err.contains("source-coop login"));
+        assert!(err.contains("source-coop auth login"));
     }
 
     #[test]

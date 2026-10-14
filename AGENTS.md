@@ -15,6 +15,8 @@ Before committing, read the README sections your change touches and fix anything
 ## Commands
 
 - **One shape per resource.** A resource (`product`, and later accounts or members) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`.
+- **Signing in lives under `auth`:** `auth login | status | logout | token`. `creds` stays top-level because people's AWS configs run `credential_process = source-coop creds`.
+- **Renaming a command keeps the old name working** as a hidden command that runs the same code (`#[command(hide = true)]`, like top-level `login`). Scripts, docs and habits use the old name. The README shows only the new one, with a note that the old still works.
 - **`-i` wherever a record is named or listed** (everything but `create`, which prompts anyway). It opens the picker, or the record's screen when the record is named. With a name omitted, it picks one first. The test checks this.
 - **`--json` on every read** (`list`, `view`), carrying the whole record. The test checks this. Writes take `--json` too.
 - **Environments come from `--proxy-url` / `SOURCE_PROXY_URL`**, via `cache::env`. Every cached slot (login session, role credentials) is per environment. Production keeps the bare names so logins survive upgrades.
