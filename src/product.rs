@@ -401,14 +401,30 @@ impl Listing {
         self.items.is_empty() && self.cursor.is_none()
     }
 
+    /// `id  Title  visibility`, the ID gray and the visibility colored as
+    /// `view` shows them.
     fn labels(&self) -> Vec<String> {
+        let color = crate::style::on_stderr();
         self.items
             .iter()
             .map(|p| {
-                let id = crate::style::id(crate::style::on_stderr(), &name(p));
-                format!("{id}  {}", str_field(p, "title"))
+                let id = crate::style::id(color, &name(p));
+                let visibility = visibility_label(color, str_field(p, "visibility"));
+                format!("{id}  {}  {visibility}", str_field(p, "title"))
+                    .trim_end()
+                    .to_string()
             })
             .collect()
+    }
+}
+
+/// A product's visibility, green when public and yellow otherwise, so the
+/// ones not everyone can see stand out.
+fn visibility_label(color: bool, visibility: &str) -> String {
+    match visibility {
+        "public" => crate::style::paint(color, "32", visibility),
+        "" => String::new(),
+        v => crate::style::paint(color, "33", v),
     }
 }
 
@@ -1112,11 +1128,46 @@ fn print_product(p: &Value, site: &str) {
     }
 }
 
-/// The title, then one `Label  value` row per field the product has, then the
-/// description. `color` adds ANSI styling: bold title, dim labels, and the
-/// visibility and status in green, yellow or red.
+/// The title, then one `Label  value` row per field, then the description.
+/// `color` adds ANSI styling: bold title, dim labels, and the visibility and
+/// flags in green, yellow or red.
 fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
+    product_lines_at(p, site, color, chrono::Utc::now())
+}
+
+/// How long ago `then` was, at `now`, in the largest whole unit: "just now",
+/// "5 minutes ago", "3 days ago", "2 years ago".
+fn ago(then: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> String {
+    let secs = (now - then).num_seconds();
+    if secs < 0 {
+        return "in the future".into();
+    }
+    let (n, unit) = match secs {
+        0..60 => return "just now".into(),
+        60..3_600 => (secs / 60, "minute"),
+        3_600..86_400 => (secs / 3_600, "hour"),
+        86_400..2_592_000 => (secs / 86_400, "day"),
+        2_592_000..31_536_000 => (secs / 2_592_000, "month"),
+        _ => (secs / 31_536_000, "year"),
+    };
+    format!("{n} {unit}{} ago", if n == 1 { "" } else { "s" })
+}
+
+/// `product_lines` with relative dates counted from `now`.
+fn product_lines_at(
+    p: &Value,
+    site: &str,
+    color: bool,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Vec<String> {
     let paint = |code: &str, s: &str| crate::style::paint(color, code, s);
+    let yes_no = |flag: bool, yes_code: &str| {
+        if flag {
+            paint(yes_code, "yes")
+        } else {
+            "no".to_string()
+        }
+    };
     let name = name(p);
     let visibility = str_field(p, "visibility");
     let disabled = p.get("disabled").and_then(Value::as_bool) == Some(true);
@@ -1133,51 +1184,79 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
     let date = |key: &str| {
         chrono::DateTime::parse_from_rfc3339(str_field(p, key))
             .map(|d| {
-                d.with_timezone(&chrono::Utc)
-                    .format("%Y-%m-%d %H:%M UTC")
-                    .to_string()
+                let d = d.with_timezone(&chrono::Utc);
+                format!(
+                    "{} {}",
+                    d.format("%Y-%m-%d %H:%M UTC"),
+                    paint("2", &format!("({})", ago(d, now)))
+                )
             })
             .ok()
     };
+    let none = || paint("2", "(none)");
+    // Some stored lists hold an empty string, e.g. `[""]`.
+    let tags: Vec<&str> = p
+        .pointer("/metadata/tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .filter(|t| !t.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    // Where the data lives: each mirror's connection and prefix, the primary
+    // (flagged on the mirror, or named by `primary_mirror`) first.
+    let primary = p
+        .pointer("/metadata/primary_mirror")
+        .and_then(Value::as_str);
+    let mut mirrors: Vec<(bool, String)> = p
+        .pointer("/metadata/mirrors")
+        .and_then(Value::as_object)
+        .map(|ms| {
+            ms.iter()
+                .map(|(key, m)| {
+                    let is_primary = m.get("is_primary").and_then(Value::as_bool) == Some(true)
+                        || primary == Some(key.as_str());
+                    let connection = match str_field(m, "connection_id") {
+                        "" => key.as_str(),
+                        c => c,
+                    };
+                    let mut line = format!("{connection}  {}", str_field(m, "prefix"));
+                    if is_primary {
+                        line.push_str(&format!("  {}", paint("32", "(primary)")));
+                    }
+                    (is_primary, line)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    mirrors.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let mirrors: Vec<String> = mirrors.into_iter().map(|(_, line)| line).collect();
+    let featured = p.get("featured").and_then(Value::as_i64).unwrap_or(0) > 0;
+
     let rows: Vec<(&str, String)> = [
         ("Product", Some(crate::style::id(color, &name))),
-        (
-            "Visibility",
-            Some(match visibility {
-                "public" => paint("32", visibility),
-                "" => String::new(),
-                v => paint("33", v),
-            }),
-        ),
-        (
-            "Status",
-            Some(if disabled {
-                paint("31", "deactivated")
-            } else {
-                paint("32", "active")
-            }),
-        ),
+        ("Visibility", Some(visibility_label(color, visibility))),
+        ("Disabled", Some(yes_no(disabled, "31"))),
+        ("Featured", Some(yes_no(featured, "32"))),
         (
             "Tags",
-            p.pointer("/metadata/tags")
-                .and_then(Value::as_array)
-                .map(|tags| {
-                    // Some stored lists hold an empty string, e.g. `[""]`.
-                    tags.iter()
-                        .filter_map(Value::as_str)
-                        .filter(|t| !t.is_empty())
-                        .collect::<Vec<_>>()
-                        .join(", ")
-                }),
-        ),
-        (
-            "Featured",
-            p.get("featured")
-                .and_then(Value::as_i64)
-                .filter(|&f| f > 0)
-                .map(|_| "yes".to_string()),
+            Some(if tags.is_empty() {
+                none()
+            } else {
+                tags.join(", ")
+            }),
         ),
         ("Account", account),
+        (
+            "Mirrors",
+            Some(if mirrors.is_empty() {
+                none()
+            } else {
+                mirrors.join("\n")
+            }),
+        ),
         ("Created", date("created_at")),
         ("Updated", date("updated_at")),
         (
@@ -1194,10 +1273,16 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
 
     let width = rows.iter().map(|(l, _)| l.len()).max().unwrap_or(0);
     let mut lines = vec![paint("1", str_field(p, "title")), String::new()];
-    lines.extend(
-        rows.iter()
-            .map(|(label, value)| format!("{}  {value}", paint("2", &format!("{label:<width$}")))),
-    );
+    for (label, value) in &rows {
+        // A value of several lines (mirrors) lines up under its first.
+        for (i, part) in value.lines().enumerate() {
+            let label = if i == 0 { *label } else { "" };
+            lines.push(format!(
+                "{}  {part}",
+                paint("2", &format!("{label:<width$}"))
+            ));
+        }
+    }
     let description = str_field(p, "description");
     if !description.is_empty() {
         lines.push(String::new());
@@ -1489,31 +1574,79 @@ mod tests {
     fn view_lists_fields_with_labels_and_colors_only_when_asked() {
         let p = json!({
             "account_id": "acct", "product_id": "p", "title": "A product",
-            "visibility": "public", "disabled": false, "data_mode": "open", "metadata": {"tags": ["geospatial", "", "open"]},
-            "featured": 0, "created_at": "2024-12-13T20:32:55.681Z",
+            "visibility": "public", "disabled": true, "data_mode": "open",
+            "metadata": {
+                "tags": ["geospatial", "", "open"],
+                // The primary named only by `primary_mirror`, listed second.
+                "primary_mirror": "west",
+                "mirrors": {
+                    "east": {"connection_id": "aws-us-east-1", "prefix": "acct/p/"},
+                    "west": {"connection_id": "aws-us-west-2", "prefix": "acct/p/"}
+                }
+            },
+            "featured": 1, "created_at": "2024-12-13T20:32:55.681Z",
+            "updated_at": "2026-10-13T20:00:00Z",
             "account": {"account_id": "acct", "name": "Acct Inc", "type": "organization"},
             "description": "Line one\nLine two"
         });
+        let now = "2026-10-14T12:00:00Z".parse().unwrap();
         assert_eq!(
-            product_lines(&p, "https://source.coop/", false),
+            product_lines_at(&p, "https://source.coop/", false, now),
             [
                 "A product",
                 "",
                 "Product     acct/p",
                 "Visibility  public",
-                "Status      active",
+                "Disabled    yes",
+                "Featured    yes",
                 "Tags        geospatial, open",
                 "Account     Acct Inc (organization)",
-                "Created     2024-12-13 20:32 UTC",
+                "Mirrors     aws-us-west-2  acct/p/  (primary)",
+                "            aws-us-east-1  acct/p/",
+                "Created     2024-12-13 20:32 UTC (1 year ago)",
+                "Updated     2026-10-13 20:00 UTC (16 hours ago)",
                 "URL         https://source.coop/acct/p",
                 "",
                 "Line one",
                 "Line two",
             ]
         );
-        let colored = product_lines(&p, "https://source.coop", true);
+        let colored = product_lines_at(&p, "https://source.coop", true, now);
         assert_eq!(colored[0], "\x1b[1mA product\x1b[0m");
         assert!(colored[3].contains("\x1b[32mpublic\x1b[0m"));
+        assert!(
+            colored[4].ends_with("\x1b[31myes\x1b[0m"),
+            "disabled in red"
+        );
+
+        // A bare product says what it lacks rather than leaving rows out.
+        let bare = json!({"account_id": "a", "product_id": "b", "title": "B"});
+        // (Labels pad to the widest present, so compare words.)
+        let words: Vec<String> = product_lines_at(&bare, "https://source.coop", false, now)
+            .iter()
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect();
+        for row in [
+            "Disabled no",
+            "Featured no",
+            "Tags (none)",
+            "Mirrors (none)",
+        ] {
+            assert!(words.contains(&row.to_string()), "{row} in {words:?}");
+        }
+    }
+
+    #[test]
+    fn ago_counts_in_the_largest_whole_unit() {
+        let now: chrono::DateTime<chrono::Utc> = "2026-10-14T12:00:00Z".parse().unwrap();
+        let before = |secs: i64| ago(now - chrono::Duration::seconds(secs), now);
+        assert_eq!(before(30), "just now");
+        assert_eq!(before(60), "1 minute ago");
+        assert_eq!(before(5 * 3_600 + 59), "5 hours ago");
+        assert_eq!(before(86_400), "1 day ago");
+        assert_eq!(before(65 * 86_400), "2 months ago");
+        assert_eq!(before(800 * 86_400), "2 years ago");
+        assert_eq!(before(-10), "in the future");
     }
 
     #[test]
@@ -1918,25 +2051,25 @@ mod tests {
         // No "Load more…" item: the picker is told there's more instead.
         assert_eq!(
             ask.asked[0],
-            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title (more) (keys bed)"
+            "Products [acct/a  a title  public] of acct/a  a title  public | acct/prod  prod title  public (more) (keys bed)"
         );
         // The next page is appended with the highlight where it was, and the
         // picker stops asking once the listing runs out.
         assert_eq!(
             ask.asked[1],
-            "Products [acct/prod  prod title] of acct/a  a title | acct/prod  prod title | acct/c  c title (keys bed)"
+            "Products [acct/prod  prod title  public] of acct/a  a title  public | acct/prod  prod title  public | acct/c  c title  public (keys bed)"
         );
         assert_eq!(ask.asked[2], format!("{SCREEN_HINT} (keys bed)"));
         // The deleted product is gone, the cursor sits on the one after it, and
         // the list says what happened, as a cleared screen wouldn't otherwise.
         assert_eq!(
             ask.asked[5],
-            "Products [acct/c  c title] of acct/a  a title | acct/c  c title !Deleted acct/prod. (keys bed)"
+            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public !Deleted acct/prod. (keys bed)"
         );
         // A refused delete leaves the list as it was, and says so.
         assert_eq!(
             ask.asked[8],
-            "Products [acct/c  c title] of acct/a  a title | acct/c  c title !Error: Not confirmed; nothing was deleted. (keys bed)"
+            "Products [acct/c  c title  public] of acct/a  a title  public | acct/c  c title  public !Error: Not confirmed; nothing was deleted. (keys bed)"
         );
     }
 
@@ -1983,9 +2116,9 @@ mod tests {
         assert_eq!(
             ask.asked,
             [
-                "Products [a/one  one title] of a/one  one title | b/two  two title (keys )",
-                "Products matching \"crop\" [ag/crop  crop title] of ag/crop  crop title (keys )",
-                "Products [a/one  one title] of a/one  one title | b/two  two title (keys )",
+                "Products [a/one  one title  public] of a/one  one title  public | b/two  two title  public (keys )",
+                "Products matching \"crop\" [ag/crop  crop title  public] of ag/crop  crop title  public (keys )",
+                "Products [a/one  one title  public] of a/one  one title  public | b/two  two title  public (keys )",
             ]
         );
     }
@@ -2025,7 +2158,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             ask.asked,
-            ["Products [acct/a  a title] of acct/a  a title | acct/prod  prod title (keys )"]
+            ["Products [acct/a  a title  public] of acct/a  a title  public | acct/prod  prod title  public (keys )"]
         );
     }
 
