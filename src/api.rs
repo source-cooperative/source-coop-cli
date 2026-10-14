@@ -199,8 +199,9 @@ impl Client {
             .base
             .join(path)
             .map_err(|e| format!("Invalid API path '{path}': {e}"))?;
-        // A full URL joins as itself, and the bearer must not go elsewhere.
-        if url.origin() != self.base.origin() {
+        // A full URL joins as itself, and the bearer must not go elsewhere;
+        // `..` segments must not climb out of the API either.
+        if url.origin() != self.base.origin() || !url.path().starts_with(self.base.path()) {
             return Err(format!(
                 "'{path}' isn't on the API at {}; give a path under /api/v1",
                 self.base.origin().ascii_serialization()
@@ -265,8 +266,12 @@ mod tests {
                 "https://source.coop/api/v1/products/acct?limit=2"
             );
         }
-        // The token is only ever sent to the API's own origin.
+        // The token is only ever sent to the API's own origin, and only under
+        // /api/v1 there.
         assert!(c.resolve("https://example.com/steal").is_err());
+        assert!(c.resolve("../../whoami").is_err());
+        assert!(c.resolve("products/../../../admin").is_err());
+        assert!(c.resolve("products/../whoami").is_ok());
     }
 
     #[tokio::test]

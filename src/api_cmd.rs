@@ -48,6 +48,12 @@ pub async fn run(args: ApiArgs, client: &Client) -> Result<(), String> {
         None if body.is_some() || !fields.is_empty() => Method::POST,
         None => Method::GET,
     };
+    if method == Method::GET && body.is_some() {
+        return Err(
+            "--input sends a request body, which a GET doesn't take: give query fields with -f/-F, or another method with -X"
+                .into(),
+        );
+    }
 
     let body = if method == Method::GET {
         let mut q = url.query_pairs_mut();
@@ -71,7 +77,8 @@ pub async fn run(args: ApiArgs, client: &Client) -> Result<(), String> {
     if status.is_success() {
         Ok(())
     } else {
-        Err(ApiError::from_response(status, &text).to_string())
+        // Through `From`, which keeps the code and status for the exit code.
+        Err(ApiError::from_response(status, &text).into())
     }
 }
 
@@ -189,5 +196,25 @@ mod tests {
         let client = Client::new(&server.uri(), None, false).unwrap();
         let err = run(args("products/acct/nope"), &client).await.unwrap_err();
         assert!(err.contains("No such product. (not_found, HTTP 404)"));
+        // The API's code and status survive, for --json errors and exit codes.
+        let failure = crate::failure::classify(&err);
+        assert_eq!(
+            (failure.code.as_str(), failure.status),
+            ("not_found", Some(404))
+        );
+        assert_eq!(failure.exit_code(), 5);
+    }
+
+    #[tokio::test]
+    async fn a_get_refuses_a_body() {
+        let path = std::env::temp_dir().join(format!("api-cmd-get-{}.json", std::process::id()));
+        std::fs::write(&path, "{}").unwrap();
+        let client = Client::new("http://127.0.0.1:9", None, false).unwrap();
+        let mut a = args("products/acct");
+        a.method = Some("GET".into());
+        a.input = Some(path.display().to_string());
+        let err = run(a, &client).await.unwrap_err();
+        let _ = std::fs::remove_file(&path);
+        assert!(err.starts_with("--input sends a request body"), "{err}");
     }
 }
