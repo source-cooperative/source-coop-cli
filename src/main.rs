@@ -480,8 +480,70 @@ async fn refresh(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use clap::CommandFactory;
     use wiremock::matchers::{body_string_contains, method, path, query_param};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    /// Every runnable command, as its words after `source-coop`.
+    fn commands(cmd: &clap::Command, path: &str, out: &mut Vec<String>) {
+        for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+            let words = format!("{path} {}", sub.get_name()).trim().to_string();
+            if sub.has_subcommands() {
+                commands(sub, &words, out);
+            } else {
+                out.push(words);
+            }
+        }
+    }
+
+    /// The conventions in AGENTS.md that can be checked: in every resource
+    /// (a command with a `list`), each subcommand but `create` takes `-i`, and
+    /// the reads, `list` and `view`, take `--json`.
+    #[test]
+    fn resource_commands_follow_the_cli_conventions() {
+        fn check(cmd: &clap::Command, resources: &mut usize, problems: &mut Vec<String>) {
+            if cmd.find_subcommand("list").is_some() {
+                *resources += 1;
+                for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                    let name = format!("{} {}", cmd.get_name(), sub.get_name());
+                    let has = |short: Option<char>, long: &str| {
+                        sub.get_arguments().any(|a| {
+                            a.get_long() == Some(long)
+                                && (short.is_none() || a.get_short() == short)
+                        })
+                    };
+                    if sub.get_name() != "create" && !has(Some('i'), "interactive") {
+                        problems.push(format!("{name}: no -i/--interactive"));
+                    }
+                    if ["list", "view"].contains(&sub.get_name()) && !has(None, "json") {
+                        problems.push(format!("{name}: no --json"));
+                    }
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, resources, problems);
+            }
+        }
+        let (mut resources, mut problems) = (0, vec![]);
+        check(&Cli::command(), &mut resources, &mut problems);
+        assert!(resources > 0, "found no resource commands to check");
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// AGENTS.md: the README documents the CLI as it is, starting with every
+    /// command appearing in it as `source-coop <command>`.
+    #[test]
+    fn every_command_is_in_the_readme() {
+        let readme = include_str!("../README.md");
+        let mut all = vec![];
+        commands(&Cli::command(), "", &mut all);
+        let missing: Vec<_> = all
+            .iter()
+            .filter(|c| !readme.contains(&format!("source-coop {c}")))
+            .collect();
+        assert!(all.len() > 5, "found too few commands: {all:?}");
+        assert!(missing.is_empty(), "not in README.md: {missing:?}");
+    }
 
     const STS_OK: &str = "<AssumeRoleWithWebIdentityResponse><AssumeRoleWithWebIdentityResult>\
         <Credentials><AccessKeyId>NEWKEY</AccessKeyId><SecretAccessKey>NEWSECRET</SecretAccessKey>\
