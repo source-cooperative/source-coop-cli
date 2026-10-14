@@ -110,7 +110,7 @@ impl Session {
 
 /// The `exp` claim of a JWT, read without verifying it: only to know when to
 /// refresh, never to trust the token.
-fn jwt_exp(token: &str) -> Option<i64> {
+pub(crate) fn jwt_exp(token: &str) -> Option<i64> {
     let payload = URL_SAFE_NO_PAD.decode(token.split('.').nth(1)?).ok()?;
     serde_json::from_slice::<serde_json::Value>(&payload)
         .ok()?

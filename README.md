@@ -93,6 +93,22 @@ Credentials are cached on the server (see [File fallback](#file-fallback)), and 
 source-coop --version
 ```
 
+### Checking login status
+
+`auth status` shows whether you're logged in, and when the cached tokens and a role's credentials expire. It works from the cache: nothing is refreshed and nothing is sent over the network.
+
+```bash
+source-coop auth status
+```
+
+```
+Environment: production (https://data.source.coop)
+Login session: logged in (refresh token: yes; ID token expires 2026-10-13T18:00:00Z; access token for https://source.coop expires 2026-10-13T18:00:00Z)
+Role _default: credentials expire 2026-10-13T18:30:00Z
+```
+
+The keyring can't list its entries, so `auth status` reports on one environment and role. Pass `--proxy-url` and `--role-arn` (or set `SOURCE_PROXY_URL` and `SOURCE_ROLE_ARN`) to check others.
+
 ### Setting credentials on the environment
 
 After logging in, you can export cached credentials as environment variables:

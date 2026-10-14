@@ -64,7 +64,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Log in, and print tokens for the source.coop API
+    /// Log in, see whether you are, and print tokens for the source.coop API
     #[command(subcommand)]
     Auth(AuthCommand),
     /// Output cached credentials as credential_process JSON, shell env vars,
@@ -114,9 +114,23 @@ enum AuthCommand {
     /// Log in through the browser, keeping the session and a role's S3
     /// credentials for `creds` and the API
     Login(LoginArgs),
+    /// Show the cached login session and a role's credentials, without
+    /// refreshing either or going to the network
+    Status(StatusArgs),
     /// Print an access token for the source.coop API, refreshing it if expired
     /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
     Token(TokenArgs),
+}
+
+#[derive(Parser)]
+struct StatusArgs {
+    /// S3 proxy URL: selects the environment to report on
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    /// Role ARN whose cached credentials to report on
+    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
+    role_arn: String,
 }
 
 #[derive(Parser)]
@@ -228,6 +242,11 @@ async fn main() {
                 fail(e);
             }
         }
+        Commands::Auth(AuthCommand::Status(args)) => {
+            if let Err(e) = run_status(args) {
+                fail(e);
+            }
+        }
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
                 fail(e);
@@ -261,6 +280,100 @@ async fn main() {
             }
         }
     }
+}
+
+fn run_status(args: StatusArgs) -> Result<(), String> {
+    let env = cache::env(&args.proxy_url)?;
+    let session = cache::read_session(env.as_deref())?;
+    let entry = cache::read_credentials(env.as_deref(), &args.role_arn)?;
+    print!(
+        "{}",
+        status_report(
+            &args.proxy_url,
+            env.as_deref(),
+            &args.role_arn,
+            session.as_ref(),
+            entry.as_ref().map(|e| &e.creds),
+            chrono::Utc::now().timestamp(),
+        )
+    );
+    Ok(())
+}
+
+/// `<expires> <time>` or `expired <time>` for a Unix timestamp, as of `now`.
+fn expiry(exp: Option<i64>, now: i64, expires: &str) -> String {
+    match exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)) {
+        None => "expiry unknown".into(),
+        Some(t) => {
+            let verb = if t.timestamp() > now {
+                expires
+            } else {
+                "expired"
+            };
+            format!(
+                "{verb} {}",
+                t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
+            )
+        }
+    }
+}
+
+/// The `auth status` report for one environment and role, as of `now`.
+fn status_report(
+    proxy_url: &str,
+    env: Option<&str>,
+    role_arn: &str,
+    session: Option<&session::Session>,
+    creds: Option<&sts::Credentials>,
+    now: i64,
+) -> String {
+    let mut out = format!(
+        "Environment: {} ({proxy_url})\n",
+        env.unwrap_or("production")
+    );
+    let login = match session {
+        None => "not logged in".to_string(),
+        Some(s) => {
+            let id_exp = session::jwt_exp(&s.id_token);
+            // Without a refresh token, the session ends when its ID token does.
+            let state = match (&s.refresh_token, id_exp) {
+                (None, Some(exp)) if exp <= now => "expired",
+                _ => "logged in",
+            };
+            let access = match (&s.access_token, &s.audience) {
+                (None, _) => "no access token".to_string(),
+                (Some(_), aud) => format!(
+                    "access token{} {}",
+                    aud.as_deref()
+                        .map(|a| format!(" for {a}"))
+                        .unwrap_or_default(),
+                    expiry(s.access_token_expires_at, now, "expires")
+                ),
+            };
+            let refresh = if s.refresh_token.is_some() {
+                "yes"
+            } else {
+                "no"
+            };
+            format!(
+                "{state} (refresh token: {refresh}; ID token {}; {access})",
+                expiry(id_exp, now, "expires")
+            )
+        }
+    };
+    out += &format!("Login session: {login}\n");
+    let role = match creds {
+        None => "no cached credentials".to_string(),
+        Some(c) => {
+            let exp = chrono::DateTime::parse_from_rfc3339(&c.expiration).ok();
+            format!(
+                "credentials {}",
+                expiry(exp.map(|t| t.timestamp()), now, "expire")
+            )
+        }
+    };
+    out += &format!("Role {role_arn}: {role}\n");
+    out
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
@@ -536,6 +649,72 @@ mod tests {
         check(&Cli::command(), &mut resources, &mut problems);
         assert!(resources > 0, "found no resource commands to check");
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    fn creds(expiration: &str) -> sts::Credentials {
+        sts::Credentials {
+            access_key_id: "KEY".into(),
+            secret_access_key: "SECRET".into(),
+            session_token: "SESSION".into(),
+            expiration: expiration.into(),
+        }
+    }
+
+    /// An unsigned JWT that expires at `exp`; only its claims are ever read.
+    fn jwt(exp: i64) -> String {
+        use base64::Engine;
+        let claims = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(serde_json::json!({ "exp": exp }).to_string());
+        format!("e30.{claims}.sig")
+    }
+
+    #[test]
+    fn status_reports_a_live_session_and_credentials() {
+        // 2026-10-13T17:00:00Z
+        let now = 1_791_910_800;
+        let session = session::Session {
+            proxy_url: Some("https://data.source.coop".into()),
+            client_id: "cid".into(),
+            token_endpoint: "https://auth.test/oauth2/token".into(),
+            audience: Some("https://source.coop".into()),
+            refresh_token: Some("rt".into()),
+            id_token: jwt(now + 3600),
+            access_token: Some("at".into()),
+            access_token_expires_at: Some(now - 60),
+        };
+        let report = status_report(
+            "https://data.source.coop",
+            None,
+            "_default",
+            Some(&session),
+            Some(&creds("2026-10-13T18:30:00Z")),
+            now,
+        );
+        assert_eq!(
+            report,
+            "Environment: production (https://data.source.coop)\n\
+             Login session: logged in (refresh token: yes; ID token expires 2026-10-13T18:00:00Z; \
+             access token for https://source.coop expired 2026-10-13T16:59:00Z)\n\
+             Role _default: credentials expire 2026-10-13T18:30:00Z\n"
+        );
+    }
+
+    #[test]
+    fn status_reports_nothing_cached() {
+        let report = status_report(
+            "https://data.staging.source.coop",
+            Some("data.staging.source.coop"),
+            "_default",
+            None,
+            None,
+            0,
+        );
+        assert_eq!(
+            report,
+            "Environment: data.staging.source.coop (https://data.staging.source.coop)\n\
+             Login session: not logged in\n\
+             Role _default: no cached credentials\n"
+        );
     }
 
     /// `login` moved under `auth`; the old name still works, unlisted.
