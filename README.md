@@ -102,7 +102,7 @@ source-coop auth status
 ```
 
 ```
-Environment    production (https://data.source.coop)
+Environment    https://data.source.coop
 Login          logged in
 Account        Anthony Lukach (alukach)
 Profile        https://source.coop/alukach

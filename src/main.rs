@@ -328,7 +328,6 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
     if args.json {
         output::json(&status_json(
             &args.proxy_url,
-            env.as_deref(),
             &args.role_arn,
             session,
             creds,
@@ -340,7 +339,6 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
             "{}",
             status_report(
                 &args.proxy_url,
-                env.as_deref(),
                 &args.role_arn,
                 session,
                 creds,
@@ -405,7 +403,6 @@ fn rfc3339(t: i64) -> Option<String> {
 /// 3339 with an `expired` flag, as of `now`; absent ones are null.
 fn status_json(
     proxy_url: &str,
-    env: Option<&str>,
     role_arn: &str,
     session: Option<&session::Session>,
     creds: Option<&sts::Credentials>,
@@ -467,7 +464,7 @@ fn status_json(
         }
     };
     json!({
-        "environment": {"name": env.unwrap_or("production"), "proxy_url": proxy_url},
+        "proxy_url": proxy_url,
         "logged_in": login.as_ref().is_some_and(|l| l["state"] == "logged_in"),
         "login": login,
         "credentials": credentials,
@@ -498,7 +495,6 @@ fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
 #[allow(clippy::too_many_arguments)]
 fn status_report(
     proxy_url: &str,
-    env: Option<&str>,
     role_arn: &str,
     session: Option<&session::Session>,
     creds: Option<&sts::Credentials>,
@@ -506,10 +502,7 @@ fn status_report(
     refresh_lifetime: Option<(i64, &str)>,
     color: bool,
 ) -> String {
-    let mut rows = vec![(
-        "Environment",
-        format!("{} ({proxy_url})", env.unwrap_or("production")),
-    )];
+    let mut rows = vec![("Environment", proxy_url.to_string())];
     match session {
         None => rows.push(("Login", style::paint(color, "31", "not logged in"))),
         Some(s) => {
@@ -619,15 +612,14 @@ fn status_report(
 
 fn run_logout(args: LogoutArgs) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
-    let name = env.as_deref().unwrap_or("production");
     // The session first: a `creds` that still had it may be minting, and the
     // role's lock makes us wait for it before removing what it caches.
     let session = cache::delete_session(env.as_deref())?;
     let creds = cache::delete_credentials(env.as_deref(), &args.role_arn)?;
     if session || creds {
-        eprintln!("Logged out of {name} ({}).", args.proxy_url);
+        eprintln!("Logged out of {}.", args.proxy_url);
     } else {
-        eprintln!("Not logged in to {name} ({}).", args.proxy_url);
+        eprintln!("Not logged in to {}.", args.proxy_url);
     }
     Ok(())
 }
@@ -914,7 +906,6 @@ mod tests {
         };
         let report = status_report(
             "https://data.source.coop",
-            None,
             "_default",
             Some(&live_session(now, Some(me))),
             Some(&creds("2026-10-13T18:30:00Z")),
@@ -924,7 +915,7 @@ mod tests {
         );
         assert_eq!(
             report,
-            "Environment    production (https://data.source.coop)\n\
+            "Environment    https://data.source.coop\n\
              Login          logged in\n\
              Account        Anthony Lukach (alukach)\n\
              Profile        https://source.coop/alukach\n\
@@ -942,7 +933,6 @@ mod tests {
         s.refresh_token_expires_at = Some(now + 30 * 86_400);
         let report = status_report(
             "https://data.source.coop",
-            None,
             "_default",
             Some(&s),
             None,
@@ -966,7 +956,6 @@ mod tests {
         let row = |s: &session::Session, lifetime| {
             let report = status_report(
                 "https://data.source.coop",
-                None,
                 "_default",
                 Some(s),
                 None,
@@ -1034,7 +1023,6 @@ mod tests {
         };
         let json = status_json(
             "https://data.source.coop",
-            None,
             "_default",
             Some(&live_session(now, Some(me))),
             Some(&creds("2026-10-13T18:30:00Z")),
@@ -1044,7 +1032,7 @@ mod tests {
         assert_eq!(
             json,
             serde_json::json!({
-                "environment": {"name": "production", "proxy_url": "https://data.source.coop"},
+                "proxy_url": "https://data.source.coop",
                 "logged_in": true,
                 "login": {
                     "state": "logged_in",
@@ -1078,7 +1066,6 @@ mod tests {
         );
         let nobody = status_json(
             "https://data.source.coop",
-            None,
             "_default",
             None,
             None,
@@ -1098,7 +1085,6 @@ mod tests {
         let now = 1_791_910_800;
         let unknown = status_report(
             "https://data.source.coop",
-            None,
             "_default",
             Some(&live_session(now, None)),
             None,
@@ -1117,7 +1103,6 @@ mod tests {
 
         let nobody = status_report(
             "https://data.staging.source.coop",
-            Some("data.staging.source.coop"),
             "_default",
             None,
             None,
@@ -1127,7 +1112,7 @@ mod tests {
         );
         assert_eq!(
             nobody,
-            "Environment  data.staging.source.coop (https://data.staging.source.coop)\n\
+            "Environment  https://data.staging.source.coop\n\
              Login        not logged in\n\
              Credentials  _default: none cached\n"
         );
@@ -1142,7 +1127,6 @@ mod tests {
         };
         let report = status_report(
             "https://data.source.coop",
-            None,
             "_default",
             Some(&live_session(now, Some(me))),
             None,
@@ -1162,7 +1146,6 @@ mod tests {
         );
         let nobody = status_report(
             "https://data.source.coop",
-            None,
             "_default",
             None,
             None,
