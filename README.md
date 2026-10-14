@@ -112,9 +112,9 @@ Access token   for https://source.coop, expires 2026-10-13T18:00:00Z
 Credentials    _default: expire 2026-10-13T18:30:00Z
 ```
 
-**How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime. Where a provider does give an expiry, that's shown instead. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
+**How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime, and a value it can't read is ignored with a warning. Where a provider does give an expiry, that's shown instead. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
 
-`--json` prints the same as data, for scripts and agents: times in RFC 3339 with an `expired` flag, the account's `profile_url`, and, when the provider gave no refresh-token expiry, `estimated_lapse_at` with the `assumed_lifetime` it was counted from.
+`--json` prints the same as data, for scripts and agents: `logged_in` (false once the login has expired, too), times in RFC 3339 with an `expired` flag, the account's `profile_url`, and, when the provider gave no refresh-token expiry, `estimated_lapse_at` with the `assumed_lifetime` it was counted from.
 
 ```bash
 source-coop auth status --json | jq -r .login.refresh_token.issued_at
@@ -184,6 +184,7 @@ endpoint_url = https://data.staging.source.coop
 ```bash
 source-coop auth logout
 source-coop auth logout --proxy-url https://data.staging.source.coop --role-arn reader-role
+source-coop auth logout --json   # {"proxy_url": …, "role_arn": …, "removed": {"session": true, "credentials": true}}
 ```
 
 Like `creds`, it takes `--proxy-url` (`SOURCE_PROXY_URL`) and `--role-arn` (`SOURCE_ROLE_ARN`). The keyring can't list its entries, so other roles' cached credentials stay usable until they expire, though without the session `creds` can't renew them. To remove them now, run `auth logout --role-arn <role>` for each role. Tokens aren't revoked at the identity provider.

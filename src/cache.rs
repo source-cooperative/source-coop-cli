@@ -211,6 +211,19 @@ pub fn write_credentials(
 /// the production slot, so an environment with nothing of its own takes its
 /// entry from there, copying it into its own slot.
 pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
+    find_credentials(env, role_arn, true)
+}
+
+/// `read_credentials` without the copy, for reporting: writes nothing.
+pub fn peek_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<CacheEntry>, String> {
+    find_credentials(env, role_arn, false)
+}
+
+fn find_credentials(
+    env: Option<&str>,
+    role_arn: &str,
+    migrate: bool,
+) -> Result<Option<CacheEntry>, String> {
     let slot = role_slot(env, role_arn)?;
     let entry: Option<CacheEntry> = read_slot(&slot)?;
     if entry.is_some() || env.is_none() {
@@ -221,7 +234,9 @@ pub fn read_credentials(env: Option<&str>, role_arn: &str) -> Result<Option<Cach
     let Some(legacy) = legacy.filter(|e| e.minted_in(env)) else {
         return Ok(None);
     };
-    write_slot(&slot, &legacy)?;
+    if migrate {
+        write_slot(&slot, &legacy)?;
+    }
     Ok(Some(legacy))
 }
 

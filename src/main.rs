@@ -130,6 +130,10 @@ struct LogoutArgs {
     /// Role ARN whose cached credentials to remove
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
+
+    /// Print what was removed as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -274,8 +278,9 @@ async fn main() {
             }
         }
         Commands::Auth(AuthCommand::Logout(args)) => {
+            let json = args.json;
             if let Err(e) = run_logout(args) {
-                fail(e, false);
+                fail(e, json);
             }
         }
         Commands::Auth(AuthCommand::Token(args)) => {
@@ -304,11 +309,14 @@ async fn whoami(
     access_token: Option<String>,
     verbose: bool,
 ) -> Option<session::Account> {
-    let client = api::Client::new(api_url, Some(access_token?), verbose).ok()?;
-    match client
-        .get::<serde_json::Value>(client.url(&["whoami"]))
-        .await
-    {
+    let me = match api::Client::new(api_url, Some(access_token?), verbose) {
+        Ok(client) => client
+            .get::<serde_json::Value>(client.url(&["whoami"]))
+            .await
+            .map_err(|e| e.to_string()),
+        Err(e) => Err(e),
+    };
+    match me {
         Ok(me) => session::Account::from_whoami(&me),
         Err(e) => {
             eprintln!("Couldn't look up your account ({e}); `auth status` won't name it.");
@@ -320,11 +328,11 @@ async fn whoami(
 fn run_status(args: StatusArgs) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let session = cache::read_session(env.as_deref())?;
-    let entry = cache::read_credentials(env.as_deref(), &args.role_arn)?;
+    let entry = cache::peek_credentials(env.as_deref(), &args.role_arn)?;
     let (session, creds) = (session.as_ref(), entry.as_ref().map(|e| &e.creds));
     let now = chrono::Utc::now().timestamp();
-    let lifetime = refresh_lifetime()?;
-    let lifetime = Some((lifetime.0, lifetime.1.as_str()));
+    let lifetime = refresh_lifetime();
+    let lifetime = lifetime.as_ref().map(|(secs, text)| (*secs, text.as_str()));
     if args.json {
         output::json(&status_json(
             &args.proxy_url,
@@ -356,13 +364,19 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
 /// provider doesn't say, so this is what `auth status` estimates from. It's
 /// only for display: OAuth2 has no way to ask for a refresh token's lifetime,
 /// so nothing sent at login depends on it; Ory's project config decides.
-fn refresh_lifetime() -> Result<(i64, String), String> {
+/// An unreadable value is warned about and leaves the estimate out.
+fn refresh_lifetime() -> Option<(i64, String)> {
     let text = std::env::var("SOURCE_REFRESH_TOKEN_LIFETIME")
         .ok()
         .filter(|v| !v.trim().is_empty())
         .unwrap_or_else(|| defaults::REFRESH_TOKEN_LIFETIME.to_string());
-    let secs = parse_duration(&text).map_err(|e| format!("SOURCE_REFRESH_TOKEN_LIFETIME: {e}"))?;
-    Ok((secs as i64, text.trim().to_string()))
+    match parse_duration(&text) {
+        Ok(secs) => Some((secs as i64, text.trim().to_string())),
+        Err(e) => {
+            eprintln!("Warning: ignoring SOURCE_REFRESH_TOKEN_LIFETIME: {e}");
+            None
+        }
+    }
 }
 
 /// The site a session's account lives on: the API audience it was issued
@@ -399,6 +413,16 @@ fn rfc3339(t: i64) -> Option<String> {
         .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
 }
 
+/// Whether `s` can no longer be used without logging in again: its refresh
+/// token is past the expiry the provider gave, or, without one, its ID token
+/// has expired.
+fn login_expired(s: &session::Session, now: i64) -> bool {
+    match &s.refresh_token {
+        Some(_) => s.refresh_token_expires_at.is_some_and(|e| e <= now),
+        None => session::jwt_exp(&s.id_token).is_some_and(|e| e <= now),
+    }
+}
+
 /// `auth status --json`: what `status_report` shows, as data. Times are RFC
 /// 3339 with an `expired` flag, as of `now`; absent ones are null.
 fn status_json(
@@ -416,7 +440,7 @@ fn status_json(
     };
     let login = session.map(|s| {
         let id_exp = session::jwt_exp(&s.id_token);
-        let expired = s.refresh_token.is_none() && id_exp.is_some_and(|e| e <= now);
+        let expired = login_expired(s, now);
         let estimate = match (&s.refresh_token, s.refresh_token_expires_at) {
             (Some(_), None) => s
                 .refresh_token_issued_at
@@ -507,10 +531,10 @@ fn status_report(
         None => rows.push(("Login", style::paint(color, "31", "not logged in"))),
         Some(s) => {
             let id_exp = session::jwt_exp(&s.id_token);
-            // Without a refresh token, the session ends when its ID token does.
-            let state = match (&s.refresh_token, id_exp) {
-                (None, Some(exp)) if exp <= now => style::paint(color, "31", "expired"),
-                _ => style::paint(color, "32", "logged in"),
+            let state = if login_expired(s, now) {
+                style::paint(color, "31", "expired")
+            } else {
+                style::paint(color, "32", "logged in")
             };
             rows.push(("Login", state));
             rows.push((
@@ -616,7 +640,13 @@ fn run_logout(args: LogoutArgs) -> Result<(), String> {
     // role's lock makes us wait for it before removing what it caches.
     let session = cache::delete_session(env.as_deref())?;
     let creds = cache::delete_credentials(env.as_deref(), &args.role_arn)?;
-    if session || creds {
+    if args.json {
+        output::json(&serde_json::json!({
+            "proxy_url": args.proxy_url,
+            "role_arn": args.role_arn,
+            "removed": {"session": session, "credentials": creds},
+        }));
+    } else if session || creds {
         eprintln!("Logged out of {}.", args.proxy_url);
     } else {
         eprintln!("Not logged in to {}.", args.proxy_url);
@@ -894,6 +924,33 @@ mod tests {
             refresh_token_issued_at: Some(now - 3 * 3600),
             refresh_token_expires_at: None,
         }
+    }
+
+    #[test]
+    fn status_says_expired_once_the_refresh_token_is() {
+        let now = 1_791_910_800;
+        let mut s = live_session(now, None);
+        s.refresh_token_expires_at = Some(now - 1);
+        let report = status_report(
+            "https://data.source.coop",
+            "_default",
+            Some(&s),
+            None,
+            now,
+            None,
+            false,
+        );
+        assert!(report.contains("Login          expired\n"), "{report}");
+        let json = status_json(
+            "https://data.source.coop",
+            "_default",
+            Some(&s),
+            None,
+            now,
+            None,
+        );
+        assert_eq!(json["logged_in"], false);
+        assert_eq!(json["login"]["state"], "expired");
     }
 
     #[test]
