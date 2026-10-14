@@ -1972,6 +1972,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn esc_on_any_field_of_an_edit_sends_nothing() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct/prod"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .respond_with(ResponseTemplate::new(200))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+
+        // Esc on the title (a line), on the description (long text), and on
+        // the visibility (a choice), each after earlier fields were answered.
+        for script in [
+            Script::new([Picks(&[0, 1]), Cancel]),
+            Script::new([Picks(&[0, 1]), Text("New title"), Cancel]),
+            Script::new([Picks(&[1, 2]), Text("New"), Cancel]),
+        ] {
+            let mut ask = script;
+            let err = edit(edit_args(), &client, SITE, Some(&mut ask))
+                .await
+                .unwrap_err();
+            assert_eq!(err, crate::prompt::CANCELLED);
+        }
+    }
+
+    #[tokio::test]
     async fn edit_with_nothing_changed_sends_nothing() {
         let server = api_server().await;
         Mock::given(method("GET"))

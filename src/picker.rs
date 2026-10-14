@@ -241,6 +241,150 @@ pub fn browse(
 
 /// Wait for ←/Esc/h/q (back) or one of `keys`, showing
 /// `hint` meanwhile.
+/// The part of `text` to show in `room` columns with the cursor at `at`:
+/// all of it if it fits, otherwise a window that keeps the cursor in view.
+/// Returns the shown text and how many columns the cursor sits from its end.
+fn window(text: &[char], at: usize, room: usize) -> (String, usize) {
+    let width = |cs: &[char]| console::measure_text_width(&cs.iter().collect::<String>());
+    // Start as far left as still leaves a column for the cursor.
+    let mut start = 0;
+    while start < at && width(&text[start..at]) + 1 > room {
+        start += 1;
+    }
+    let mut end = at;
+    while end < text.len() && width(&text[start..end + 1]) <= room {
+        end += 1;
+    }
+    (text[start..end].iter().collect(), width(&text[at..end]))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::window;
+
+    fn chars(s: &str) -> Vec<char> {
+        s.chars().collect()
+    }
+
+    #[test]
+    fn a_line_that_fits_is_shown_whole_with_the_cursor_where_it_is() {
+        assert_eq!(window(&chars("héllo"), 5, 20), ("héllo".into(), 0));
+        assert_eq!(window(&chars("héllo"), 1, 20), ("héllo".into(), 4));
+    }
+
+    #[test]
+    fn a_long_line_scrolls_to_keep_the_cursor_in_view() {
+        let text = chars("abcdefghij");
+        // At the end: the last 4 letters and a column for the cursor.
+        assert_eq!(window(&text, 10, 5), ("ghij".into(), 0));
+        // At the start: the first 5 letters.
+        assert_eq!(window(&text, 0, 5), ("abcde".into(), 5));
+    }
+
+    #[test]
+    fn wide_characters_count_their_columns() {
+        // Each emoji takes two columns.
+        assert_eq!(window(&chars("🌍🌍🌍"), 3, 5), ("🌍🌍".into(), 0));
+        assert_eq!(window(&chars("a🌍b"), 1, 20), ("a🌍b".into(), 3));
+    }
+}
+
+/// How a `line` ended.
+#[derive(Debug, PartialEq)]
+pub enum Line {
+    /// Enter, with what was in the line.
+    Text(String),
+    /// Esc.
+    Cancelled,
+    /// Ctrl+E, when `editor` was offered: open the person's editor instead.
+    Editor,
+}
+
+/// A line of text, as dialoguer's `Input` asks for it but cancellable: it
+/// starts as `initial` to keep or edit, Enter takes it, Esc backs out. ←/→,
+/// Home/End and Ctrl+A move; Backspace and Delete erase a whole character,
+/// accents and emoji included. A line wider than the terminal scrolls
+/// sideways rather than wrap. Empty is refused unless `allow_empty`. With
+/// `editor`, Ctrl+E at the end of the line asks for the person's editor
+/// instead.
+pub fn line(label: &str, initial: &str, allow_empty: bool, editor: bool) -> Result<Line, String> {
+    let term = Term::stderr();
+    term.show_cursor().map_err(failed)?;
+    let prefix = format!(
+        "{} {} {} ",
+        style("?").yellow().bold(),
+        style(label).bold(),
+        style("›").dim()
+    );
+    let mut text: Vec<char> = initial.chars().collect();
+    let mut at = text.len();
+    let done = |mark: String, value: &str| -> Result<(), String> {
+        term.clear_line().map_err(failed)?;
+        term.write_line(&fit(
+            &format!(
+                "{mark} {} {} {value}",
+                style(label).bold(),
+                style("·").dim()
+            ),
+            term.size().1,
+        ))
+        .map_err(failed)
+    };
+    loop {
+        let room = (term.size().1 as usize)
+            .saturating_sub(console::measure_text_width(&prefix) + 1)
+            .max(1);
+        let (shown, after) = window(&text, at, room);
+        term.clear_line().map_err(failed)?;
+        term.write_str(&format!("{prefix}{shown}"))
+            .map_err(failed)?;
+        if after > 0 {
+            term.move_cursor_left(after).map_err(failed)?;
+        }
+        match term.read_key_raw().map_err(failed)? {
+            Key::Escape => {
+                done(style("✘").red().to_string(), "")?;
+                return Ok(Line::Cancelled);
+            }
+            // `console` reads Ctrl+E as End (as shells do), so the two can't
+            // be told apart: at the end of the line it opens the editor, and
+            // elsewhere it moves there first.
+            Key::End | Key::Char('\u{5}') if editor && at == text.len() => {
+                done(style("✎").cyan().to_string(), "(in your editor)")?;
+                return Ok(Line::Editor);
+            }
+            Key::CtrlC => {
+                term.write_line("").map_err(failed)?;
+                return Err(interrupted());
+            }
+            Key::Enter => {
+                let value: String = text.iter().collect();
+                if value.trim().is_empty() && !allow_empty {
+                    continue;
+                }
+                done(style("✔").green().to_string(), &value)?;
+                return Ok(Line::Text(value));
+            }
+            Key::Backspace if at > 0 => {
+                at -= 1;
+                text.remove(at);
+            }
+            Key::Del if at < text.len() => {
+                text.remove(at);
+            }
+            Key::ArrowLeft if at > 0 => at -= 1,
+            Key::ArrowRight if at < text.len() => at += 1,
+            Key::Home | Key::Char('\u{1}') => at = 0,
+            Key::End => at = text.len(),
+            Key::Char(c) if !c.is_control() => {
+                text.insert(at, c);
+                at += 1;
+            }
+            _ => {}
+        }
+    }
+}
+
 pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     let term = Term::stderr();
     term.hide_cursor().map_err(failed)?;

@@ -4,7 +4,8 @@
 //! are both terminals and `SOURCE_PROMPT_DISABLED` is unset. Otherwise a
 //! command sends what it was given, and the API says what's missing.
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Input, MultiSelect, Select};
+use crate::picker::Line;
+use dialoguer::{theme::ColorfulTheme, Confirm, Editor, MultiSelect, Select};
 use std::io::IsTerminal;
 
 /// What someone did in a `browse` list or at a `keypress`.
@@ -126,11 +127,7 @@ fn cancellable<T>(answer: dialoguer::Result<Option<T>>) -> Result<T, String> {
 /// person types `name` back. Enter on nothing backs out (text prompts can't
 /// take Esc); anything else that isn't `name` stops with `action` undone.
 pub fn confirm_by_name(ask: &mut dyn Prompter, name: &str, action: &str) -> Result<(), String> {
-    let typed = ask.input(
-        &format!("Type {name} to confirm (Enter to cancel)"),
-        "",
-        true,
-    )?;
+    let typed = ask.input(&format!("Type {name} to confirm (Esc to cancel)"), "", true)?;
     match typed.trim() {
         "" => Err(CANCELLED.into()),
         t if t == name => Ok(()),
@@ -139,14 +136,13 @@ pub fn confirm_by_name(ask: &mut dyn Prompter, name: &str, action: &str) -> Resu
 }
 
 impl Prompter for Tty {
+    /// Our own line prompt rather than dialoguer's, whose text prompts ignore
+    /// Esc: the default starts in the line to keep or edit, and Esc backs out.
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String> {
-        let mut input = Input::<String>::with_theme(&self.theme)
-            .with_prompt(label)
-            .allow_empty(allow_empty);
-        if !default.is_empty() {
-            input = input.default(default.to_string());
+        match crate::picker::line(label, default, allow_empty, false)? {
+            Line::Text(text) => Ok(text),
+            Line::Cancelled | Line::Editor => Err(CANCELLED.into()),
         }
-        input.interact_text().map_err(failed)
     }
 
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String> {
@@ -192,20 +188,17 @@ impl Prompter for Tty {
         )
     }
 
-    /// gh's way: Enter keeps what's there, `e` opens `$VISUAL` or `$EDITOR`
-    /// on it, and anything else typed is the new text.
+    /// Enter keeps what's there, anything typed is the new text, and Ctrl+E
+    /// opens `$VISUAL` or `$EDITOR` on it, for text of several paragraphs. The
+    /// line starts empty rather than holding text that may span lines.
     fn long_text(&mut self, label: &str, current: &str) -> Result<String, String> {
         let keep = if current.is_empty() { "skip" } else { "keep" };
-        let typed = Input::<String>::with_theme(&self.theme)
-            .with_prompt(format!(
-                "{label} [(e) to open your editor, Enter to {keep}]"
-            ))
-            .allow_empty(true)
-            .interact_text()
-            .map_err(failed)?;
-        match typed.trim() {
-            "" => Ok(current.to_string()),
-            "e" => {
+        let hint = format!("{label} [Enter to {keep} · Ctrl+E editor · Esc cancel]");
+        match crate::picker::line(&hint, "", true, true)? {
+            Line::Cancelled => Err(CANCELLED.into()),
+            Line::Text(typed) if typed.trim().is_empty() => Ok(current.to_string()),
+            Line::Text(typed) => Ok(typed),
+            Line::Editor => {
                 let edited = Editor::new()
                     .require_save(true)
                     .edit(current)
@@ -213,7 +206,6 @@ impl Prompter for Tty {
                 // Quitting without saving keeps what was there.
                 Ok(edited.map_or_else(|| current.to_string(), |t| t.trim_end().to_string()))
             }
-            _ => Ok(typed),
         }
     }
 
@@ -279,6 +271,7 @@ pub mod scripted {
             Ok(match self.next(label) {
                 Answer::Default => default.to_string(),
                 Answer::Text(t) => t.to_string(),
+                Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected text, scripted {a:?}"),
             })
         }
@@ -317,6 +310,7 @@ pub mod scripted {
             Ok(match self.next(label) {
                 Answer::Default => current.to_string(),
                 Answer::Text(t) => t.to_string(),
+                Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected text, scripted {a:?}"),
             })
         }
