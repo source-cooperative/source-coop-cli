@@ -74,6 +74,7 @@ pub struct Tokens {
     /// The refresh token's lifetime in seconds, from the providers that say
     /// (`refresh_token_expires_in`, or `refresh_expires_in`). Ory doesn't:
     /// its refresh tokens are opaque and their lifespan is server config.
+    /// Zero, which some (Keycloak's offline tokens) send for "never", is None.
     pub refresh_expires_in: Option<i64>,
 }
 
@@ -319,7 +320,8 @@ async fn token_request(
         expires_in: body["expires_in"].as_i64(),
         refresh_expires_in: body["refresh_token_expires_in"]
             .as_i64()
-            .or_else(|| body["refresh_expires_in"].as_i64()),
+            .or_else(|| body["refresh_expires_in"].as_i64())
+            .filter(|s| *s > 0),
     })
 }
 

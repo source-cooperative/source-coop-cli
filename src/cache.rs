@@ -279,16 +279,18 @@ pub fn delete_session(env: Option<&str>) -> Result<bool, String> {
 /// Remove a slot from both the keyring and its file, under the slot's lock.
 fn delete_slot(slot: &Slot) -> Result<bool, String> {
     let _lock = lock_slot(slot)?;
-    let mut removed = false;
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
-        match entry.delete_credential() {
-            Ok(()) => removed = true,
-            Err(keyring::Error::NoEntry) => {}
-            Err(ref e) if is_keyring_unavailable(e) => {}
-            Err(e) => return Err(format!("Failed to delete from keyring: {e}")),
-        }
-    }
-    Ok(remove_file(&slot.path)? || removed)
+    let keyring = match keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
+        Err(_) => Ok(false),
+        Ok(entry) => match entry.delete_credential() {
+            Ok(()) => Ok(true),
+            Err(keyring::Error::NoEntry) => Ok(false),
+            Err(ref e) if is_keyring_unavailable(e) => Ok(false),
+            Err(e) => Err(format!("Failed to delete from keyring: {e}")),
+        },
+    };
+    // The file goes even when the keyring fails, so no copy outlives a logout.
+    let file = remove_file(&slot.path)?;
+    Ok(keyring? || file)
 }
 
 /// Remove a cache file. Returns whether it existed.

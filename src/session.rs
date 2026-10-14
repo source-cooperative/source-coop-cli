@@ -345,6 +345,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_zero_refresh_lifetime_means_no_known_expiry() {
+        let server = MockServer::start().await;
+        mock_refresh(
+            &server,
+            json!({"id_token": jwt(NOW + 3600), "refresh_token": "rt-2",
+                   "refresh_expires_in": 0}),
+            1,
+        )
+        .await;
+        let mut s = session(&server, tokens(NOW - 10, None, None));
+        ensure(&mut s, Want::Id, NOW, false, |_| Ok(()))
+            .await
+            .unwrap();
+        // Keycloak's offline tokens send 0 for "never", not "now".
+        assert_eq!(s.refresh_token_expires_at, None);
+    }
+
+    #[tokio::test]
     async fn an_expired_id_token_refreshes_for_sts() {
         let server = MockServer::start().await;
         mock_refresh(&server, json!({"id_token": jwt(NOW + 3600)}), 1).await;
