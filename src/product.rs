@@ -775,37 +775,254 @@ fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
     (accounts, has_flag("admin"))
 }
 
-/// Ask which account a new product goes under, from the ones they may create
-/// in, then its ID.
-fn ask_new_product(ask: &mut dyn Prompter, me: &Value) -> Result<ProductRef, String> {
+/// `create`'s questions, in the order they're asked.
+#[derive(Clone, Copy)]
+enum Step {
+    Account,
+    AccountId,
+    ProductId,
+    Title,
+    Description,
+    Connection,
+    Visibility,
+}
+
+/// Where a step leads: on to the next (None once all are answered), having
+/// asked or not, or back to the question before.
+enum Next {
+    Asked(Option<Step>),
+    Skipped(Option<Step>),
+    Back,
+}
+
+/// Ask for what a new product still needs: the account (from the ones they
+/// may create in) and ID unless `named`, then each field `body` doesn't have.
+/// ↑ or ← goes back to the question before, starting from the answer given
+/// there; later answers are kept. A field from a flag, a file or a resumed
+/// draft isn't asked either way. The defaults are the web form's, and the
+/// choices are the data connections the account could use and the
+/// visibilities the chosen one allows; the API still decides what's
+/// acceptable. Returns the product and its draft.
+async fn ask_create(
+    ask: &mut dyn Prompter,
+    client: &Client,
+    me: &Value,
+    named: Option<ProductRef>,
+    body: &mut Map<String, Value>,
+) -> Result<(ProductRef, Draft), String> {
     const ANOTHER: &str = "Another account…";
     let (accounts, anywhere) = creatable_accounts(me);
-    let account = match accounts.as_slice() {
-        [] if !anywhere => {
-            return Err("You can't create products yet: your own account needs \
-                 permission from source.coop, or an organization's owner can make \
-                 you one of its maintainers."
-                .into())
-        }
-        [only] if !anywhere => {
-            eprintln!("Creating under {only}, the only account you can create products in.");
-            only.clone()
-        }
-        _ => {
-            let mut options = accounts.clone();
-            if anywhere {
-                options.push(ANOTHER.into());
+    let mut options = accounts.clone();
+    if anywhere {
+        options.push(ANOTHER.into());
+    }
+    let mut account = named.as_ref().map(|p| p.account_id.clone());
+    if account.is_none() && !anywhere {
+        match accounts.as_slice() {
+            [] => {
+                return Err("You can't create products yet: your own account needs \
+                     permission from source.coop, or an organization's owner can make \
+                     you one of its maintainers."
+                    .into())
             }
-            let picked = &options[ask.select("Account", &options, 0)?];
-            if picked == ANOTHER {
-                ask.input("Account ID", "", false)?
-            } else {
-                picked.clone()
+            [only] => {
+                eprintln!("Creating under {only}, the only account you can create products in.");
+                account = Some(only.clone());
             }
+            _ => {}
         }
+    }
+    let choose_account = account.is_none();
+    let mut product_id = named
+        .as_ref()
+        .map(|p| p.product_id.clone())
+        .unwrap_or_default();
+    let mut given: Vec<String> = body.keys().cloned().collect();
+    let mut picked = 0;
+    let mut draft: Option<(String, Draft)> = None;
+    let mut connections: Option<(String, Vec<Value>)> = None;
+    let mut allowed: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
+    // An answer given earlier, to start from when the question comes again.
+    let current = |body: &Map<String, Value>, key: &str| {
+        body.get(key)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string()
     };
-    let id = ask.input("Product ID", "", false)?;
-    format!("{account}/{}", id.trim()).parse()
+
+    let mut asked: Vec<Step> = vec![];
+    let mut step = Some(Step::Account);
+    while let Some(now) = step {
+        let next = match now {
+            Step::Account if !choose_account => Next::Skipped(Some(Step::ProductId)),
+            Step::Account => match ask.select_or_back("Account", &options, picked)? {
+                None => Next::Back,
+                Some(i) if options[i] == ANOTHER => {
+                    picked = i;
+                    Next::Asked(Some(Step::AccountId))
+                }
+                Some(i) => {
+                    picked = i;
+                    account = Some(options[i].clone());
+                    Next::Asked(Some(Step::ProductId))
+                }
+            },
+            Step::AccountId => {
+                let was = account.clone().unwrap_or_default();
+                match ask.input_or_back("Account ID", &was, false)? {
+                    None => Next::Back,
+                    Some(a) => {
+                        account = Some(a.trim().to_string());
+                        Next::Asked(Some(Step::ProductId))
+                    }
+                }
+            }
+            Step::ProductId => {
+                let next = if named.is_some() {
+                    Next::Skipped(Some(Step::Title))
+                } else {
+                    match ask.input_or_back("Product ID", &product_id, false)? {
+                        None => Next::Back,
+                        Some(id) => {
+                            product_id = id.trim().to_string();
+                            Next::Asked(Some(Step::Title))
+                        }
+                    }
+                };
+                // Offer a saved draft once per product named, as soon as it is.
+                if !matches!(next, Next::Back) {
+                    let key = format!(
+                        "product-create/{}/{product_id}",
+                        account.as_deref().unwrap_or("")
+                    );
+                    if draft.as_ref().map(|(k, _)| k) != Some(&key) {
+                        let saved = Draft::for_key(&key)?;
+                        saved.resume(ask, body)?;
+                        // What the draft filled in isn't asked, as before.
+                        for k in body.keys() {
+                            if !given.contains(k) {
+                                given.push(k.clone());
+                            }
+                        }
+                        draft = Some((key, saved));
+                    }
+                }
+                next
+            }
+            Step::Title if given.iter().any(|k| k == "title") => {
+                Next::Skipped(Some(Step::Description))
+            }
+            Step::Title => {
+                let was = match current(body, "title") {
+                    t if t.is_empty() => title_from_id(&product_id),
+                    t => t,
+                };
+                match ask.input_or_back("Title", &was, false)? {
+                    None => Next::Back,
+                    Some(title) => {
+                        body.insert("title".into(), json!(title));
+                        Next::Asked(Some(Step::Description))
+                    }
+                }
+            }
+            Step::Description if given.iter().any(|k| k == "description") => {
+                Next::Skipped(Some(Step::Connection))
+            }
+            Step::Description => {
+                match ask.long_text_or_back("Description", &current(body, "description"))? {
+                    None => Next::Back,
+                    Some(description) => {
+                        body.insert("description".into(), json!(description));
+                        Next::Asked(Some(Step::Connection))
+                    }
+                }
+            }
+            Step::Connection if given.iter().any(|k| k == "data_connection_id") => {
+                Next::Skipped(Some(Step::Visibility))
+            }
+            Step::Connection => {
+                let account_id = account.clone().unwrap_or_default();
+                if connections.as_ref().map(|(a, _)| a) != Some(&account_id) {
+                    connections = Some((
+                        account_id.clone(),
+                        usable_connections(client, &account_id).await,
+                    ));
+                }
+                let usable = &connections.as_ref().expect("just fetched").1;
+                let was = current(body, "data_connection_id");
+                if usable.is_empty() {
+                    match ask.input_or_back("Data connection ID", &was, false)? {
+                        None => Next::Back,
+                        Some(id) => {
+                            body.insert("data_connection_id".into(), json!(id));
+                            Next::Asked(Some(Step::Visibility))
+                        }
+                    }
+                } else {
+                    let labels: Vec<String> = usable.iter().map(connection_label).collect();
+                    let at = usable
+                        .iter()
+                        .position(|c| str_field(c, "data_connection_id") == was)
+                        .unwrap_or(0);
+                    match ask.select_or_back("Data connection", &labels, at)? {
+                        None => Next::Back,
+                        Some(i) => {
+                            let chosen = &usable[i];
+                            body.insert(
+                                "data_connection_id".into(),
+                                json!(str_field(chosen, "data_connection_id")),
+                            );
+                            let vs: Vec<String> = chosen
+                                .get("allowed_visibilities")
+                                .and_then(Value::as_array)
+                                .map(|vs| {
+                                    vs.iter()
+                                        .filter_map(Value::as_str)
+                                        .map(String::from)
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            allowed = if vs.is_empty() {
+                                VISIBILITIES.iter().map(|v| v.to_string()).collect()
+                            } else {
+                                vs
+                            };
+                            Next::Asked(Some(Step::Visibility))
+                        }
+                    }
+                }
+            }
+            Step::Visibility if given.iter().any(|k| k == "visibility") => Next::Skipped(None),
+            Step::Visibility => {
+                let was = current(body, "visibility");
+                let at = allowed
+                    .iter()
+                    .position(|v| *v == was)
+                    .or_else(|| allowed.iter().position(|v| v == "public"))
+                    .unwrap_or(0);
+                match ask.select_or_back("Visibility", &allowed, at)? {
+                    None => Next::Back,
+                    Some(i) => {
+                        body.insert("visibility".into(), json!(allowed[i]));
+                        Next::Asked(None)
+                    }
+                }
+            }
+        };
+        step = match next {
+            Next::Asked(then) => {
+                asked.push(now);
+                then
+            }
+            Next::Skipped(then) => then,
+            // Back from the first question asks it again.
+            Next::Back => asked.pop().or(Some(now)),
+        };
+    }
+
+    let product = format!("{}/{product_id}", account.unwrap_or_default()).parse()?;
+    let (_, draft) = draft.expect("the product step always opens one");
+    Ok((product, draft))
 }
 
 async fn create(
@@ -825,23 +1042,18 @@ async fn create(
         Some(_) => Some(client.check_signed_in().await?),
         None => None,
     };
-    let product = match (args.product, prompter.as_deref_mut(), &me) {
-        (Some(p), _, _) => p,
-        (None, Some(ask), Some(me)) => ask_new_product(ask, me)?,
-        _ => return Err("Name the product to create, as ACCOUNT/PRODUCT.".into()),
+    let (product, draft) = match (prompter.as_deref_mut(), &me) {
+        (Some(ask), Some(me)) => {
+            let (product, draft) = ask_create(ask, client, me, args.product, &mut body).await?;
+            (product, Some(draft))
+        }
+        _ => match args.product {
+            Some(p) => (p, None),
+            None => return Err("Name the product to create, as ACCOUNT/PRODUCT.".into()),
+        },
     };
     body.insert("product_id".into(), json!(product.product_id));
-
     let key = format!("product-create/{product}");
-    let draft = match prompter.as_deref_mut() {
-        Some(ask) => {
-            let draft = Draft::for_key(&key)?;
-            draft.resume(ask, &mut body)?;
-            prompt_new_product(ask, client, &product, &mut body).await?;
-            Some(draft)
-        }
-        None => None,
-    };
 
     let url = client.url(&["products", &product.account_id]);
     let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter).await;
@@ -928,61 +1140,6 @@ fn reask(
             _ => unreachable!("reaskable() checked every field"),
         };
         body.insert(field.clone(), json!(answer));
-    }
-    Ok(())
-}
-
-/// Ask for each field `body` doesn't have yet. The defaults are the ones the
-/// web UI's form starts with, and the choices are the data connections the
-/// account could use and the visibilities the chosen one allows; the API still
-/// decides what's acceptable.
-async fn prompt_new_product(
-    ask: &mut dyn Prompter,
-    client: &Client,
-    product: &ProductRef,
-    body: &mut Map<String, Value>,
-) -> Result<(), String> {
-    if !body.contains_key("title") {
-        let title = ask.input("Title", &title_from_id(&product.product_id), false)?;
-        body.insert("title".into(), json!(title));
-    }
-    if !body.contains_key("description") {
-        let description = ask.long_text("Description", "")?;
-        body.insert("description".into(), json!(description));
-    }
-
-    let mut allowed: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
-    match body.get("data_connection_id").and_then(Value::as_str) {
-        Some(_) => {}
-        None => {
-            let connections = usable_connections(client, &product.account_id).await;
-            if connections.is_empty() {
-                let id = ask.input("Data connection ID", "", false)?;
-                body.insert("data_connection_id".into(), json!(id));
-            } else {
-                let labels: Vec<String> = connections.iter().map(connection_label).collect();
-                let picked = &connections[ask.select("Data connection", &labels, 0)?];
-                body.insert(
-                    "data_connection_id".into(),
-                    json!(str_field(picked, "data_connection_id")),
-                );
-                if let Some(vs) = picked.get("allowed_visibilities").and_then(Value::as_array) {
-                    let vs: Vec<String> = vs
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(String::from)
-                        .collect();
-                    if !vs.is_empty() {
-                        allowed = vs;
-                    }
-                }
-            }
-        }
-    }
-    if !body.contains_key("visibility") {
-        let default = allowed.iter().position(|v| v == "public").unwrap_or(0);
-        let picked = ask.select("Visibility", &allowed, default)?;
-        body.insert("visibility".into(), json!(allowed[picked]));
     }
     Ok(())
 }
@@ -1918,6 +2075,67 @@ mod tests {
                 "Data connection [Shared (shared)] of Shared (shared) | Mine (mine, read-only)",
                 // Only what the chosen connection allows, starting on public.
                 "Visibility [public] of restricted | public",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn create_goes_back_to_earlier_questions_keeping_answers() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/data-connections"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"data_connection_id": "shared", "name": "Shared",
+                 "allowed_visibilities": ["public", "unlisted"]},
+                {"data_connection_id": "mine", "name": "Mine", "owner": "acct", "read_only": true,
+                 "allowed_visibilities": ["restricted", "public"]},
+            ])))
+            .mount(&server)
+            .await;
+        expect_create(
+            &server,
+            json!({"product_id": "my-data", "title": "Better Title", "description": "first",
+                   "data_connection_id": "shared", "visibility": "public"}),
+        )
+        .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([
+            Back,            // on the first question: asked again
+            Default,         // Account: acct
+            Text("my-data"), // Product ID
+            Default,         // Title: My Data
+            Text("first"),   // Description
+            Back,            // at Data connection: to Description
+            Back,            // to Title
+            Text("Better Title"),
+            Default, // Description: keeps "first"
+            Pick(1), // Data connection: mine
+            Back,    // at Visibility: to Data connection
+            Pick(0), // shared instead
+            Default, // Visibility: public, of what shared allows
+        ]);
+        create(create_args(None), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "Account (back)",
+                "Account [acct] of acct | org",
+                "Product ID []",
+                "Title [My Data]",
+                "Description (long) []",
+                "Data connection (back)",
+                "Description (back)",
+                // Each question comes back starting from the answer given.
+                "Title [My Data]",
+                "Description (long) [first]",
+                "Data connection [Shared (shared)] of Shared (shared) | Mine (mine, read-only)",
+                "Visibility (back)",
+                "Data connection [Mine (mine, read-only)] of Shared (shared) | Mine (mine, read-only)",
+                // The visibilities follow the connection chosen last.
+                "Visibility [public] of public | unlisted",
             ]
         );
     }

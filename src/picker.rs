@@ -315,6 +315,16 @@ pub enum Line {
     Cancelled,
     /// Ctrl+E, when `editor` was offered: open the person's editor instead.
     Editor,
+    /// ↑, or ← at the start of the line, when `back` was offered: return to
+    /// the question before.
+    Back,
+}
+
+/// Leave a question for the one before it: clear this one and the line where
+/// the one before was answered, so it's asked again in its place.
+fn step_back(term: &Term, lines: usize) -> Result<(), String> {
+    term.clear_line().map_err(failed)?;
+    term.clear_last_lines(lines + 1).map_err(failed)
 }
 
 /// A line of text, as dialoguer's `Input` asks for it but cancellable: it
@@ -323,8 +333,14 @@ pub enum Line {
 /// accents and emoji included. A line wider than the terminal scrolls
 /// sideways rather than wrap. Empty is refused unless `allow_empty`. With
 /// `editor`, Ctrl+E at the end of the line asks for the person's editor
-/// instead.
-pub fn line(label: &str, initial: &str, allow_empty: bool, editor: bool) -> Result<Line, String> {
+/// instead. With `back`, ↑ (or ← at the start of the line) returns `Back`.
+pub fn line(
+    label: &str,
+    initial: &str,
+    allow_empty: bool,
+    editor: bool,
+    back: bool,
+) -> Result<Line, String> {
     let term = Term::stderr();
     term.show_cursor().map_err(failed)?;
     let prefix = format!(
@@ -374,6 +390,14 @@ pub fn line(label: &str, initial: &str, allow_empty: bool, editor: bool) -> Resu
                 term.write_line("").map_err(failed)?;
                 return Err(interrupted());
             }
+            Key::ArrowUp if back => {
+                step_back(&term, 0)?;
+                return Ok(Line::Back);
+            }
+            Key::ArrowLeft if back && at == 0 => {
+                step_back(&term, 0)?;
+                return Ok(Line::Back);
+            }
             Key::Enter => {
                 let value: String = text.iter().collect();
                 if value.trim().is_empty() && !allow_empty {
@@ -418,4 +442,78 @@ pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     };
     term.clear_last_lines(1).map_err(failed)?;
     Ok(action)
+}
+
+/// One of `items`, as dialoguer's `Select` asks for it, plus going back:
+/// ↑/↓ (k/j) move, Enter (or →) chooses, Esc cancels, and with `back`, ←
+/// returns None to ask the question before again.
+// ponytail: no scrolling; its lists (accounts, data connections,
+// visibilities) fit a screen. Window it like `browse` if one grows past that.
+pub fn select(
+    label: &str,
+    items: &[String],
+    default: usize,
+    back: bool,
+) -> Result<Option<usize>, String> {
+    let term = Term::stderr();
+    term.hide_cursor().map_err(failed)?;
+    let _visible = Visible(&term);
+    let cols = term.size().1;
+    let hint = if back {
+        "↑↓ move · Enter choose · ← back · Esc cancel"
+    } else {
+        "↑↓ move · Enter choose · Esc cancel"
+    };
+    let mut at = default.min(items.len().saturating_sub(1));
+    let mut drawn = 0;
+    let done = |term: &Term, drawn: usize, mark: String, value: &str| -> Result<(), String> {
+        term.clear_last_lines(drawn).map_err(failed)?;
+        term.write_line(&fit(
+            &format!(
+                "{mark} {} {} {value}",
+                style(label).bold(),
+                style("·").dim()
+            ),
+            cols,
+        ))
+        .map_err(failed)
+    };
+    loop {
+        let mut lines = vec![format!(
+            "{} {}",
+            style("?").yellow().bold(),
+            style(label).bold()
+        )];
+        for (i, item) in items.iter().enumerate() {
+            lines.push(if i == at {
+                format!("{} {}", style("›").cyan(), style(item).cyan())
+            } else {
+                format!("  {item}")
+            });
+        }
+        lines.push(style(hint).dim().to_string());
+        term.clear_last_lines(drawn).map_err(failed)?;
+        for line in &lines {
+            term.write_line(&fit(line, cols)).map_err(failed)?;
+        }
+        drawn = lines.len();
+        match term.read_key_raw().map_err(failed)? {
+            Key::ArrowUp | Key::Char('k') => at = at.saturating_sub(1),
+            Key::ArrowDown | Key::Char('j') => at = (at + 1).min(items.len().saturating_sub(1)),
+            Key::Enter | Key::ArrowRight if !items.is_empty() => {
+                done(&term, drawn, style("✔").green().to_string(), &items[at])?;
+                return Ok(Some(at));
+            }
+            Key::ArrowLeft if back => {
+                step_back(&term, drawn)?;
+                return Ok(None);
+            }
+            Key::Escape | Key::Char('q') => {
+                done(&term, drawn, style("✘").red().to_string(), "")?;
+                return Err(crate::prompt::CANCELLED.into());
+            }
+            Key::CtrlC => return Err(interrupted()),
+            _ => {}
+        }
+    }
 }

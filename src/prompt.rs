@@ -77,6 +77,30 @@ pub trait Prompter {
     fn long_text(&mut self, label: &str, current: &str) -> Result<String, String>;
     /// Ask for any number of `items`; returns their indexes.
     fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String>;
+
+    /// `input`, `select` and `long_text` for a question with one before it:
+    /// None means the person went back to it (↑, or ← at the start of a line
+    /// or in a list). These ask exactly as the plain ones where there's no
+    /// going back.
+    fn input_or_back(
+        &mut self,
+        label: &str,
+        default: &str,
+        allow_empty: bool,
+    ) -> Result<Option<String>, String> {
+        self.input(label, default, allow_empty).map(Some)
+    }
+    fn select_or_back(
+        &mut self,
+        label: &str,
+        items: &[String],
+        default: usize,
+    ) -> Result<Option<usize>, String> {
+        self.select(label, items, default).map(Some)
+    }
+    fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String> {
+        self.long_text(label, current).map(Some)
+    }
 }
 
 /// Prompts on the terminal, written to stderr so stdout stays clean for output.
@@ -149,14 +173,59 @@ pub fn confirm_by_name(ask: &mut dyn Prompter, name: &str, action: &str) -> Resu
     }
 }
 
+/// `Tty::long_text`, and None for back when `back` was offered.
+fn long_text(label: &str, current: &str, back: bool) -> Result<Option<String>, String> {
+    let keep = if current.is_empty() { "skip" } else { "keep" };
+    let hint = format!("{label} [Enter to {keep} · Ctrl+E editor · Esc cancel]");
+    match crate::picker::line(&hint, "", true, true, back)? {
+        Line::Cancelled => Err(CANCELLED.into()),
+        Line::Back => Ok(None),
+        Line::Text(typed) if typed.trim().is_empty() => Ok(Some(current.to_string())),
+        Line::Text(typed) => Ok(Some(typed)),
+        Line::Editor => {
+            let edited = Editor::new()
+                .require_save(true)
+                .edit(current)
+                .map_err(|e| format!("Couldn't open your editor: {e}"))?;
+            // Quitting without saving keeps what was there.
+            Ok(Some(edited.map_or_else(
+                || current.to_string(),
+                |t| t.trim_end().to_string(),
+            )))
+        }
+    }
+}
+
 impl Prompter for Tty {
     /// Our own line prompt rather than dialoguer's, whose text prompts ignore
     /// Esc: the default starts in the line to keep or edit, and Esc backs out.
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String> {
-        match crate::picker::line(label, default, allow_empty, false)? {
+        match crate::picker::line(label, default, allow_empty, false, false)? {
             Line::Text(text) => Ok(text),
+            Line::Cancelled | Line::Editor | Line::Back => Err(CANCELLED.into()),
+        }
+    }
+
+    fn input_or_back(
+        &mut self,
+        label: &str,
+        default: &str,
+        allow_empty: bool,
+    ) -> Result<Option<String>, String> {
+        match crate::picker::line(label, default, allow_empty, false, true)? {
+            Line::Text(text) => Ok(Some(text)),
+            Line::Back => Ok(None),
             Line::Cancelled | Line::Editor => Err(CANCELLED.into()),
         }
+    }
+
+    fn select_or_back(
+        &mut self,
+        label: &str,
+        items: &[String],
+        default: usize,
+    ) -> Result<Option<usize>, String> {
+        crate::picker::select(label, items, default, true)
     }
 
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String> {
@@ -206,21 +275,11 @@ impl Prompter for Tty {
     /// opens `$VISUAL` or `$EDITOR` on it, for text of several paragraphs. The
     /// line starts empty rather than holding text that may span lines.
     fn long_text(&mut self, label: &str, current: &str) -> Result<String, String> {
-        let keep = if current.is_empty() { "skip" } else { "keep" };
-        let hint = format!("{label} [Enter to {keep} · Ctrl+E editor · Esc cancel]");
-        match crate::picker::line(&hint, "", true, true)? {
-            Line::Cancelled => Err(CANCELLED.into()),
-            Line::Text(typed) if typed.trim().is_empty() => Ok(current.to_string()),
-            Line::Text(typed) => Ok(typed),
-            Line::Editor => {
-                let edited = Editor::new()
-                    .require_save(true)
-                    .edit(current)
-                    .map_err(|e| format!("Couldn't open your editor: {e}"))?;
-                // Quitting without saving keeps what was there.
-                Ok(edited.map_or_else(|| current.to_string(), |t| t.trim_end().to_string()))
-            }
-        }
+        Ok(long_text(label, current, false)?.unwrap_or_default())
+    }
+
+    fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String> {
+        long_text(label, current, true)
     }
 
     fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
@@ -255,6 +314,8 @@ pub mod scripted {
         Press(Action),
         /// Back out, as Esc does on a choice.
         Cancel,
+        /// Go back to the question before (↑ or ←), where one may be asked.
+        Back,
     }
 
     #[derive(Default)]
@@ -277,9 +338,55 @@ pub mod scripted {
                 .pop_front()
                 .unwrap_or_else(|| panic!("unscripted prompt: {label}"))
         }
+
+        /// A scripted `Back` for a question that may go back: recorded as
+        /// `label (back)`. Any other answer is left for the plain prompt.
+        fn went_back(&mut self, label: &str) -> bool {
+            let back = matches!(self.answers.front(), Some(Answer::Back));
+            if back {
+                self.answers.pop_front();
+                self.asked.push(format!("{label} (back)"));
+            }
+            back
+        }
     }
 
     impl Prompter for Script {
+        fn input_or_back(
+            &mut self,
+            label: &str,
+            default: &str,
+            allow_empty: bool,
+        ) -> Result<Option<String>, String> {
+            if self.went_back(label) {
+                return Ok(None);
+            }
+            self.input(label, default, allow_empty).map(Some)
+        }
+
+        fn select_or_back(
+            &mut self,
+            label: &str,
+            items: &[String],
+            default: usize,
+        ) -> Result<Option<usize>, String> {
+            if self.went_back(label) {
+                return Ok(None);
+            }
+            self.select(label, items, default).map(Some)
+        }
+
+        fn long_text_or_back(
+            &mut self,
+            label: &str,
+            current: &str,
+        ) -> Result<Option<String>, String> {
+            if self.went_back(label) {
+                return Ok(None);
+            }
+            self.long_text(label, current).map(Some)
+        }
+
         fn input(&mut self, label: &str, default: &str, _: bool) -> Result<String, String> {
             self.asked.push(format!("{label} [{default}]"));
             Ok(match self.next(label) {
