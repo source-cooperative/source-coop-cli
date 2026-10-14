@@ -69,6 +69,16 @@ fn failed(e: dialoguer::Error) -> String {
 /// something irreversible says how to back out instead (see `delete`).
 pub const CANCELLED: &str = "Cancelled; nothing was changed.";
 
+/// Print an error on stderr. Backing out of a prompt isn't a failure worth an
+/// "Error:", so that message stands alone.
+pub fn report(e: &str) {
+    if e == CANCELLED {
+        eprintln!("{e}");
+    } else {
+        eprintln!("Error: {e}");
+    }
+}
+
 fn cancellable<T>(answer: dialoguer::Result<Option<T>>) -> Result<T, String> {
     answer.map_err(failed)?.ok_or_else(|| CANCELLED.to_string())
 }

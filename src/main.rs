@@ -199,14 +199,9 @@ enum OutputFormat {
     AwsCredentials,
 }
 
-/// Report a command's error and exit 1. Backing out of a prompt isn't a
-/// failure worth an "Error:", so that message stands alone.
+/// Report a command's error (see `prompt::report`) and exit 1.
 fn fail(e: String) -> ! {
-    if e == prompt::CANCELLED {
-        eprintln!("{e}");
-    } else {
-        eprintln!("Error: {e}");
-    }
+    prompt::report(&e);
     std::process::exit(1);
 }
 

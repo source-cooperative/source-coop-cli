@@ -543,7 +543,7 @@ async fn act(
             };
             match refetched {
                 Ok(now) => *product = now,
-                Err(e) => eprintln!("Error: {e}"),
+                Err(e) => crate::prompt::report(&e),
             }
         }
         'd' => {
@@ -556,7 +556,7 @@ async fn act(
             };
             match delete(args, client, Some(&mut *ask)).await {
                 Ok(()) => return Ok(After::Deleted),
-                Err(e) => eprintln!("Error: {e}"),
+                Err(e) => crate::prompt::report(&e),
             }
         }
         _ => {}
