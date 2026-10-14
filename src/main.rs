@@ -359,6 +359,23 @@ fn site(s: &session::Session) -> &str {
         .trim_end_matches('/')
 }
 
+/// `at` relative to `now`, in the largest whole unit: "3 hours ago", or
+/// "in 29 days" while still ahead.
+fn relative(at: i64, now: i64) -> String {
+    let Some((at_t, now_t)) =
+        chrono::DateTime::from_timestamp(at, 0).zip(chrono::DateTime::from_timestamp(now, 0))
+    else {
+        return String::new();
+    };
+    if at <= now {
+        return product::ago(at_t, now_t);
+    }
+    match product::ago(now_t, at_t).as_str() {
+        "just now" => "in under a minute".into(),
+        ahead => format!("in {}", ahead.trim_end_matches(" ago")),
+    }
+}
+
 /// A Unix timestamp as RFC 3339, the API's date format.
 fn rfc3339(t: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(t, 0)
@@ -427,50 +444,44 @@ fn status_report(
                     style::paint(color, "4", &format!("{}/{}", site(s), a.account_id)),
                 ));
             }
-            // Ory's refresh tokens are opaque and their lifespan is server
-            // config, so this can say when the login was last renewed, and
-            // when it expires only where the provider said.
+            // `renewed <time> (<ago>); expires <when> (<in>)`. Ory's refresh
+            // tokens are opaque and its token response gives no lifetime, so
+            // the expiry is the provider's where it said, and otherwise the
+            // last renewal plus the configured lifetime (to the day, as it's
+            // an estimate; the README says so).
             let refresh = match (&s.refresh_token, s.refresh_token_issued_at) {
                 (None, _) => "none: log in again when the ID token expires".into(),
                 (Some(_), None) => "yes".into(),
-                (Some(_), Some(issued)) => {
-                    let ago = match chrono::DateTime::from_timestamp(issued, 0)
-                        .zip(chrono::DateTime::from_timestamp(now, 0))
-                    {
-                        Some((then, at)) => format!(" ({})", product::ago(then, at)),
-                        None => String::new(),
-                    };
-                    format!("yes, renewed {}{ago}", rfc3339(issued).unwrap_or_default())
-                }
+                (Some(_), Some(issued)) => format!(
+                    "renewed {} ({})",
+                    rfc3339(issued).unwrap_or_default(),
+                    relative(issued, now)
+                ),
             };
-            // An expiry the provider gave is exact. Otherwise, estimate it from
-            // the last renewal and the configured lifetime, and say so: the
-            // real lifetime is server config this can't see.
-            let refresh = match (
-                &s.refresh_token,
-                s.refresh_token_expires_at,
-                s.refresh_token_issued_at.zip(refresh_lifetime),
-            ) {
-                (_, Some(exp), _) => {
-                    format!("{refresh}; {}", expiry(Some(exp), now, "expires", color))
-                }
-                (Some(_), None, Some((issued, (secs, label)))) => {
+            let expires = match (s.refresh_token_expires_at, s.refresh_token_issued_at) {
+                (Some(exp), _) => Some((exp, rfc3339(exp).unwrap_or_default())),
+                (None, Some(issued)) => refresh_lifetime.map(|(secs, _)| {
                     let at = issued + secs;
                     let day = chrono::DateTime::from_timestamp(at, 0)
                         .map(|d| d.format("%Y-%m-%d").to_string())
                         .unwrap_or_default();
-                    let note = if at > now {
-                        format!("if unused, lapses around {day} (assuming a {label} lifetime)")
-                    } else {
-                        style::paint(
-                            color,
-                            "33",
-                            &format!("probably lapsed around {day} (assuming a {label} lifetime)"),
-                        )
-                    };
-                    format!("{refresh}; {note}")
+                    (at, day)
+                }),
+                _ => None,
+            };
+            let refresh = match expires.filter(|_| s.refresh_token.is_some()) {
+                Some((at, when)) if at > now => {
+                    format!("{refresh}; expires {when} ({})", relative(at, now))
                 }
-                _ => refresh,
+                Some((at, when)) => format!(
+                    "{refresh}; {}",
+                    style::paint(
+                        color,
+                        "33",
+                        &format!("expired {when} ({})", relative(at, now))
+                    )
+                ),
+                None => refresh,
             };
             rows.push(("Refresh token", refresh));
             rows.push(("ID token", expiry(id_exp, now, "expires", color)));
@@ -847,7 +858,7 @@ mod tests {
              Login          logged in\n\
              Account        Anthony Lukach (alukach)\n\
              Profile        https://source.coop/alukach\n\
-             Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
+             Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
              ID token       expires 2026-10-13T18:00:00Z\n\
              Access token   for https://source.coop, expired 2026-10-13T16:59:00Z\n\
              Credentials    _default: expire 2026-10-13T18:30:00Z\n"
@@ -871,7 +882,7 @@ mod tests {
         );
         assert!(
             report.contains(
-                "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12T17:00:00Z\n"
+                "Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12T17:00:00Z (in 1 month)\n"
             ),
             "{report}"
         );
@@ -880,7 +891,7 @@ mod tests {
     }
 
     #[test]
-    fn status_estimates_when_an_unused_login_lapses_and_says_it_is_an_estimate() {
+    fn status_estimates_when_an_unused_login_expires() {
         let now = 1_791_910_800; // 2026-10-13T17:00:00Z, renewed 3 hours before
         let row = |s: &session::Session, lifetime| {
             let report = status_report(
@@ -902,23 +913,34 @@ mod tests {
         let s = live_session(now, None);
         assert_eq!(
             row(&s, (30 * 86_400, "30d")),
-            "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); \
-             if unused, lapses around 2026-11-12 (assuming a 30d lifetime)"
+            "Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); \
+             expires 2026-11-12 (in 29 days)"
         );
-        // Renewed longer ago than the lifetime: probably lapsed.
+        // Renewed longer ago than the lifetime: expired.
         assert_eq!(
             row(&s, (3600, "1h")),
-            "Refresh token  yes, renewed 2026-10-13T14:00:00Z (3 hours ago); \
-             probably lapsed around 2026-10-13 (assuming a 1h lifetime)"
+            "Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); \
+             expired 2026-10-13 (2 hours ago)"
         );
-        // An expiry the provider gave is exact, and beats the estimate.
+        // An expiry the provider gave is exact, to the second, and beats the
+        // estimate.
         let mut exact = live_session(now, None);
         exact.refresh_token_expires_at = Some(now + 86_400);
-        assert!(row(&exact, (30 * 86_400, "30d")).ends_with("; expires 2026-10-14T17:00:00Z"));
+        assert!(row(&exact, (30 * 86_400, "30d"))
+            .ends_with("; expires 2026-10-14T17:00:00Z (in 1 day)"));
         // Without a renewal time there's nothing to count from.
         let mut unknown = live_session(now, None);
         unknown.refresh_token_issued_at = None;
         assert_eq!(row(&unknown, (30 * 86_400, "30d")), "Refresh token  yes");
+    }
+
+    #[test]
+    fn relative_times_read_ahead_and_behind() {
+        let now = 1_791_910_800;
+        assert_eq!(relative(now + 29 * 86_400 + 5, now), "in 29 days");
+        assert_eq!(relative(now + 30, now), "in under a minute");
+        assert_eq!(relative(now - 3 * 3600, now), "3 hours ago");
+        assert_eq!(relative(now, now), "just now");
     }
 
     #[test]
