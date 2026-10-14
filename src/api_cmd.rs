@@ -99,7 +99,8 @@ fn parse_fields(raw: &[String], typed: &[String]) -> Result<Map<String, Value>, 
     Ok(fields)
 }
 
-fn read_json(path: &str) -> Result<Value, String> {
+/// The JSON in `path` (`-` for stdin).
+pub(crate) fn read_json(path: &str) -> Result<Value, String> {
     let text = if path == "-" {
         let mut s = String::new();
         std::io::stdin()

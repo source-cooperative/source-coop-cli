@@ -7,7 +7,7 @@ use crate::prompt::{Action, Prompter};
 use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
-use std::io::{IsTerminal, Read, Write};
+use std::io::{IsTerminal, Write};
 
 #[derive(Subcommand)]
 pub enum ProductCommand {
@@ -314,6 +314,7 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
     let mut count = 0;
     let mut layout = Layout::new(args.format, std::io::stdout().is_terminal(), site);
     let mut cursor = args.cursor.clone();
+    let mut quit = false;
     while count < limit {
         let page = fetch_page(client, &url, limit - count, cursor.as_deref()).await?;
         count += page.items.len();
@@ -323,6 +324,7 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
             Some(p) => {
                 // The user quit the pager: nothing left to show.
                 if p.write(&layout.page(&page.items)).is_err() {
+                    quit = true;
                     break;
                 }
             }
@@ -347,7 +349,9 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
             println!("{line}");
         }
     }
-    if let Some(cursor) = cursor.filter(|_| !paged && std::io::stderr().is_terminal()) {
+    // A pager that stopped at -L still has a next page to offer; one the user
+    // quit early doesn't, as its cursor would skip what was never shown.
+    if let Some(cursor) = cursor.filter(|_| !quit && std::io::stderr().is_terminal()) {
         eprintln!("\nMore products: run again with --cursor {cursor}");
     }
     Ok(())
@@ -546,8 +550,15 @@ async fn act(
                 from_file: None,
                 json: false,
             };
-            match edit(args, client, site, Some(&mut *ask)).await {
-                Ok(()) => *product = client.get(product_url(client, &p)).await?,
+            let refetched = match edit(args, client, site, Some(&mut *ask)).await {
+                Ok(()) => client
+                    .get(product_url(client, &p))
+                    .await
+                    .map_err(String::from),
+                Err(e) => Err(e),
+            };
+            match refetched {
+                Ok(now) => *product = now,
                 Err(e) => eprintln!("Error: {e}"),
             }
         }
@@ -681,9 +692,10 @@ async fn create(
     };
     body.insert("product_id".into(), json!(product.product_id));
 
+    let key = format!("product-create/{product}");
     let draft = match prompter.as_deref_mut() {
         Some(ask) => {
-            let draft = Draft::for_key(&format!("product-create/{product}"))?;
+            let draft = Draft::for_key(&key)?;
             draft.resume(ask, &mut body)?;
             prompt_new_product(ask, client, &product, &mut body).await?;
             Some(draft)
@@ -695,7 +707,13 @@ async fn create(
     let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter).await;
     let created = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
-        None => sent?,
+        None => {
+            let created = sent?;
+            if let Ok(saved) = Draft::for_key(&key) {
+                saved.sent_from(args.from_file.as_deref());
+            }
+            created
+        }
     };
     report(&created, args.json, "Created", site);
     Ok(())
@@ -885,6 +903,7 @@ async fn edit(
         body.insert("disabled".into(), json!(args.disable));
     }
     let url = product_url(client, &target);
+    let key = format!("product-edit/{target}");
 
     let mut draft = None;
     if body.is_empty() {
@@ -895,7 +914,7 @@ async fn edit(
             );
         };
         client.check_signed_in().await?;
-        let saved = Draft::for_key(&format!("product-edit/{}", target))?;
+        let saved = Draft::for_key(&key)?;
         if !saved.resume(ask, &mut body)? {
             let current: Value = client.get(url.clone()).await?;
             prompt_edits(ask, &current, &mut body)?;
@@ -910,7 +929,13 @@ async fn edit(
     let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await;
     let product = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
-        None => sent?,
+        None => {
+            let product = sent?;
+            if let Ok(saved) = Draft::for_key(&key) {
+                saved.sent_from(args.from_file.as_deref());
+            }
+            product
+        }
     };
     report(&product, args.json, "Edited", site);
     Ok(())
@@ -995,19 +1020,9 @@ fn read_fields(path: Option<&str>) -> Result<Map<String, Value>, String> {
     let Some(path) = path else {
         return Ok(Map::new());
     };
-    let text = if path == "-" {
-        let mut s = String::new();
-        std::io::stdin()
-            .read_to_string(&mut s)
-            .map_err(|e| format!("Couldn't read stdin: {e}"))?;
-        s
-    } else {
-        std::fs::read_to_string(path).map_err(|e| format!("Couldn't read {path}: {e}"))?
-    };
-    match serde_json::from_str(&text) {
-        Ok(Value::Object(fields)) => Ok(fields),
-        Ok(_) => Err(format!("{path} must hold a JSON object")),
-        Err(e) => Err(format!("{path} isn't JSON: {e}")),
+    match crate::api_cmd::read_json(path)? {
+        Value::Object(fields) => Ok(fields),
+        _ => Err(format!("{path} must hold a JSON object")),
     }
 }
 
@@ -1082,7 +1097,11 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
     });
     let date = |key: &str| {
         chrono::DateTime::parse_from_rfc3339(str_field(p, key))
-            .map(|d| d.format("%Y-%m-%d %H:%M UTC").to_string())
+            .map(|d| {
+                d.with_timezone(&chrono::Utc)
+                    .format("%Y-%m-%d %H:%M UTC")
+                    .to_string()
+            })
             .ok()
     };
     let rows: Vec<(&str, String)> = [

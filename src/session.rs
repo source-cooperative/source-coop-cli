@@ -88,7 +88,15 @@ impl Session {
     fn current(&self, want: Want, now: i64) -> Result<Option<&str>, ()> {
         let (token, expires_at) = match want {
             Want::Id => (Some(self.id_token.as_str()), jwt_exp(&self.id_token)),
-            Want::Access => (self.access_token.as_deref(), self.access_token_expires_at),
+            // A token endpoint always issues an access token, but without an
+            // audience it isn't one the API takes: sending it would turn even
+            // public reads into a 401.
+            Want::Access => (
+                self.access_token
+                    .as_deref()
+                    .filter(|_| self.audience.is_some()),
+                self.access_token_expires_at,
+            ),
         };
         match (token, expires_at) {
             (None, _) => Ok(None),
@@ -286,6 +294,14 @@ mod tests {
         let server = MockServer::start().await;
         mock_refresh(&server, json!({}), 0).await;
         let mut s = session(&server, tokens(NOW + 3600, None, None));
+        let access = ensure(&mut s, Want::Access, NOW, false, |_| Ok(()))
+            .await
+            .unwrap();
+        assert_eq!(access, None);
+
+        // The token endpoint issues one anyway; it isn't for the API.
+        let mut s = session(&server, tokens(NOW + 3600, Some("at"), Some(3600)));
+        s.audience = None;
         let access = ensure(&mut s, Want::Access, NOW, false, |_| Ok(()))
             .await
             .unwrap();

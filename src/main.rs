@@ -417,7 +417,11 @@ async fn mint(
 /// obtained some other way), else the login session's access token. Without
 /// either, commands run signed out, which is enough to read public products.
 async fn api_token(proxy_url: &str, verbose: bool) -> Option<String> {
-    if let Ok(token) = std::env::var("SOURCE_TOKEN") {
+    // Set but empty is unset, so `SOURCE_TOKEN=` doesn't skip the session.
+    if let Some(token) = std::env::var("SOURCE_TOKEN")
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+    {
         return Some(token);
     }
     let token = match cache::env(proxy_url) {

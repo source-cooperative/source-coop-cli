@@ -192,9 +192,18 @@ impl Client {
     pub fn resolve(&self, path: &str) -> Result<url::Url, String> {
         let path = path.trim_start_matches('/');
         let path = path.strip_prefix("api/v1/").unwrap_or(path);
-        self.base
+        let url = self
+            .base
             .join(path)
-            .map_err(|e| format!("Invalid API path '{path}': {e}"))
+            .map_err(|e| format!("Invalid API path '{path}': {e}"))?;
+        // A full URL joins as itself, and the bearer must not go elsewhere.
+        if url.origin() != self.base.origin() {
+            return Err(format!(
+                "'{path}' isn't on the API at {}; give a path under /api/v1",
+                self.base.origin().ascii_serialization()
+            ));
+        }
+        Ok(url)
     }
 
     pub async fn get<T: DeserializeOwned>(&self, url: url::Url) -> Result<T, ApiError> {
@@ -253,6 +262,8 @@ mod tests {
                 "https://source.coop/api/v1/products/acct?limit=2"
             );
         }
+        // The token is only ever sent to the API's own origin.
+        assert!(c.resolve("https://example.com/steal").is_err());
     }
 
     #[tokio::test]

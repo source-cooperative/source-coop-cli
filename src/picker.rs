@@ -23,6 +23,11 @@ fn interrupted() -> String {
     "Interrupted.".into()
 }
 
+/// `line` cut to `cols` columns, keeping its styling.
+fn fit(line: &str, cols: u16) -> String {
+    console::truncate_str(line, (cols as usize).max(1), "…").into_owned()
+}
+
 /// Move through `items` and return the highlighted one's index with what was
 /// pressed: ↑/↓ (or k/j, PgUp/PgDn) move, →/Enter/l open, ←/Esc/h/q go back,
 /// `/` narrows the list by typed text, and any key in `keys` comes back as
@@ -67,7 +72,7 @@ pub fn browse(
             lines.push(style("  (nothing matches)").dim().to_string());
         }
         for (row, &i) in shown.iter().enumerate().skip(top).take(height) {
-            let text = console::truncate_str(&items[i], (cols as usize).saturating_sub(2), "…");
+            let text = fit(&items[i], cols.saturating_sub(2));
             lines.push(if row == sel {
                 format!("{} {}", style("›").cyan(), style(text).cyan())
             } else {
@@ -85,11 +90,13 @@ pub fn browse(
         );
         term.clear_last_lines(drawn).map_err(failed)?;
         for line in &lines {
-            term.write_line(line).map_err(failed)?;
+            // A line that wraps takes two rows, and the next redraw would
+            // clear one too few.
+            term.write_line(&fit(line, cols)).map_err(failed)?;
         }
         drawn = lines.len();
 
-        let key = term.read_key().map_err(failed)?;
+        let key = term.read_key_raw().map_err(failed)?;
         // The item `by` rows from the highlighted one, staying in the list.
         let n = shown.len() as isize;
         let step = |by: isize| (n > 0).then(|| shown[(sel as isize + by).clamp(0, n - 1) as usize]);
@@ -103,7 +110,7 @@ pub fn browse(
                 Key::Backspace => {
                     filter.pop();
                 }
-                Key::Char('\u{3}') => return Err(interrupted()),
+                Key::CtrlC => return Err(interrupted()),
                 Key::Char(c) if !c.is_control() => filter.push(c),
                 _ => {}
             }
@@ -124,7 +131,7 @@ pub fn browse(
                 None
             }
             Key::ArrowLeft | Key::Escape | Key::Char('h' | 'q') => Some(Action::Back),
-            Key::Char('\u{3}') => return Err(interrupted()),
+            Key::CtrlC => return Err(interrupted()),
             _ if shown.is_empty() => None,
             Key::Enter | Key::ArrowRight | Key::Char('l') => Some(Action::Open),
             Key::Char(c) if keys.contains(c) => Some(Action::Key(c)),
@@ -146,13 +153,13 @@ pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     let term = Term::stderr();
     term.hide_cursor().map_err(failed)?;
     let _visible = Visible(&term);
-    term.write_line(&style(hint).dim().to_string())
+    term.write_line(&fit(&style(hint).dim().to_string(), term.size().1))
         .map_err(failed)?;
     let action = loop {
-        match term.read_key().map_err(failed)? {
+        match term.read_key_raw().map_err(failed)? {
             Key::ArrowLeft | Key::Escape | Key::Char('h' | 'q') => break Action::Back,
             Key::Enter | Key::ArrowRight | Key::Char('l') => break Action::Open,
-            Key::Char('\u{3}') => return Err(interrupted()),
+            Key::CtrlC => return Err(interrupted()),
             Key::Char(c) if keys.contains(c) => break Action::Key(c),
             _ => {}
         }

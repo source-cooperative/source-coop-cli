@@ -11,7 +11,7 @@ use crate::cache;
 use crate::prompt::Prompter;
 use serde_json::{Map, Value};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub struct Draft {
     path: PathBuf,
@@ -88,6 +88,18 @@ impl Draft {
         })
     }
 
+    /// After a send that asked nothing succeeded: if it was sent from this
+    /// draft's own file (`--from-file`, as `finish` suggests), it's used up.
+    pub fn sent_from(&self, from_file: Option<&str>) {
+        let canon = |p: &Path| fs::canonicalize(p).ok();
+        let same = from_file
+            .and_then(|f| canon(Path::new(f)))
+            .is_some_and(|f| Some(f) == canon(&self.path));
+        if same {
+            self.discard();
+        }
+    }
+
     fn load(&self) -> Option<Map<String, Value>> {
         match serde_json::from_str(&fs::read_to_string(&self.path).ok()?) {
             Ok(Value::Object(fields)) => Some(fields),
@@ -130,6 +142,17 @@ mod tests {
 
         draft.finish(Ok(()), &Map::new()).unwrap();
         assert!(draft.load().is_none(), "success drops the draft");
+    }
+
+    #[test]
+    fn sending_the_drafts_own_file_uses_it_up() {
+        let draft = Draft::for_key("test/from-file").unwrap();
+        let _ = draft.finish::<()>(Err("boom".into()), &body(json!({"title": "T"})));
+        draft.sent_from(Some("some-other-file.json"));
+        draft.sent_from(None);
+        assert!(draft.load().is_some(), "another file leaves the draft");
+        draft.sent_from(draft.path.to_str());
+        assert!(draft.load().is_none());
     }
 
     #[test]

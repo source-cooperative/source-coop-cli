@@ -279,13 +279,24 @@ pub(crate) fn write_file(path: &Path, json: &str) -> Result<String, String> {
     let dir = path.parent().unwrap();
     fs::create_dir_all(dir)
         .map_err(|e| format!("Failed to create cache directory {}: {e}", dir.display()))?;
-    fs::write(path, json).map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
+    // Owner-only before anything is written, so a refresh token is never
+    // readable by others, even briefly.
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options
+        .open(path)
+        .map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
     #[cfg(unix)]
     {
+        // An existing file keeps its mode through `open`.
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        file.set_permissions(fs::Permissions::from_mode(0o600))
             .map_err(|e| format!("Failed to set permissions on {}: {e}", path.display()))?;
     }
+    io::Write::write_all(&mut file, json.as_bytes())
+        .map_err(|e| format!("Failed to write cache {}: {e}", path.display()))?;
     Ok(path.display().to_string())
 }
 
