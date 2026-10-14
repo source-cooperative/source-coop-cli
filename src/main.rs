@@ -4,6 +4,7 @@ mod api_cmd;
 mod cache;
 mod complete;
 mod draft;
+mod exec;
 mod failure;
 mod member;
 mod oidc;
@@ -127,6 +128,23 @@ enum Commands {
     /// commands don't cover
     #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
     Api(ApiCommandArgs),
+    /// Run a command (the AWS CLI, s5cmd, an SDK script) with credentials and
+    /// the data proxy as its S3 endpoint in its environment
+    /// (e.g. `source-coop exec -- aws s3 ls s3://my-org/my-product/`)
+    Exec(ExecArgs),
+}
+
+#[derive(Parser)]
+struct ExecArgs {
+    #[command(flatten)]
+    role: RoleArgs,
+
+    #[command(flatten)]
+    env: EnvArgs,
+
+    /// The command to run, with its arguments, after `--`
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    command: Vec<String>,
 }
 
 /// `source-coop api --help` after the flags: examples, then where to find
@@ -529,6 +547,11 @@ async fn run() {
                 api_cmd::run(args.request, &client).await
             };
             if let Err(e) = result.await {
+                fail(e, false);
+            }
+        }
+        Commands::Exec(args) => {
+            if let Err(e) = run_exec(args, verbose).await {
                 fail(e, false);
             }
         }
@@ -994,24 +1017,48 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    let env = cache::env(&args.env.proxy_url)?;
-    let env = env.as_deref();
-    let cached = cache::read_credentials(env, &args.role.role_arn)?;
-    let entry = match cached {
-        Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-        _ => {
-            // Re-check under the lock: another process may have minted already.
-            let _lock = cache::lock(env, &args.role.role_arn)?;
-            match cache::read_credentials(env, &args.role.role_arn)? {
-                Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-                stale => mint(&args, env, stale, verbose).await.map_err(|e| {
-                    format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'.")
-                })?,
-            }
-        }
-    };
+/// Run the command with the role's credentials. They're fetched once, so
+/// cached ones are only reused with `EXEC_MIN_LIFETIME` left; a command
+/// running past their expiry (an hour unless `login --duration` said
+/// otherwise) needs running again.
+async fn run_exec(args: ExecArgs, verbose: bool) -> Result<(), String> {
+    let entry = current_creds(
+        &args.role.role_arn,
+        &args.env.proxy_url,
+        EXEC_MIN_LIFETIME,
+        verbose,
+    )
+    .await?;
+    // Set but empty is unset, as signing would fail on an empty region.
+    let region_set = ["AWS_REGION", "AWS_DEFAULT_REGION"]
+        .iter()
+        .any(|v| std::env::var_os(v).is_some_and(|r| !r.is_empty()));
+    let vars = exec::vars(&entry.creds, &args.env.proxy_url, region_set);
+    if verbose {
+        eprintln!(
+            "[verbose] Running {:?} against {} with credentials expiring {}",
+            args.command, args.env.proxy_url, entry.creds.expiration
+        );
+    }
+    exec::run(&args.command, vars)
+}
 
+/// How long cached credentials must still last for `exec` to hand them to a
+/// command, which can't ask for new ones as `credential_process` can.
+const EXEC_MIN_LIFETIME: chrono::Duration = chrono::Duration::minutes(15);
+
+/// How long cached credentials must still last for `creds`: its callers ask
+/// again when they run out.
+const CREDS_MIN_LIFETIME: chrono::Duration = chrono::Duration::seconds(60);
+
+async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
+    let entry = current_creds(
+        &args.role.role_arn,
+        &args.env.proxy_url,
+        CREDS_MIN_LIFETIME,
+        verbose,
+    )
+    .await?;
     match args.output.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
         OutputFormat::Env => output::print_env(&entry.creds),
@@ -1022,37 +1069,66 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The role's credentials at `proxy_url`'s environment: the cached ones while
+/// they have `min_left` to run, otherwise new ones, minted once however many
+/// ask at a time.
+async fn current_creds(
+    role_arn: &str,
+    proxy_url: &str,
+    min_left: chrono::Duration,
+    verbose: bool,
+) -> Result<cache::CacheEntry, String> {
+    let env = cache::env(proxy_url)?;
+    let env = env.as_deref();
+    let fresh = |entry: &cache::CacheEntry| -> Result<bool, String> {
+        Ok(!cache::expires_within(&entry.creds, min_left)?)
+    };
+    match cache::read_credentials(env, role_arn)? {
+        Some(entry) if fresh(&entry)? => return Ok(entry),
+        _ => {}
+    }
+    // Re-check under the lock: another process may have minted already.
+    let _lock = cache::lock(env, role_arn)?;
+    match cache::read_credentials(env, role_arn)? {
+        Some(entry) if fresh(&entry)? => Ok(entry),
+        stale => mint(role_arn, proxy_url, env, stale, verbose)
+            .await
+            .map_err(|e| match e.as_str() {
+                NOT_LOGGED_IN => "Not signed in. Run 'source-coop auth login'.".to_string(),
+                _ => format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'."),
+            }),
+    }
+}
+
+/// `mint`'s error when there's no login session to mint with.
+const NOT_LOGGED_IN: &str = "not logged in";
+
 /// New credentials for the role, cached before they're returned. An entry
 /// from before the session was shared refreshes with its own token; anything
 /// else exchanges the session's ID token, refreshing the session if need be.
 async fn mint(
-    args: &CredsArgs,
+    role_arn: &str,
+    proxy_url: &str,
     env: Option<&str>,
     stale: Option<cache::CacheEntry>,
     verbose: bool,
 ) -> Result<cache::CacheEntry, String> {
-    let save =
-        |e: &cache::CacheEntry| cache::write_credentials(env, &args.role.role_arn, e).map(drop);
+    let save = |e: &cache::CacheEntry| cache::write_credentials(env, role_arn, e).map(drop);
     match stale {
         Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
-            refresh(&args.role.role_arn, entry, verbose, save).await
+            refresh(role_arn, entry, verbose, save).await
         }
         stale => {
             let sts = stale.and_then(|e| e.sts).unwrap_or(cache::StsSettings {
-                proxy_url: args.env.proxy_url.clone(),
+                proxy_url: proxy_url.to_string(),
                 duration: None,
             });
             let id_token = session::token(env, session::Want::Id, verbose)
                 .await?
-                .ok_or("not logged in")?;
-            let creds = sts::assume_role(
-                &sts.proxy_url,
-                &args.role.role_arn,
-                &id_token,
-                sts.duration,
-                verbose,
-            )
-            .await?;
+                .ok_or(NOT_LOGGED_IN)?;
+            let creds =
+                sts::assume_role(&sts.proxy_url, role_arn, &id_token, sts.duration, verbose)
+                    .await?;
             let entry = cache::CacheEntry {
                 creds,
                 sts: Some(sts),
@@ -1770,7 +1846,7 @@ mod tests {
         let entry = result.unwrap();
 
         assert_eq!(entry.creds.access_key_id, "NEWKEY");
-        assert!(!cache::is_expired(&entry.creds).unwrap());
+        assert!(!cache::expires_within(&entry.creds, chrono::Duration::seconds(60)).unwrap());
         assert_eq!(entry.refresh.unwrap().refresh_token, "new-rt");
         // Rotated token persisted first (with old creds), then the new creds.
         assert_eq!(
