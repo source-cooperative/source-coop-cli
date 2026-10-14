@@ -529,8 +529,6 @@ fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
 /// `Label  value` row each, labels dim and the login's state green (logged
 /// in) or red (expired, not logged in) when `color`. `refresh_lifetime`, the
 /// assumed lifetime and how it was given, estimates when an unused login lapses.
-// Every input is a separate fact the report shows; a struct would only rename them.
-#[allow(clippy::too_many_arguments)]
 fn status_report(
     proxy_url: &str,
     role_arn: &str,
