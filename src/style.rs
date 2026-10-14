@@ -1,17 +1,16 @@
 //! Text styling for every command's output, so records of every type look
 //! alike: ANSI codes on a terminal that wants color, plain text otherwise.
 
-use std::io::IsTerminal;
-
 /// Whether output to a stream that `is_terminal` should be colored: only on a
-/// terminal, and never with `NO_COLOR` set (https://no-color.org).
+/// terminal, and as `console` decides for stdout (never with `NO_COLOR`,
+/// https://no-color.org; never with `CLICOLOR=0`).
 pub fn wanted(is_terminal: bool) -> bool {
-    is_terminal && std::env::var_os("NO_COLOR").is_none()
+    is_terminal && console::colors_enabled()
 }
 
 /// Whether prompts and pickers, which draw on stderr, should be colored.
 pub fn on_stderr() -> bool {
-    wanted(std::io::stderr().is_terminal())
+    console::colors_enabled_stderr()
 }
 
 /// `s` in the SGR style `code` when `on`.

@@ -228,11 +228,11 @@ async fn main() {
         }
         Commands::Api(args) => {
             let token = api_token(&args.proxy_url, verbose).await;
-            let result = match api::Client::new(&args.api_url, token, verbose) {
-                Ok(client) => api_cmd::run(args.request, &client).await,
-                Err(e) => Err(e),
+            let result = async {
+                let client = api::Client::new(&args.api_url, token, verbose)?;
+                api_cmd::run(args.request, &client).await
             };
-            if let Err(e) = result {
+            if let Err(e) = result.await {
                 fail(e, false);
             }
         }
@@ -250,17 +250,14 @@ async fn api_token(proxy_url: &str, verbose: bool) -> Option<String> {
     {
         return Some(token);
     }
-    let token = match cache::env(proxy_url) {
-        Ok(env) => session::token(env.as_deref(), session::Want::Access, verbose).await,
-        Err(e) => Err(e),
+    let token = async {
+        let env = cache::env(proxy_url)?;
+        session::token(env.as_deref(), session::Want::Access, verbose).await
     };
-    match token {
-        Ok(token) => token,
-        Err(e) => {
-            eprintln!("Warning: continuing signed out: {e}");
-            None
-        }
-    }
+    token.await.unwrap_or_else(|e| {
+        eprintln!("Warning: continuing signed out: {e}");
+        None
+    })
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {

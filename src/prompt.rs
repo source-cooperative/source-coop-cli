@@ -80,39 +80,27 @@ pub trait Prompter {
 
     /// `input`, `select` and `long_text` for a question with one before it:
     /// None means the person went back to it (↑, or ← at the start of a line
-    /// or in a list). These ask exactly as the plain ones where there's no
-    /// going back.
+    /// or in a list).
     fn input_or_back(
         &mut self,
         label: &str,
         default: &str,
         allow_empty: bool,
-    ) -> Result<Option<String>, String> {
-        self.input(label, default, allow_empty).map(Some)
-    }
+    ) -> Result<Option<String>, String>;
     fn select_or_back(
         &mut self,
         label: &str,
         items: &[String],
         default: usize,
-    ) -> Result<Option<usize>, String> {
-        self.select(label, items, default).map(Some)
-    }
-    fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String> {
-        self.long_text(label, current).map(Some)
-    }
+    ) -> Result<Option<usize>, String>;
+    fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String>;
     /// Show `details` (what's about to be sent) and ask `question`, yes by
     /// default. None means back to the question before.
     fn confirm_or_back(
         &mut self,
         question: &str,
         details: &[String],
-    ) -> Result<Option<bool>, String> {
-        for line in details {
-            eprintln!("    {line}");
-        }
-        self.confirm(question, true).map(Some)
-    }
+    ) -> Result<Option<bool>, String>;
 }
 
 /// Prompts on the terminal, written to stderr so stdout stays clean for output.

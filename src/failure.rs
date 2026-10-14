@@ -12,43 +12,28 @@ use crate::api::ApiError;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-/// A failure as scripts see it.
-#[derive(Debug, Clone, PartialEq)]
+/// A failure as scripts see it, serialized as the API's error body.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Failure {
     /// The API's error code, or a local one: `cancelled`, `interrupted`,
     /// `not_signed_in`, `error`.
     pub code: String,
     /// The whole message, as a person would read it.
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub status: Option<u16>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub field_errors: BTreeMap<String, Vec<String>>,
 }
 
-#[derive(Clone)]
-struct Remembered {
-    text: String,
-    /// The API's own message, without the code and status `text` adds.
-    message: String,
-    code: Option<String>,
-    status: Option<u16>,
-    field_errors: BTreeMap<String, Vec<String>>,
-}
-
 thread_local! {
-    static LAST: RefCell<Option<Remembered>> = const { RefCell::new(None) };
+    /// The last API error, with the text it became.
+    static LAST: RefCell<Option<(String, ApiError)>> = const { RefCell::new(None) };
 }
 
 /// Keep `e`'s structure, as it becomes `text`.
 pub fn remember(e: &ApiError, text: &str) {
-    LAST.with(|last| {
-        *last.borrow_mut() = Some(Remembered {
-            text: text.to_string(),
-            message: e.message.clone(),
-            code: e.code.clone(),
-            status: e.status.map(|s| s.as_u16()),
-            field_errors: e.field_errors.clone(),
-        })
-    });
+    LAST.with(|last| *last.borrow_mut() = Some((text.to_string(), e.clone())));
 }
 
 /// What `e`, the text that reached `fail`, means.
@@ -70,14 +55,14 @@ pub fn classify(e: &str) -> Failure {
     }
     let api = LAST
         .with(|last| last.borrow().clone())
-        .filter(|r| e.contains(&r.text));
+        .filter(|(text, _)| e.contains(text));
     match api {
-        Some(r) => Failure {
-            code: r.code.unwrap_or_else(|| "error".into()),
+        Some((text, api)) => Failure {
+            code: api.code.unwrap_or_else(|| "error".into()),
             // The code, status and field errors have fields of their own.
-            message: e.replace(&r.text, &r.message),
-            status: r.status,
-            field_errors: r.field_errors,
+            message: e.replace(&text, &api.message),
+            status: api.status.map(|s| s.as_u16()),
+            field_errors: api.field_errors,
         },
         None => local("error", None),
     }
@@ -98,14 +83,7 @@ impl Failure {
     /// `{"error": {"code", "message", "status"?, "field_errors"?}}`, the API's
     /// own error shape.
     pub fn to_json(&self) -> serde_json::Value {
-        let mut error = serde_json::json!({"code": self.code, "message": self.message});
-        if let Some(status) = self.status {
-            error["status"] = status.into();
-        }
-        if !self.field_errors.is_empty() {
-            error["field_errors"] = serde_json::json!(self.field_errors);
-        }
-        serde_json::json!({ "error": error })
+        serde_json::json!({ "error": self })
     }
 }
 

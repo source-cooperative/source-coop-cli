@@ -73,7 +73,7 @@ struct Slot {
 
 /// The OS-idiomatic cache directory (`~/Library/Caches` on macOS, `~/.cache`
 /// on Linux, `%LocalAppData%` on Windows).
-pub(crate) fn cache_dir() -> Result<PathBuf, String> {
+fn cache_dir() -> Result<PathBuf, String> {
     Ok(dirs::cache_dir()
         .ok_or("Could not determine cache directory")?
         .join("source-coop"))

@@ -57,7 +57,7 @@ Everything goes through the `Prompter` trait (`src/prompt.rs`), so tests can scr
 - **For people on a terminal, for scripts when piped.**
   - On a terminal, lists stream through the pager (`SOURCE_PAGER`, `PAGER`, then `less -FRX`; `--no-pager` turns it off).
   - Piped output and `--json` are for scripts: keep them stable.
-- **Color only through `src/style.rs`** (`style::wanted`, `paint`, `id`), only on a terminal, never with `NO_COLOR`. IDs are gray.
+- **Color only through `src/style.rs`** (`style::wanted`, `on_stderr`, `paint`, `id`): only on a terminal, and as `console` decides (never with `NO_COLOR` or `CLICOLOR=0`). Don't check the environment yourself. IDs are gray.
 - **Show chosen fields, not every stored attribute.** Records carry internal leftovers; `data_mode` was one. Human output lists chosen fields with labels (`product_lines`). `--json` carries everything.
 
 ### JSON output

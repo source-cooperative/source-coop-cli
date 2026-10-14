@@ -70,7 +70,7 @@ pub async fn run(args: ApiArgs, client: &Client) -> Result<(), String> {
 
     let (status, text) = client.send(method, url, body.as_ref()).await?;
     match serde_json::from_str::<Value>(&text) {
-        Ok(json) => println!("{}", serde_json::to_string_pretty(&json).unwrap()),
+        Ok(json) => crate::output::json(&json),
         Err(_) if text.is_empty() => {}
         Err(_) => println!("{text}"),
     }

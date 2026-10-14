@@ -182,10 +182,7 @@ pub fn browse(
         }
         drawn = lines.len();
         if near_end {
-            place.at = current;
-            place.filter = filter;
-            place.filtering = filtering;
-            place.drawn = drawn;
+            keep(place, current, filter, filtering, drawn);
             place.notice = notice;
             return Ok(Action::More);
         }
@@ -204,10 +201,7 @@ pub fn browse(
                 }
                 Key::Enter if place.server_search && !filter.trim().is_empty() => {
                     term.clear_last_lines(drawn).map_err(failed)?;
-                    place.at = current;
-                    place.filter = filter;
-                    place.filtering = false;
-                    place.drawn = 0;
+                    keep(place, current, filter, false, 0);
                     return Ok(Action::Search);
                 }
                 Key::Enter | Key::ArrowDown => filtering = false,
@@ -247,17 +241,30 @@ pub fn browse(
         if let Some(action) = action {
             term.clear_last_lines(drawn).map_err(failed)?;
             // The filter stays for when they come back to the list.
-            place.at = current;
-            place.filter = filter;
-            place.filtering = false;
-            place.drawn = 0;
+            keep(place, current, filter, false, 0);
             return Ok(action);
         }
     }
 }
 
-/// Wait for ←/Esc/h/q (back) or one of `keys`, showing
-/// `hint` meanwhile.
+/// The line a question leaves once answered: `<mark> <label> · <value>`.
+fn answered(term: &Term, label: &str, mark: String, value: &str) -> Result<(), String> {
+    let line = format!(
+        "{mark} {} {} {value}",
+        style(label).bold(),
+        style("·").dim()
+    );
+    term.write_line(&fit(&line, term.size().1)).map_err(failed)
+}
+
+/// Where `browse` left off, for the next call to pick up from.
+fn keep(place: &mut Place, at: usize, filter: String, filtering: bool, drawn: usize) {
+    place.at = at;
+    place.filter = filter;
+    place.filtering = filtering;
+    place.drawn = drawn;
+}
+
 /// The part of `text` to show in `room` columns with the cursor at `at`:
 /// all of it if it fits, otherwise a window that keeps the cursor in view.
 /// Returns the shown text and how many columns the cursor sits from its end.
@@ -353,15 +360,7 @@ pub fn line(
     let mut at = text.len();
     let done = |mark: String, value: &str| -> Result<(), String> {
         term.clear_line().map_err(failed)?;
-        term.write_line(&fit(
-            &format!(
-                "{mark} {} {} {value}",
-                style(label).bold(),
-                style("·").dim()
-            ),
-            term.size().1,
-        ))
-        .map_err(failed)
+        answered(&term, label, mark, value)
     };
     loop {
         let room = (term.size().1 as usize)
@@ -390,11 +389,8 @@ pub fn line(
                 term.write_line("").map_err(failed)?;
                 return Err(interrupted());
             }
-            Key::ArrowUp if back => {
-                step_back(&term, 0)?;
-                return Ok(Line::Back);
-            }
-            Key::ArrowLeft if back && at == 0 => {
+            // ↑ anywhere, or ← at the start of the line.
+            k @ (Key::ArrowUp | Key::ArrowLeft) if back && (k == Key::ArrowUp || at == 0) => {
                 step_back(&term, 0)?;
                 return Ok(Line::Back);
             }
@@ -433,6 +429,8 @@ pub fn line(
     }
 }
 
+/// Wait for ←/Esc/h/q (back) or one of `keys`, showing
+/// `hint` meanwhile.
 pub fn keypress(hint: &str, keys: &str) -> Result<Action, String> {
     let term = Term::stderr();
     term.hide_cursor().map_err(failed)?;
@@ -477,15 +475,7 @@ pub fn select(
     let mut drawn = 0;
     let done = |term: &Term, drawn: usize, mark: String, value: &str| -> Result<(), String> {
         term.clear_last_lines(drawn).map_err(failed)?;
-        term.write_line(&fit(
-            &format!(
-                "{mark} {} {} {value}",
-                style(label).bold(),
-                style("·").dim()
-            ),
-            cols,
-        ))
-        .map_err(failed)
+        answered(term, label, mark, value)
     };
     loop {
         let mut lines = vec![format!(

@@ -25,7 +25,7 @@ struct ApiErrorDetail {
 }
 
 /// A failed API call, with whatever the API said about why.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApiError {
     pub status: Option<StatusCode>,
     pub code: Option<String>,
@@ -68,13 +68,10 @@ impl ApiError {
     /// the URL; the cause (DNS, TLS, a refused connection) is further down the
     /// chain, so all of it is shown.
     fn transport(e: &reqwest::Error) -> Self {
-        let mut message = format!("API request failed: {e}");
-        let mut source = std::error::Error::source(e);
-        while let Some(cause) = source {
-            message.push_str(&format!(": {cause}"));
-            source = cause.source();
-        }
-        Self::other(message)
+        let causes: String = std::iter::successors(std::error::Error::source(e), |c| c.source())
+            .map(|c| format!(": {c}"))
+            .collect();
+        Self::other(format!("API request failed: {e}{causes}"))
     }
 
     fn other(message: String) -> Self {
