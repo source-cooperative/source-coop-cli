@@ -45,6 +45,12 @@ pub fn browse(
     let (rows, cols) = term.size();
     let height = (rows as usize).saturating_sub(3).max(3);
 
+    // Items may carry styling (a gray ID): filter on the text alone, and
+    // highlight it whole rather than let an item's own reset end the cyan.
+    let plain: Vec<String> = items
+        .iter()
+        .map(|i| console::strip_ansi_codes(i).into_owned())
+        .collect();
     let mut filter = String::new();
     let mut filtering = false;
     // The highlighted item, as an index into `items`.
@@ -53,7 +59,7 @@ pub fn browse(
     loop {
         let needle = filter.to_lowercase();
         let shown: Vec<usize> = (0..items.len())
-            .filter(|&i| needle.is_empty() || items[i].to_lowercase().contains(&needle))
+            .filter(|&i| needle.is_empty() || plain[i].to_lowercase().contains(&needle))
             .collect();
         let sel = shown.iter().position(|&i| i == current).unwrap_or(0);
         if let Some(&i) = shown.get(sel) {
@@ -72,11 +78,11 @@ pub fn browse(
             lines.push(style("  (nothing matches)").dim().to_string());
         }
         for (row, &i) in shown.iter().enumerate().skip(top).take(height) {
-            let text = fit(&items[i], cols.saturating_sub(2));
             lines.push(if row == sel {
+                let text = fit(&plain[i], cols.saturating_sub(2));
                 format!("{} {}", style("›").cyan(), style(text).cyan())
             } else {
-                format!("  {text}")
+                format!("  {}", fit(&items[i], cols.saturating_sub(2)))
             });
         }
         lines.push(

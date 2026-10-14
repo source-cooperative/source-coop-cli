@@ -9,6 +9,7 @@ mod product;
 mod prompt;
 mod session;
 mod sts;
+mod style;
 
 use clap::{Parser, Subcommand, ValueEnum};
 

@@ -405,7 +405,10 @@ impl Listing {
         let mut labels: Vec<String> = self
             .items
             .iter()
-            .map(|p| format!("{}  {}", name(p), str_field(p, "title")))
+            .map(|p| {
+                let id = crate::style::id(crate::style::on_stderr(), &name(p));
+                format!("{id}  {}", str_field(p, "title"))
+            })
             .collect();
         if self.cursor.is_some() {
             labels.push("Load more…".into());
@@ -484,7 +487,7 @@ async fn product_screen(
     site: &str,
     ask: &mut dyn Prompter,
 ) -> Result<After, String> {
-    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let color = crate::style::wanted(std::io::stdout().is_terminal());
     loop {
         println!();
         for line in product_lines(product, site, color) {
@@ -1047,7 +1050,7 @@ fn print_json(v: &Value) {
 }
 
 fn print_product(p: &Value, site: &str) {
-    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    let color = crate::style::wanted(std::io::stdout().is_terminal());
     for line in product_lines(p, site, color) {
         println!("{line}");
     }
@@ -1057,13 +1060,7 @@ fn print_product(p: &Value, site: &str) {
 /// description. `color` adds ANSI styling: bold title, dim labels, and the
 /// visibility and status in green, yellow or red.
 fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
-    let paint = |code: &str, s: &str| {
-        if color {
-            format!("\x1b[{code}m{s}\x1b[0m")
-        } else {
-            s.to_string()
-        }
-    };
+    let paint = |code: &str, s: &str| crate::style::paint(color, code, s);
     let name = name(p);
     let visibility = str_field(p, "visibility");
     let disabled = p.get("disabled").and_then(Value::as_bool) == Some(true);
@@ -1087,7 +1084,7 @@ fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
             .ok()
     };
     let rows: Vec<(&str, String)> = [
-        ("Product", Some(name.clone())),
+        ("Product", Some(crate::style::id(color, &name))),
         (
             "Visibility",
             Some(match visibility {
@@ -1171,7 +1168,7 @@ impl<'a> Layout<'a> {
         Layout {
             format,
             terminal,
-            color: terminal && std::env::var_os("NO_COLOR").is_none(),
+            color: crate::style::wanted(terminal),
             site,
             widths: None,
             started: false,
@@ -1183,7 +1180,7 @@ impl<'a> Layout<'a> {
     /// same columns tab-separated with no header, for `cut` and `awk`.
     fn page(&mut self, items: &[Value]) -> Vec<String> {
         match self.format {
-            ListFormat::Table if self.terminal => padded_rows(items, &mut self.widths),
+            ListFormat::Table if self.terminal => padded_rows(items, &mut self.widths, self.color),
             ListFormat::Table => columns(items).iter().map(|r| r.join("\t")).collect(),
             ListFormat::Details => {
                 let rule = if self.color {
@@ -1208,9 +1205,10 @@ impl<'a> Layout<'a> {
 /// The padded rows for one page of a streamed table. The first page (with
 /// `widths` None) gets the header and sets the column widths; later pages
 /// reuse them.
-fn padded_rows(items: &[Value], widths: &mut Option<[usize; 2]>) -> Vec<String> {
+fn padded_rows(items: &[Value], widths: &mut Option<[usize; 2]>, color: bool) -> Vec<String> {
     let mut rows = columns(items);
-    if widths.is_none() {
+    let header = widths.is_none();
+    if header {
         rows.insert(0, ["NAME", "VISIBILITY", "TITLE"].map(String::from));
     }
     let [w0, w1] = *widths.get_or_insert_with(|| {
@@ -1218,7 +1216,17 @@ fn padded_rows(items: &[Value], widths: &mut Option<[usize; 2]>) -> Vec<String> 
         [width(0), width(1)]
     });
     rows.iter()
-        .map(|[n, v, t]| format!("{n:<w0$}  {v:<w1$}  {t}").trim_end().to_string())
+        .enumerate()
+        .map(|(i, [n, v, t])| {
+            // Padded before it's painted, so the codes don't count as width.
+            let n = format!("{n:<w0$}");
+            let n = if header && i == 0 {
+                n
+            } else {
+                crate::style::id(color, &n)
+            };
+            format!("{n}  {v:<w1$}  {t}").trim_end().to_string()
+        })
         .collect()
 }
 
@@ -1455,13 +1463,26 @@ mod tests {
     #[test]
     fn table_lines_up_on_a_terminal_and_tabs_when_piped() {
         let items = [product("a", "one"), product("longer", "two")];
+        let terminal = |color| {
+            let mut layout = Layout::new(ListFormat::Table, true, "");
+            layout.color = color;
+            layout.page(&items)
+        };
         assert_eq!(
-            Layout::new(ListFormat::Table, true, "").page(&items),
+            terminal(false),
             [
                 "NAME        VISIBILITY  TITLE",
                 "a/one       public      one title",
                 "longer/two  public      two title"
             ]
+        );
+        // In color, IDs are gray after padding, so columns still line up; the
+        // header isn't.
+        let colored = terminal(true);
+        assert_eq!(colored[0], "NAME        VISIBILITY  TITLE");
+        assert_eq!(
+            colored[1],
+            "\x1b[90ma/one     \x1b[0m  public      one title"
         );
         assert_eq!(
             Layout::new(ListFormat::Table, false, "").page(&items),
@@ -1485,11 +1506,15 @@ mod tests {
     fn streamed_pages_keep_the_first_pages_widths() {
         let mut widths = None;
         assert_eq!(
-            padded_rows(&[product("a", "one")], &mut widths),
+            padded_rows(&[product("a", "one")], &mut widths, false),
             ["NAME   VISIBILITY  TITLE", "a/one  public      one title"]
         );
         assert_eq!(
-            padded_rows(&[product("b", "two"), product("longer", "x")], &mut widths),
+            padded_rows(
+                &[product("b", "two"), product("longer", "x")],
+                &mut widths,
+                false
+            ),
             [
                 "b/two  public      two title",
                 "longer/x  public      x title"
