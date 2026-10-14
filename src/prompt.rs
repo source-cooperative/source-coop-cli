@@ -4,23 +4,37 @@
 //! are both terminals and `SOURCE_PROMPT_DISABLED` is unset. Otherwise a
 //! command sends what it was given, and the API says what's missing.
 
-use dialoguer::{theme::ColorfulTheme, Confirm, Editor, FuzzySelect, Input, MultiSelect, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Input, MultiSelect, Select};
 use std::io::IsTerminal;
+
+/// What someone did in a `browse` list or at a `keypress`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Action {
+    /// → or Enter: go into the highlighted item.
+    Open,
+    /// ← or Esc: go back (or out).
+    Back,
+    /// One of the shortcut keys asked for.
+    Key(char),
+}
 
 pub trait Prompter {
     /// Ask for a line of text, offering `default` (taken on a bare Enter).
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String>;
     /// Ask for one of `items`, starting on `default`; returns its index.
     fn select(&mut self, label: &str, items: &[String], default: usize) -> Result<usize, String>;
-    /// `select` over a list long enough to want narrowing by typing.
-    fn fuzzy_select(
+    /// Let someone move through `items` from `at` and act on one: returns its
+    /// index and what they pressed (see `crate::picker::browse`).
+    fn browse(
         &mut self,
         label: &str,
         items: &[String],
-        default: usize,
-    ) -> Result<usize, String> {
-        self.select(label, items, default)
-    }
+        at: usize,
+        keys: &str,
+        hint: &str,
+    ) -> Result<(usize, Action), String>;
+    /// Wait for back, open or one of `keys`, showing `hint`.
+    fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String>;
     /// Ask a yes/no question.
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String>;
     /// Ask for text that may run to paragraphs, starting from `current`: typed
@@ -69,18 +83,19 @@ impl Prompter for Tty {
             .map_err(failed)
     }
 
-    fn fuzzy_select(
+    fn browse(
         &mut self,
         label: &str,
         items: &[String],
-        default: usize,
-    ) -> Result<usize, String> {
-        FuzzySelect::with_theme(&self.theme)
-            .with_prompt(format!("{label} (type to filter)"))
-            .items(items)
-            .default(default)
-            .interact()
-            .map_err(failed)
+        at: usize,
+        keys: &str,
+        hint: &str,
+    ) -> Result<(usize, Action), String> {
+        crate::picker::browse(label, items, at, keys, hint)
+    }
+
+    fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String> {
+        crate::picker::keypress(hint, keys)
     }
 
     fn confirm(&mut self, label: &str, default: bool) -> Result<bool, String> {
@@ -128,7 +143,7 @@ impl Prompter for Tty {
 /// Answers from a script, in order, for tests.
 #[cfg(test)]
 pub mod scripted {
-    use super::Prompter;
+    use super::{Action, Prompter};
     use std::collections::VecDeque;
 
     #[derive(Debug)]
@@ -139,6 +154,10 @@ pub mod scripted {
         Pick(usize),
         Picks(&'static [usize]),
         Yes(bool),
+        /// In a `browse` list: highlight item `.0` and press `.1`.
+        Browse(usize, Action),
+        /// At a `keypress`.
+        Press(Action),
     }
 
     #[derive(Default)]
@@ -214,6 +233,33 @@ pub mod scripted {
             Ok(match self.next(label) {
                 Answer::Picks(p) => p.to_vec(),
                 a => panic!("{label}: expected picks, scripted {a:?}"),
+            })
+        }
+
+        fn browse(
+            &mut self,
+            label: &str,
+            items: &[String],
+            at: usize,
+            keys: &str,
+            _: &str,
+        ) -> Result<(usize, Action), String> {
+            self.asked.push(format!(
+                "{label} [{}] of {} (keys {keys})",
+                items[at],
+                items.join(" | ")
+            ));
+            Ok(match self.next(label) {
+                Answer::Browse(i, action) => (i, action),
+                a => panic!("{label}: expected a browse, scripted {a:?}"),
+            })
+        }
+
+        fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String> {
+            self.asked.push(format!("{hint} (keys {keys})"));
+            Ok(match self.next(hint) {
+                Answer::Press(action) => action,
+                a => panic!("{hint}: expected a key, scripted {a:?}"),
             })
         }
     }

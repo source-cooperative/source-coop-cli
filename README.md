@@ -205,12 +205,29 @@ Use `--profile` to change the section name.
 source-coop product list                      # public products
 source-coop product list my-org --json        # one account's products, as JSON
 source-coop product list --format table       # one row per product; tab-separated when piped
-source-coop product list my-org -i           # pick a product (type to filter), then view, open, edit or delete it
+source-coop product list my-org -i            # move through the products and act on them (keys below)
 source-coop product view my-org/my-product    # --web opens it in the browser
+source-coop product view my-org/my-product -i # the product with shortcuts; without a product, pick one
 source-coop product create my-org/my-product  # prompts for the rest
 source-coop product edit my-org/my-product --visibility unlisted
+source-coop product edit -i                   # pick one of your account's products to edit
 source-coop product delete my-org/my-product  # asks you to type the name back
+source-coop product delete -i                 # pick one of your account's products to delete
 ```
+
+With `-i`, lists and products answer to keys:
+
+| Key | In a list | On a product |
+|-----|-----------|--------------|
+| ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
+| → Enter (`l`) | open the product | |
+| ← Esc (`h` `q`) | quit | back to the list |
+| `/` | filter by typed text (Enter keeps it, Esc clears it) | |
+| `b` | open in the browser | open in the browser |
+| `e` | edit | edit |
+| `d` | delete | delete |
+
+Edit and delete run exactly as `product edit` and `product delete` do, prompts included.
 
 `create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) by answering `e`. `edit` with no flags asks which fields to change and starts each from its current value. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
 

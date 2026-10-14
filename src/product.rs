@@ -3,7 +3,7 @@
 
 use crate::api::{ApiError, Client, Page};
 use crate::draft::Draft;
-use crate::prompt::Prompter;
+use crate::prompt::{Action, Prompter};
 use clap::{Args, Subcommand, ValueEnum};
 use reqwest::Method;
 use serde_json::{json, Map, Value};
@@ -24,7 +24,7 @@ pub enum ProductCommand {
 }
 
 /// Which products `list` shows, or `list -i` picks from.
-#[derive(Args)]
+#[derive(Args, Default)]
 pub struct Filters {
     /// This account's products (all public products when omitted)
     account: Option<String>,
@@ -105,8 +105,14 @@ pub enum ListFormat {
 
 #[derive(Args)]
 pub struct ViewArgs {
-    /// The product, as ACCOUNT/PRODUCT
-    product: ProductRef,
+    /// The product, as ACCOUNT/PRODUCT (with -i, picked from public products
+    /// when omitted)
+    #[arg(required_unless_present = "interactive")]
+    product: Option<ProductRef>,
+
+    /// Show the product with shortcuts: b browser, e edit, d delete, ← back
+    #[arg(long, short = 'i', conflicts_with_all = ["web", "json"])]
+    interactive: bool,
 
     /// Open the product's page in the browser instead
     #[arg(long, short = 'w')]
@@ -147,8 +153,14 @@ pub struct CreateArgs {
 
 #[derive(Args)]
 pub struct EditArgs {
-    /// The product, as ACCOUNT/PRODUCT
-    product: ProductRef,
+    /// The product, as ACCOUNT/PRODUCT (with -i, picked from your account's
+    /// products when omitted)
+    #[arg(required_unless_present = "interactive")]
+    product: Option<ProductRef>,
+
+    /// Pick the product from your account's products when it isn't named
+    #[arg(long, short = 'i')]
+    interactive: bool,
 
     #[arg(long, short = 't')]
     title: Option<String>,
@@ -179,8 +191,14 @@ pub struct EditArgs {
 
 #[derive(Args)]
 pub struct DeleteArgs {
-    /// The product, as ACCOUNT/PRODUCT
-    product: ProductRef,
+    /// The product, as ACCOUNT/PRODUCT (with -i, picked from your account's
+    /// products when omitted)
+    #[arg(required_unless_present = "interactive")]
+    product: Option<ProductRef>,
+
+    /// Pick the product from your account's products when it isn't named
+    #[arg(long, short = 'i', conflicts_with = "yes")]
+    interactive: bool,
 
     /// Keep the product's objects in storage
     #[arg(long)]
@@ -244,11 +262,38 @@ pub async fn run(
             pick(&args.filters, client, site, prompter).await
         }
         ProductCommand::List(args) => list(args, client, site).await,
-        ProductCommand::View(args) => view(args, client, site).await,
+        ProductCommand::View(args) => view(args, client, site, prompter).await,
         ProductCommand::Create(args) => create(args, client, site, prompter).await,
+        // Without a product, clap has required -i: choose one, then carry on
+        // as if it had been named.
+        ProductCommand::Edit(mut args) if args.product.is_none() => {
+            let ask = prompter.ok_or(NEEDS_TERMINAL)?;
+            match choose(own_products(client).await?, client, &mut *ask).await? {
+                Some(p) => args.product = Some(p),
+                None => return Ok(()),
+            }
+            edit(args, client, site, Some(ask)).await
+        }
         ProductCommand::Edit(args) => edit(args, client, site, prompter).await,
+        ProductCommand::Delete(mut args) if args.product.is_none() => {
+            let ask = prompter.ok_or(NEEDS_TERMINAL)?;
+            match choose(own_products(client).await?, client, &mut *ask).await? {
+                Some(p) => args.product = Some(p),
+                None => return Ok(()),
+            }
+            delete(args, client, Some(ask)).await
+        }
         ProductCommand::Delete(args) => delete(args, client, prompter).await,
     }
+}
+
+const NEEDS_TERMINAL: &str = "-i needs a terminal to pick from.";
+
+/// The product a command was given; `run` fills it in for `-i`.
+fn named(product: &Option<ProductRef>) -> Result<ProductRef, String> {
+    product
+        .clone()
+        .ok_or_else(|| "Name the product as ACCOUNT/PRODUCT, or pass -i to pick it.".into())
 }
 
 async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String> {
@@ -308,12 +353,63 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
     Ok(())
 }
 
-/// How many products `list -i` fetches at a time.
+/// How many products `-i` fetches at a time.
 const PICK_PAGE: usize = 50;
 
-/// `list -i`: pick a product from a list (typing narrows it), then act on it
-/// with the same code as `view`, `edit` and `delete`. The list ends with
-/// "Load more…" while the listing has more pages, and "Quit".
+/// The shortcuts on a product, wherever one is highlighted or shown.
+const KEYS: &str = "bed";
+const LIST_HINT: &str = "↑↓ move · → open · b browser · e edit · d delete · / filter · ← quit";
+const CHOOSE_HINT: &str = "↑↓ move · → choose · / filter · ← quit";
+const SCREEN_HINT: &str = "b browser · e edit · d delete · ← back";
+
+/// A listing being picked from, a page at a time. Its labels end with
+/// "Load more…" while there are pages left.
+struct Listing {
+    url: url::Url,
+    items: Vec<Value>,
+    cursor: Option<String>,
+}
+
+impl Listing {
+    async fn open(client: &Client, url: url::Url) -> Result<Self, String> {
+        let page = fetch_page(client, &url, PICK_PAGE, None).await?;
+        Ok(Listing {
+            url,
+            items: page.items,
+            cursor: page.next_cursor,
+        })
+    }
+
+    async fn more(&mut self, client: &Client) -> Result<(), String> {
+        let page = fetch_page(client, &self.url, PICK_PAGE, self.cursor.as_deref()).await?;
+        self.items.extend(page.items);
+        self.cursor = page.next_cursor;
+        Ok(())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.items.is_empty() && self.cursor.is_none()
+    }
+
+    fn labels(&self) -> Vec<String> {
+        let mut labels: Vec<String> = self
+            .items
+            .iter()
+            .map(|p| format!("{}  {}", name(p), str_field(p, "title")))
+            .collect();
+        if self.cursor.is_some() {
+            labels.push("Load more…".into());
+        }
+        labels
+    }
+
+    fn is_load_more(&self, i: usize) -> bool {
+        i == self.items.len()
+    }
+}
+
+/// `list -i`: move through the products and act on one with the shortcuts,
+/// or open it to see it as `view` shows it.
 async fn pick(
     filters: &Filters,
     client: &Client,
@@ -321,104 +417,156 @@ async fn pick(
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let ask = prompter.ok_or("-i needs a terminal to pick from; drop it to print the list.")?;
-    let url = filters.url(client);
-    let first = fetch_page(client, &url, PICK_PAGE, None).await?;
-    let (mut items, mut cursor) = (first.items, first.next_cursor);
+    let mut listing = Listing::open(client, filters.url(client)).await?;
     let mut at = 0;
     loop {
-        if items.is_empty() && cursor.is_none() {
+        if listing.is_empty() {
             eprintln!("No products found.");
             return Ok(());
         }
-        let mut labels: Vec<String> = items
-            .iter()
-            .map(|p| format!("{}  {}", name(p), str_field(p, "title")))
-            .collect();
-        let load_more = cursor.is_some().then_some(labels.len());
-        if load_more.is_some() {
-            labels.push("Load more…".into());
-        }
-        let quit = labels.len();
-        labels.push("Quit".into());
-
-        let pick = ask.fuzzy_select("Products", &labels, at.min(quit))?;
-        if pick == quit {
-            return Ok(());
-        }
-        if Some(pick) == load_more {
-            let page = fetch_page(client, &url, PICK_PAGE, cursor.as_deref()).await?;
-            at = items.len();
-            items.extend(page.items);
-            cursor = page.next_cursor;
+        let (i, action) = ask.browse("Products", &listing.labels(), at, KEYS, LIST_HINT)?;
+        at = i;
+        if listing.is_load_more(i) {
+            match action {
+                Action::Back => return Ok(()),
+                Action::Open => listing.more(client).await?,
+                Action::Key(_) => {}
+            }
             continue;
         }
-        at = pick;
-        match product_menu(items[pick].clone(), client, site, ask).await? {
-            Some(product) => items[pick] = product,
-            None => {
-                items.remove(pick);
+        let after = match action {
+            Action::Back => return Ok(()),
+            Action::Open => product_screen(&mut listing.items[i], client, site, ask).await?,
+            Action::Key(key) => act(key, &mut listing.items[i], client, site, ask).await?,
+        };
+        if after == After::Deleted {
+            listing.items.remove(i);
+        }
+    }
+}
+
+/// `view|edit|delete -i` without a product: choose one from `url`'s listing.
+/// None if they backed out.
+async fn choose(
+    url: url::Url,
+    client: &Client,
+    ask: &mut dyn Prompter,
+) -> Result<Option<ProductRef>, String> {
+    let mut listing = Listing::open(client, url).await?;
+    let mut at = 0;
+    loop {
+        if listing.is_empty() {
+            eprintln!("No products found.");
+            return Ok(None);
+        }
+        let (i, action) = ask.browse("Products", &listing.labels(), at, "", CHOOSE_HINT)?;
+        at = i;
+        match action {
+            Action::Back => return Ok(None),
+            Action::Open if listing.is_load_more(i) => listing.more(client).await?,
+            Action::Open => return name(&listing.items[i]).parse().map(Some),
+            Action::Key(_) => {}
+        }
+    }
+}
+
+/// The listing of the signed-in account's products, for `edit -i` and
+/// `delete -i`.
+async fn own_products(client: &Client) -> Result<url::Url, String> {
+    let me: Value = client.get(client.url(&["whoami"])).await?;
+    let account = me
+        .pointer("/account/account_id")
+        .and_then(Value::as_str)
+        .ok_or("Couldn't tell which account you're signed in as.")?;
+    Ok(client.url(&["products", account]))
+}
+
+/// Whether an action left the product in place.
+#[derive(PartialEq)]
+enum After {
+    Kept,
+    Deleted,
+}
+
+/// One product as `view` shows it, with the shortcuts, until back.
+async fn product_screen(
+    product: &mut Value,
+    client: &Client,
+    site: &str,
+    ask: &mut dyn Prompter,
+) -> Result<After, String> {
+    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
+    loop {
+        println!();
+        for line in product_lines(product, site, color) {
+            println!("{line}");
+        }
+        println!();
+        match ask.keypress(SCREEN_HINT, KEYS)? {
+            Action::Back => return Ok(After::Kept),
+            Action::Open => {}
+            Action::Key(key) => {
+                if act(key, product, client, site, ask).await? == After::Deleted {
+                    return Ok(After::Deleted);
+                }
             }
         }
     }
 }
 
-/// Show one product and offer what to do with it until "Back". Returns the
-/// product as it now is, or None once it's deleted. A failed action is
-/// reported and the menu offered again.
-async fn product_menu(
-    mut product: Value,
+/// Run a shortcut on `product` with the same code as the commands: `b` opens
+/// it in the browser, `e` edits it (then fetches it as it now is), `d`
+/// deletes it. A failed action is reported, not returned, so the list or
+/// screen it came from carries on.
+async fn act(
+    key: char,
+    product: &mut Value,
     client: &Client,
     site: &str,
     ask: &mut dyn Prompter,
-) -> Result<Option<Value>, String> {
-    let p: ProductRef = name(&product).parse()?;
-    let color = std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    let actions = ["Back", "Open in browser", "Edit", "Delete"].map(String::from);
-    loop {
-        println!();
-        for line in product_lines(&product, site, color) {
-            println!("{line}");
-        }
-        println!();
-        match ask.select(&p.to_string(), &actions, 0)? {
-            0 => return Ok(Some(product)),
-            1 => {
-                let url = p.web_url(site);
-                eprintln!("Opening {url} in your browser.");
-                if let Err(e) = open::that(&url) {
-                    eprintln!("Couldn't open a browser: {e}");
-                }
-            }
-            2 => {
-                let args = EditArgs {
-                    product: p.clone(),
-                    title: None,
-                    description: None,
-                    visibility: None,
-                    disable: false,
-                    enable: false,
-                    from_file: None,
-                    json: false,
-                };
-                match edit(args, client, site, Some(&mut *ask)).await {
-                    Ok(()) => product = client.get(product_url(client, &p)).await?,
-                    Err(e) => eprintln!("Error: {e}"),
-                }
-            }
-            _ => {
-                let args = DeleteArgs {
-                    product: p.clone(),
-                    preserve_data: false,
-                    yes: false,
-                    json: false,
-                };
-                match delete(args, client, Some(&mut *ask)).await {
-                    Ok(()) => return Ok(None),
-                    Err(e) => eprintln!("Error: {e}"),
-                }
+) -> Result<After, String> {
+    let p: ProductRef = name(product).parse()?;
+    match key {
+        'b' => {
+            let url = p.web_url(site);
+            eprintln!("Opening {url} in your browser.");
+            if let Err(e) = open::that(&url) {
+                eprintln!("Couldn't open a browser: {e}");
             }
         }
+        'e' => {
+            let args = EditArgs {
+                product: Some(p.clone()),
+                interactive: false,
+                title: None,
+                description: None,
+                visibility: None,
+                disable: false,
+                enable: false,
+                from_file: None,
+                json: false,
+            };
+            match edit(args, client, site, Some(&mut *ask)).await {
+                Ok(()) => *product = client.get(product_url(client, &p)).await?,
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
+        'd' => {
+            let args = DeleteArgs {
+                product: Some(p),
+                interactive: false,
+                preserve_data: false,
+                yes: false,
+                json: false,
+            };
+            match delete(args, client, Some(&mut *ask)).await {
+                Ok(()) => return Ok(After::Deleted),
+                Err(e) => eprintln!("Error: {e}"),
+            }
+        }
+        _ => {}
     }
+    Ok(After::Kept)
 }
 
 /// One page of a listing: up to `limit` products (the API caps a page at
@@ -474,13 +622,32 @@ impl Drop for Pager {
     }
 }
 
-async fn view(args: ViewArgs, client: &Client, site: &str) -> Result<(), String> {
+async fn view(
+    args: ViewArgs,
+    client: &Client,
+    site: &str,
+    prompter: Option<&mut dyn Prompter>,
+) -> Result<(), String> {
+    if args.interactive {
+        let ask = prompter.ok_or(NEEDS_TERMINAL)?;
+        let p = match args.product {
+            Some(p) => p,
+            None => match choose(Filters::default().url(client), client, ask).await? {
+                Some(p) => p,
+                None => return Ok(()),
+            },
+        };
+        let mut product: Value = client.get(product_url(client, &p)).await?;
+        product_screen(&mut product, client, site, ask).await?;
+        return Ok(());
+    }
+    let p = named(&args.product)?;
     if args.web {
-        let url = args.product.web_url(site);
+        let url = p.web_url(site);
         eprintln!("Opening {url} in your browser.");
         return open::that(&url).map_err(|e| format!("Couldn't open a browser: {e}"));
     }
-    let product: Value = client.get(product_url(client, &args.product)).await?;
+    let product: Value = client.get(product_url(client, &p)).await?;
     if args.json {
         print_json(&product);
     } else {
@@ -709,6 +876,7 @@ async fn edit(
     site: &str,
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
+    let target = named(&args.product)?;
     let mut body = read_fields(args.from_file.as_deref())?;
     insert_some(&mut body, "title", args.title);
     insert_some(&mut body, "description", args.description);
@@ -716,7 +884,7 @@ async fn edit(
     if args.disable || args.enable {
         body.insert("disabled".into(), json!(args.disable));
     }
-    let url = product_url(client, &args.product);
+    let url = product_url(client, &target);
 
     let mut draft = None;
     if body.is_empty() {
@@ -727,13 +895,13 @@ async fn edit(
             );
         };
         client.check_signed_in().await?;
-        let saved = Draft::for_key(&format!("product-edit/{}", args.product))?;
+        let saved = Draft::for_key(&format!("product-edit/{}", target))?;
         if !saved.resume(ask, &mut body)? {
             let current: Value = client.get(url.clone()).await?;
             prompt_edits(ask, &current, &mut body)?;
         }
         if body.is_empty() {
-            eprintln!("No changes to {}.", args.product);
+            eprintln!("No changes to {}.", target);
             return Ok(());
         }
         draft = Some(saved);
@@ -786,12 +954,13 @@ async fn delete(
     client: &Client,
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
+    let target = named(&args.product)?;
     let mut preserve_data = args.preserve_data;
     if !args.yes {
         let Some(ask) = prompter else {
             return Err(format!(
                 "Refusing to delete {} without confirmation: pass --yes.",
-                args.product
+                target
             ));
         };
         if !preserve_data {
@@ -802,13 +971,13 @@ async fn delete(
         } else {
             "its data will be deleted too"
         };
-        eprintln!("This deletes {} and {data}.", args.product);
-        let typed = ask.input(&format!("Type {} to confirm", args.product), "", true)?;
-        if typed.trim() != args.product.to_string() {
+        eprintln!("This deletes {} and {data}.", target);
+        let typed = ask.input(&format!("Type {} to confirm", target), "", true)?;
+        if typed.trim() != target.to_string() {
             return Err("Not confirmed; nothing was deleted.".into());
         }
     }
-    let mut url = product_url(client, &args.product);
+    let mut url = product_url(client, &target);
     url.query_pairs_mut()
         .append_pair("preserve_data", &preserve_data.to_string());
     let product: Value = client.request(Method::DELETE, url, None::<&()>).await?;
@@ -1095,7 +1264,8 @@ mod tests {
 
     fn edit_args() -> EditArgs {
         EditArgs {
-            product: "acct/prod".parse().unwrap(),
+            product: Some("acct/prod".parse().unwrap()),
+            interactive: false,
             title: None,
             description: None,
             visibility: None,
@@ -1108,7 +1278,8 @@ mod tests {
 
     fn delete_args(yes: bool, preserve_data: bool) -> DeleteArgs {
         DeleteArgs {
-            product: "acct/prod".parse().unwrap(),
+            product: Some("acct/prod".parse().unwrap()),
+            interactive: false,
             preserve_data,
             yes,
             json: false,
@@ -1123,7 +1294,11 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/whoami"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"account_id": "acct"})))
+            // A UserSession, as source.coop's /whoami returns it.
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(json!({"account": {"account_id": "acct"}})),
+            )
             .mount(&server)
             .await;
         server
@@ -1643,12 +1818,15 @@ mod tests {
             featured: false,
         };
         let mut ask = Script::new([
-            Pick(2),           // Load more…
-            Pick(1),           // acct/prod
-            Pick(3),           // Delete
-            Yes(false),        // don't keep the data
-            Text("acct/prod"), // confirm
-            Pick(2),           // Quit
+            Browse(2, Action::Open),     // Load more…
+            Browse(1, Action::Open),     // into acct/prod
+            Press(Action::Key('d')),     // delete it
+            Yes(false),                  // don't keep the data
+            Text("acct/prod"),           // confirm
+            Browse(1, Action::Key('d')), // d on acct/c, from the list
+            Default,                     // keep the data? no
+            Text("not it"),              // a wrong confirmation: nothing deleted
+            Browse(1, Action::Back),     // quit
         ]);
         pick(&filters, &client, "https://source.coop", Some(&mut ask))
             .await
@@ -1656,22 +1834,79 @@ mod tests {
 
         assert_eq!(
             ask.asked[0],
-            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title | Load more… | Quit"
+            "Products [acct/a  a title] of acct/a  a title | acct/prod  prod title | Load more… (keys bed)"
         );
-        // Load more keeps the cursor on the first new product.
+        // Load more keeps the cursor on the first new product, and goes once
+        // the listing runs out.
         assert_eq!(
             ask.asked[1],
-            "Products [acct/c  c title] of acct/a  a title | acct/prod  prod title | acct/c  c title | Quit"
+            "Products [acct/c  c title] of acct/a  a title | acct/prod  prod title | acct/c  c title (keys bed)"
         );
-        assert_eq!(
-            ask.asked[2],
-            "acct/prod [Back] of Back | Open in browser | Edit | Delete"
-        );
+        assert_eq!(ask.asked[2], format!("{SCREEN_HINT} (keys bed)"));
         // The deleted product is gone, and the cursor sits on the one after it.
         assert_eq!(
-            ask.asked.last().unwrap(),
-            "Products [acct/c  c title] of acct/a  a title | acct/c  c title | Quit"
+            ask.asked[5],
+            "Products [acct/c  c title] of acct/a  a title | acct/c  c title (keys bed)"
         );
+        // A refused delete leaves the list as it was.
+        assert_eq!(ask.asked[8], ask.asked[5]);
+    }
+
+    #[tokio::test]
+    async fn edit_i_chooses_from_your_own_products_then_edits() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(
+                json!({"items": [product("acct", "a"), product("acct", "prod")], "next_cursor": null}),
+            ))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/products/acct/prod"))
+            .and(body_json(json!({"title": "New"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([Browse(1, Action::Open)]);
+        let mut args = edit_args();
+        args.product = None;
+        args.interactive = true;
+        args.title = Some("New".into());
+        run(
+            ProductCommand::Edit(args),
+            &client,
+            "https://source.coop",
+            Some(&mut ask),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ask.asked,
+            ["Products [acct/a  a title] of acct/a  a title | acct/prod  prod title (keys )"]
+        );
+    }
+
+    #[test]
+    fn i_makes_the_product_optional_where_it_picks_one() {
+        use clap::Parser;
+        #[derive(Parser)]
+        struct Cli {
+            #[command(subcommand)]
+            cmd: ProductCommand,
+        }
+        let parse = |args: &[&str]| Cli::try_parse_from([&["sc"], args].concat()).is_ok();
+        for cmd in ["view", "edit", "delete"] {
+            assert!(parse(&[cmd, "-i"]), "{cmd} -i");
+            assert!(parse(&[cmd, "acct/p", "-i"]), "{cmd} PRODUCT -i");
+            assert!(!parse(&[cmd]), "{cmd} needs a product or -i");
+        }
+        assert!(!parse(&["view", "-i", "--json"]));
+        assert!(!parse(&["delete", "-i", "--yes"]));
     }
 
     #[tokio::test]

@@ -4,6 +4,7 @@ mod cache;
 mod draft;
 mod oidc;
 mod output;
+mod picker;
 mod product;
 mod prompt;
 mod session;
