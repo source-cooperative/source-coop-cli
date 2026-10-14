@@ -23,6 +23,19 @@ pub enum ProductCommand {
     Delete(DeleteArgs),
 }
 
+impl ProductCommand {
+    /// Whether `--json` was asked for, so a failure is reported as JSON too.
+    pub fn wants_json(&self) -> bool {
+        match self {
+            ProductCommand::List(a) => a.json,
+            ProductCommand::View(a) => a.json,
+            ProductCommand::Create(a) => a.json,
+            ProductCommand::Edit(a) => a.json,
+            ProductCommand::Delete(a) => a.json,
+        }
+    }
+}
+
 /// Which products `list` shows, or `list -i` picks from.
 #[derive(Args, Default)]
 pub struct Filters {
@@ -1393,7 +1406,7 @@ fn name(product: &Value) -> String {
 }
 
 fn print_json(v: &Value) {
-    println!("{}", serde_json::to_string_pretty(v).unwrap());
+    crate::output::json(v);
 }
 
 fn print_product(p: &Value, site: &str) {

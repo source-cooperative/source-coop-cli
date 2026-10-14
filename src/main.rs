@@ -2,6 +2,7 @@ mod api;
 mod api_cmd;
 mod cache;
 mod draft;
+mod failure;
 mod oidc;
 mod output;
 mod picker;
@@ -136,6 +137,10 @@ struct StatusArgs {
     /// Role ARN whose cached credentials to report on
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
+
+    /// Print the status as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -228,11 +233,17 @@ enum OutputFormat {
     AwsCredentials,
 }
 
-/// Report a command's error (see `prompt::report`) and exit 1.
-fn fail(e: String) -> ! {
-    prompt::report(&e);
-    // 130 for Ctrl+C, as a shell reports a process interrupted by SIGINT.
-    std::process::exit(if e == prompt::INTERRUPTED { 130 } else { 1 });
+/// Report a command's error and exit with the code for its kind (see
+/// `failure::Failure::exit_code`): as JSON on stderr when the command was
+/// asked for `--json`, otherwise as `prompt::report` puts it.
+fn fail(e: String, json: bool) -> ! {
+    let failure = failure::classify(&e);
+    if json {
+        eprintln!("{}", failure.to_json());
+    } else {
+        prompt::report(&e);
+    }
+    std::process::exit(failure.exit_code());
 }
 
 #[tokio::main]
@@ -244,22 +255,23 @@ async fn main() {
     match cli.command {
         Commands::Auth(AuthCommand::Login(args)) | Commands::Login(args) => {
             if let Err(e) = run_login(args, verbose).await {
-                fail(e);
+                fail(e, false);
             }
         }
         Commands::Creds(args) => {
             if let Err(e) = run_creds(args, verbose).await {
-                fail(e);
+                fail(e, false);
             }
         }
         Commands::Auth(AuthCommand::Status(args)) => {
+            let json = args.json;
             if let Err(e) = run_status(args) {
-                fail(e);
+                fail(e, json);
             }
         }
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
-                fail(e);
+                fail(e, false);
             }
         }
         Commands::Api(args) => {
@@ -269,10 +281,11 @@ async fn main() {
                 Err(e) => Err(e),
             };
             if let Err(e) = result {
-                fail(e);
+                fail(e, false);
             }
         }
         Commands::Product(args) => {
+            let json = args.command.wants_json();
             let token = api_token(&args.proxy_url, verbose).await;
             let result = match api::Client::new(&args.api_url, token, verbose) {
                 Ok(client) => {
@@ -286,7 +299,7 @@ async fn main() {
                 Err(e) => Err(e),
             };
             if let Err(e) = result {
-                fail(e);
+                fail(e, json);
             }
         }
     }
@@ -317,20 +330,35 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let session = cache::read_session(env.as_deref())?;
     let entry = cache::read_credentials(env.as_deref(), &args.role_arn)?;
+    let (session, creds) = (session.as_ref(), entry.as_ref().map(|e| &e.creds));
+    let now = chrono::Utc::now().timestamp();
     let lifetime = refresh_lifetime()?;
-    print!(
-        "{}",
-        status_report(
+    let lifetime = Some((lifetime.0, lifetime.1.as_str()));
+    if args.json {
+        output::json(&status_json(
             &args.proxy_url,
             env.as_deref(),
             &args.role_arn,
-            session.as_ref(),
-            entry.as_ref().map(|e| &e.creds),
-            chrono::Utc::now().timestamp(),
-            Some((lifetime.0, lifetime.1.as_str())),
-            style::wanted(std::io::IsTerminal::is_terminal(&std::io::stdout())),
-        )
-    );
+            session,
+            creds,
+            now,
+            lifetime,
+        ));
+    } else {
+        print!(
+            "{}",
+            status_report(
+                &args.proxy_url,
+                env.as_deref(),
+                &args.role_arn,
+                session,
+                creds,
+                now,
+                lifetime,
+                style::wanted(std::io::IsTerminal::is_terminal(&std::io::stdout())),
+            )
+        );
+    }
     Ok(())
 }
 
@@ -380,6 +408,79 @@ fn relative(at: i64, now: i64) -> String {
 fn rfc3339(t: i64) -> Option<String> {
     chrono::DateTime::from_timestamp(t, 0)
         .map(|t| t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+}
+
+/// `auth status --json`: what `status_report` shows, as data. Times are RFC
+/// 3339 with an `expired` flag, as of `now`; absent ones are null.
+fn status_json(
+    proxy_url: &str,
+    env: Option<&str>,
+    role_arn: &str,
+    session: Option<&session::Session>,
+    creds: Option<&sts::Credentials>,
+    now: i64,
+    refresh_lifetime: Option<(i64, &str)>,
+) -> serde_json::Value {
+    use serde_json::{json, Value};
+    let at = |t: Option<i64>| match t {
+        Some(t) => json!({"expires_at": rfc3339(t), "expired": t <= now}),
+        None => json!({"expires_at": null, "expired": null}),
+    };
+    let login = session.map(|s| {
+        let id_exp = session::jwt_exp(&s.id_token);
+        let expired = s.refresh_token.is_none() && id_exp.is_some_and(|e| e <= now);
+        let estimate = match (&s.refresh_token, s.refresh_token_expires_at) {
+            (Some(_), None) => s
+                .refresh_token_issued_at
+                .zip(refresh_lifetime)
+                .map(|(issued, (secs, label))| (issued + secs, label)),
+            _ => None,
+        };
+        json!({
+            "state": if expired { "expired" } else { "logged_in" },
+            "account": s.account.as_ref().map(|a| json!({
+                "account_id": a.account_id,
+                "name": a.name,
+                "profile_url": format!("{}/{}", site(s), a.account_id),
+            })),
+            "refresh_token": {
+                "present": s.refresh_token.is_some(),
+                "issued_at": s.refresh_token_issued_at.and_then(rfc3339),
+                "expires_at": s.refresh_token_expires_at.and_then(rfc3339),
+                // When the provider gave no expiry: the last renewal plus the
+                // assumed lifetime, as `auth status` estimates it.
+                "estimated_lapse_at": estimate.and_then(|(at, _)| rfc3339(at)),
+                "assumed_lifetime": estimate.map(|(_, label)| label),
+            },
+            "id_token": at(id_exp),
+            "access_token": match &s.access_token {
+                None => Value::Null,
+                Some(_) => {
+                    let mut a = at(s.access_token_expires_at);
+                    a["audience"] = json!(s.audience);
+                    a
+                }
+            },
+        })
+    });
+    let credentials = match creds {
+        None => json!({"role_arn": role_arn, "cached": false}),
+        Some(c) => {
+            let exp = chrono::DateTime::parse_from_rfc3339(&c.expiration).ok();
+            json!({
+                "role_arn": role_arn,
+                "cached": true,
+                "expires_at": c.expiration,
+                "expired": exp.map(|t| t.timestamp() <= now),
+            })
+        }
+    };
+    json!({
+        "environment": {"name": env.unwrap_or("production"), "proxy_url": proxy_url},
+        "logged_in": login.as_ref().is_some_and(|l| l["state"] == "logged_in"),
+        "login": login,
+        "credentials": credentials,
+    })
 }
 
 /// `<expires> <time>` for a Unix timestamp, or `expired <time>` (yellow)
@@ -952,6 +1053,74 @@ mod tests {
         assert_eq!(
             parse_duration(defaults::REFRESH_TOKEN_LIFETIME),
             Ok(30 * 86_400)
+        );
+    }
+
+    #[test]
+    fn status_json_carries_the_same_facts_as_data() {
+        let now = 1_791_910_800;
+        let me = session::Account {
+            account_id: "alukach".into(),
+            name: Some("Anthony Lukach".into()),
+        };
+        let json = status_json(
+            "https://data.source.coop",
+            None,
+            "_default",
+            Some(&live_session(now, Some(me))),
+            Some(&creds("2026-10-13T18:30:00Z")),
+            now,
+            Some((30 * 86_400, "30d")),
+        );
+        assert_eq!(
+            json,
+            serde_json::json!({
+                "environment": {"name": "production", "proxy_url": "https://data.source.coop"},
+                "logged_in": true,
+                "login": {
+                    "state": "logged_in",
+                    "account": {
+                        "account_id": "alukach",
+                        "name": "Anthony Lukach",
+                        "profile_url": "https://source.coop/alukach",
+                    },
+                    "refresh_token": {
+                        "present": true,
+                        "issued_at": "2026-10-13T14:00:00Z",
+                        "expires_at": null,
+                        // Estimated: the provider gave no expiry.
+                        "estimated_lapse_at": "2026-11-12T14:00:00Z",
+                        "assumed_lifetime": "30d",
+                    },
+                    "id_token": {"expires_at": "2026-10-13T18:00:00Z", "expired": false},
+                    "access_token": {
+                        "audience": "https://source.coop",
+                        "expires_at": "2026-10-13T16:59:00Z",
+                        "expired": true,
+                    },
+                },
+                "credentials": {
+                    "role_arn": "_default",
+                    "cached": true,
+                    "expires_at": "2026-10-13T18:30:00Z",
+                    "expired": false,
+                },
+            })
+        );
+        let nobody = status_json(
+            "https://data.source.coop",
+            None,
+            "_default",
+            None,
+            None,
+            now,
+            None,
+        );
+        assert_eq!(nobody["logged_in"], false);
+        assert_eq!(nobody["login"], serde_json::Value::Null);
+        assert_eq!(
+            nobody["credentials"],
+            serde_json::json!({"role_arn": "_default", "cached": false})
         );
     }
 

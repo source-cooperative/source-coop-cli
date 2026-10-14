@@ -114,6 +114,12 @@ Credentials    _default: expire 2026-10-13T18:30:00Z
 
 **How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime. Where a provider does give an expiry, that's shown instead. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
 
+`--json` prints the same as data, for scripts and agents: times in RFC 3339 with an `expired` flag, the account's `profile_url`, and, when the provider gave no refresh-token expiry, `estimated_lapse_at` with the `assumed_lifetime` it was counted from.
+
+```bash
+source-coop auth status --json | jq -r .login.refresh_token.issued_at
+```
+
 The keyring can't list its entries, so `auth status` reports on one environment and role. Pass `--proxy-url` and `--role-arn` (or set `SOURCE_PROXY_URL` and `SOURCE_ROLE_ARN`) to check others.
 
 ### Setting credentials on the environment
@@ -222,6 +228,30 @@ Use `--profile` to change the section name.
 
 > [!TIP]
 > The credentials are temporary; re-run after expiry (appending adds a duplicate section — AWS uses the last one, but prune stale sections occasionally). We recommend the utilizing `credential-process` in `~/.aws/config` rather storing temporary credentials in `~/.aws/credentials`.
+
+### JSON output and exit codes
+
+Every command that reports information takes `--json`: `auth status`, and `product list`, `view`, `create`, `edit` and `delete` (which print the resulting record). Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
+
+A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
+
+```json
+{"error": {"code": "invalid_input", "message": "…", "status": 400, "field_errors": {"title": ["…"]}}}
+```
+
+Exit codes are the same for every command:
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Any other failure, including cancelling a prompt |
+| 2 | Bad command-line usage |
+| 3 | The API rejected the input (HTTP 400, 409, 422): fix the named fields and retry |
+| 4 | Not signed in, or not allowed (HTTP 401, 403) |
+| 5 | Not found (HTTP 404) |
+| 130 | Interrupted (Ctrl+C) |
+
+`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`.
 
 ## Managing products
 

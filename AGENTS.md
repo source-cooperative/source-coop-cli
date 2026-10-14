@@ -60,6 +60,28 @@ Everything goes through the `Prompter` trait (`src/prompt.rs`), so tests can scr
 - **Color only through `src/style.rs`** (`style::wanted`, `paint`, `id`), only on a terminal, never with `NO_COLOR`. IDs are gray.
 - **Show chosen fields, not every stored attribute.** Records carry internal leftovers; `data_mode` was one. Human output lists chosen fields with labels (`product_lines`). `--json` carries everything.
 
+### JSON output
+
+Scripts and AI agents use the CLI through `--json`, so it is a contract, not a second layout.
+
+- **Every command that reports information takes `--json`:** reads, writes (the resulting record), `auth status`. Exceptions, which already print machine output or none of their own: `creds` (`--format`), `exec` (its command's output), `auth token` (a bare token), `api` (the API's response) and `-i` modes (interactive; `list --json` is their counterpart).
+- **One JSON document on stdout and nothing else there.** Progress and notes go to stderr. No color, no padding, no pager.
+- **Field names are the API's** (`account_id`, `created_at` in RFC 3339), plus derived fields only where they spare scripts work (`"expired": true`). Never human renderings like "3 years ago".
+- **Adding fields is fine. Renaming or removing one is a breaking change.** Human output may change freely.
+- **Print through `output::json`.** Don't hand-roll `serde_json` printing in a command.
+- **Errors under `--json` are JSON too**, on stderr: `{"error": {"code", "message", "status"?, "field_errors"?}}`, the API's error shape. `fail(e, json)` in `main.rs` does it, using `failure::classify`. A command passes whether `--json` was asked for.
+- **Exit codes mean the same everywhere** (`failure::Failure::exit_code`):
+
+  | Code | Meaning |
+  |------|---------|
+  | 0 | Success |
+  | 1 | Any other failure, including cancelling a prompt |
+  | 2 | Bad command-line usage (clap) |
+  | 3 | The API rejected the input (400, 409, 422): fix the named fields and retry |
+  | 4 | Not signed in, or not allowed (401, 403) |
+  | 5 | Not found (404) |
+  | 130 | Interrupted (Ctrl+C) |
+
 ## Stored data
 
 - Don't break a stored format (cache entries, sessions, drafts) without a way to read the old one.

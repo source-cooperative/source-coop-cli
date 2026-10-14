@@ -59,7 +59,10 @@ impl fmt::Display for ApiError {
 
 impl From<ApiError> for String {
     fn from(e: ApiError) -> Self {
-        e.to_string()
+        let text = e.to_string();
+        // So `--json` errors and exit codes can still give its code and fields.
+        crate::failure::remember(&e, &text);
+        text
     }
 }
 
