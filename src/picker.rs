@@ -403,7 +403,14 @@ pub fn line(
                 if value.trim().is_empty() && !allow_empty {
                     continue;
                 }
-                done(style("✔").green().to_string(), &value)?;
+                // Long text (the one with an editor) keeps what was there on
+                // an empty Enter, so say that rather than show nothing.
+                let shown = if editor && value.trim().is_empty() {
+                    style("(no change)").dim().to_string()
+                } else {
+                    value.clone()
+                };
+                done(style("✔").green().to_string(), &shown)?;
                 return Ok(Line::Text(value));
             }
             Key::Backspace if at > 0 => {
