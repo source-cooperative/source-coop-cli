@@ -77,7 +77,7 @@ Run `source-coop <command> --help` for each command's flags and examples.";
     name = "source-coop",
     about = "Source Cooperative CLI",
     version,
-    after_long_help = FOR_SCRIPTS
+    after_long_help = style::help(FOR_SCRIPTS)
 )]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
