@@ -45,9 +45,10 @@ pub fn help(text: &str) -> clap::builder::StyledStr {
     lines.join("\n").into()
 }
 
-/// A command's "Examples:" help section, one indented command per line.
-pub fn examples(lines: &str) -> clap::builder::StyledStr {
-    help(&format!("Examples:\n{lines}"))
+/// A command's "Examples:" help section, a command a line.
+pub fn examples(commands: &[&str]) -> clap::builder::StyledStr {
+    let lines: Vec<_> = commands.iter().map(|c| format!("  {c}")).collect();
+    help(&format!("Examples:\n{}", lines.join("\n")))
 }
 
 /// How long ago `then` was, at `now`, in the largest whole unit: "just now",
