@@ -196,7 +196,7 @@ Like `creds`, it takes `--proxy-url` (`SOURCE_PROXY_URL`) and `--role-arn` (`SOU
 | `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `d037d00b-...` | OAuth2 client ID |
 | `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS; also selects the environment the login is cached under |
-| `--role-arn` | `SOURCE_ROLE_ARN` | `source-coop-user` | Role ARN to assume |
+| `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
 | `--format` | | `credential-process` | Output format: `credential-process`, `env`, or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds) |
