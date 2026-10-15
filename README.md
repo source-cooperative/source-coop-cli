@@ -45,18 +45,28 @@ source-coop auth login
 
    `source-coop login`, its name before `auth` held it, still works.
 
-2. Configure `~/.aws/config` to use cached credentials:
+2. Add a `source-coop` profile to your AWS config file (`login` suggests this until the profile exists):
+
+```bash
+source-coop auth setup-aws
+```
+
+   It writes this section to `~/.aws/config` (or `AWS_CONFIG_FILE`), and running it again updates the section in place:
 
 ```ini
 [profile source-coop]
-credential_process = source-coop creds
+credential_process = source-coop creds --proxy-url https://data.source.coop
 endpoint_url = https://data.source.coop
+region = us-east-1
 ```
 
-3. Use AWS tools normally:
+   Only `credential_process` and `endpoint_url` are managed. `region` is added only if the section has none (the proxy ignores it, but signing needs one), and the rest of the file, including other keys in the section, is left as it was. `--profile NAME` picks another name, and `--json` prints `{"profile", "config_file", "changed", "settings"}`.
+
+3. Use AWS tools normally, with `--profile` or `AWS_PROFILE`:
 
 ```bash
 aws s3 ls s3://my-account/my-product --profile source-coop
+AWS_PROFILE=source-coop python my_script.py   # boto3, s3fs, and other SDK-based tools
 ```
 
 When credentials expire, `source-coop creds` uses the cached refresh token to fetch new ones automatically. Run `source-coop auth login` again only when that fails (e.g. the refresh token has expired or been revoked).
@@ -144,16 +154,23 @@ source-coop auth login --role-arn reader-role
 source-coop auth login --role-arn admin-role
 ```
 
-Use `creds` with `--role-arn` to select which role to output:
+Give each role a profile of its own; `creds --role-arn` is what selects the role:
+
+```bash
+source-coop auth setup-aws --role-arn reader-role
+source-coop auth setup-aws --role-arn admin-role --profile source-coop-admin
+```
 
 ```ini
 [profile source-coop]
-credential_process = source-coop creds --role-arn reader-role
+credential_process = source-coop creds --proxy-url https://data.source.coop --role-arn reader-role
 endpoint_url = https://data.source.coop
+region = us-east-1
 
 [profile source-coop-admin]
-credential_process = source-coop creds --role-arn admin-role
+credential_process = source-coop creds --proxy-url https://data.source.coop --role-arn admin-role
 endpoint_url = https://data.source.coop
+region = us-east-1
 ```
 
 ### Multiple environments (e.g. staging)
@@ -165,17 +182,21 @@ source-coop auth login
 ( source .env.staging && source-coop auth login )
 ```
 
-`creds` and `auth token` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment, and without either they use production. A non-production profile must pass `--proxy-url`; one that relied on whichever environment was logged in last will now get production credentials:
+`creds`, `auth token` and `auth setup-aws` read `SOURCE_PROXY_URL` (or `--proxy-url`) to pick the environment, and without either they use production. `auth setup-aws` names a non-production profile after its environment (`source-coop-staging` for `data.staging.source.coop`):
+
+```bash
+( source .env.staging && source-coop auth setup-aws )
+aws s3 ls s3://my-account/ --profile source-coop-staging
+```
 
 ```ini
-[profile source-coop]
-credential_process = source-coop creds
-endpoint_url = https://data.source.coop
-
 [profile source-coop-staging]
 credential_process = source-coop creds --proxy-url https://data.staging.source.coop
 endpoint_url = https://data.staging.source.coop
+region = us-east-1
 ```
+
+A profile written by hand must pass `--proxy-url` to `creds` too: without it, `creds` uses `SOURCE_PROXY_URL` from whatever shell runs the tool, or production when it isn't set, whichever endpoint the profile names.
 
 ### Logging out
 

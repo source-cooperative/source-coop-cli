@@ -1,4 +1,5 @@
 mod api_cmd;
+mod aws_config;
 mod cache;
 mod failure;
 mod oidc;
@@ -119,6 +120,31 @@ enum AuthCommand {
     /// Print an access token for the source.coop API, refreshing it if expired
     /// (e.g. `curl -H "Authorization: Bearer $(source-coop auth token)" ...`)
     Token(TokenArgs),
+    /// Add or update a profile in the AWS config file that gets credentials
+    /// from `source-coop creds` and points S3 at the proxy
+    /// (e.g. then `aws s3 ls s3://my-org/ --profile source-coop`)
+    SetupAws(SetupAwsArgs),
+}
+
+#[derive(Parser)]
+struct SetupAwsArgs {
+    /// S3 proxy URL: the environment the profile gets credentials from, and
+    /// its S3 endpoint
+    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    /// Role ARN whose credentials the profile gets
+    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
+    role_arn: String,
+
+    /// Profile name [default: `source-coop`, or `source-coop-<environment>`
+    /// outside production]
+    #[arg(long)]
+    profile: Option<String>,
+
+    /// Print the profile as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 #[derive(Parser)]
@@ -275,6 +301,12 @@ async fn main() {
         Commands::Auth(AuthCommand::Logout(args)) => {
             let json = args.json;
             if let Err(e) = run_logout(args) {
+                fail(e, json);
+            }
+        }
+        Commands::Auth(AuthCommand::SetupAws(args)) => {
+            let json = args.json;
+            if let Err(e) = run_setup_aws(args) {
                 fail(e, json);
             }
         }
@@ -664,6 +696,56 @@ fn run_logout(args: LogoutArgs) -> Result<(), String> {
     Ok(())
 }
 
+fn run_setup_aws(args: SetupAwsArgs) -> Result<(), String> {
+    let profile = match args.profile {
+        Some(profile) => profile,
+        None => aws_config::default_profile(&args.proxy_url)?,
+    };
+    let role = (args.role_arn != defaults::ROLE_ARN).then_some(args.role_arn.as_str());
+    let settings = aws_config::settings(&args.proxy_url, role);
+    let path = aws_config::path()?;
+    let before = match std::fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(e) => return Err(format!("Couldn't read {}: {e}", path.display())),
+    };
+    let after = aws_config::upsert(&before, &profile, &settings);
+    let changed = after != before;
+    if changed {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("Couldn't create {}: {e}", dir.display()))?;
+        }
+        // Written in place, not renamed over, so a symlinked config stays one.
+        std::fs::write(&path, &after)
+            .map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
+    }
+    let section = aws_config::section(&after, &profile).unwrap_or_default();
+    if args.json {
+        let values: serde_json::Map<_, _> = section
+            .iter()
+            .skip(1)
+            .filter_map(|l| l.split_once('='))
+            .filter(|(k, _)| !k.starts_with(char::is_whitespace))
+            .map(|(k, v)| (k.trim().to_string(), v.trim().into()))
+            .collect();
+        output::json(&serde_json::json!({
+            "profile": profile,
+            "config_file": path,
+            "changed": changed,
+            "settings": values,
+        }));
+    } else {
+        let verb = if changed { "Saved" } else { "Already set up:" };
+        eprintln!("{verb} profile '{profile}' in {}:\n", path.display());
+        for line in &section {
+            eprintln!("  {line}");
+        }
+        eprintln!("\nUse it with `aws --profile {profile}` or `export AWS_PROFILE={profile}`.");
+    }
+    Ok(())
+}
+
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
     let env = cache::env(&args.proxy_url)?;
     let token = session::token(env.as_deref(), session::Want::Access, verbose)
@@ -743,7 +825,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let entry = cache::CacheEntry {
         creds,
         sts: Some(cache::StsSettings {
-            proxy_url: args.proxy_url,
+            proxy_url: args.proxy_url.clone(),
             duration: args.duration,
         }),
         refresh: None,
@@ -756,6 +838,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     };
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");
+    if let Some(hint) = setup_aws_hint(&args.proxy_url, &args.role_arn) {
+        eprintln!("{hint}");
+    }
 
     // Last, once the login is saved: the lookup only names the account for
     // `auth status`, so a slow or failing API can't cost the login.
@@ -777,6 +862,26 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+/// After a login, how to get AWS tools using it, unless the environment's
+/// profile is already in the AWS config file.
+fn setup_aws_hint(proxy_url: &str, role_arn: &str) -> Option<String> {
+    let profile = aws_config::default_profile(proxy_url).ok()?;
+    let text = std::fs::read_to_string(aws_config::path().ok()?).unwrap_or_default();
+    if aws_config::section(&text, &profile).is_some() {
+        return None;
+    }
+    let mut command = "source-coop auth setup-aws".to_string();
+    if proxy_url.trim_end_matches('/') != defaults::PROXY_URL {
+        command.push_str(&format!(" --proxy-url {proxy_url}"));
+    }
+    if role_arn != defaults::ROLE_ARN {
+        command.push_str(&format!(" --role-arn {role_arn}"));
+    }
+    Some(format!(
+        "Run '{command}' to add a '{profile}' profile for the AWS CLI and SDKs."
+    ))
 }
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
