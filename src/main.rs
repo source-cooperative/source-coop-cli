@@ -1,22 +1,15 @@
+mod api;
 mod api_cmd;
 mod cache;
+mod draft;
 mod failure;
 mod oidc;
 mod output;
+mod picker;
+mod product;
+mod prompt;
 mod session;
 mod sts;
-// Reusable pieces for the commands built on them (resources such as
-// products, and `auth`). Parts are unused until those land; each command PR
-// removes the allowances it no longer needs.
-#[allow(dead_code)]
-mod api;
-#[allow(dead_code)]
-mod draft;
-#[allow(dead_code)]
-mod picker;
-#[allow(dead_code)]
-mod prompt;
-#[allow(dead_code)]
 mod style;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -86,6 +79,8 @@ enum Commands {
     /// Log in through the browser (now `auth login`; this name still works)
     #[command(hide = true)]
     Login(LoginArgs),
+    /// List, view, create, edit and delete products
+    Product(ProductArgs),
     /// Make any request to the source.coop API, signed in as you
     Api(ApiCommandArgs),
 }
@@ -226,6 +221,22 @@ struct CredsArgs {
     profile: String,
 }
 
+/// A command that calls the source.coop API, as whoever ran `login` (see
+/// `api_token`).
+#[derive(Parser)]
+struct ProductArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    /// S3 proxy URL of the environment whose login session to use
+    #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    #[command(subcommand)]
+    command: product::ProductCommand,
+}
+
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// AWS credential_process JSON format
@@ -281,6 +292,24 @@ async fn main() {
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
                 fail(e, false);
+            }
+        }
+        Commands::Product(args) => {
+            let json = args.command.wants_json();
+            let token = api_token(&args.proxy_url, verbose).await;
+            let result = match api::Client::new(&args.api_url, token, verbose) {
+                Ok(client) => {
+                    let mut tty = prompt::tty();
+                    if tty.is_some() {
+                        picker::handle_interrupts();
+                    }
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    product::run(args.command, &client, &args.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
             }
         }
         Commands::Api(args) => {
@@ -1343,6 +1372,40 @@ mod tests {
 
     /// AGENTS.md: the README documents the CLI as it is, starting with every
     /// command appearing in it as `source-coop <command>`.
+    /// The conventions in AGENTS.md that can be checked: in every resource
+    /// (a command with a `list`), each subcommand but `create` takes `-i`, and
+    /// the reads, `list` and `view`, take `--json`.
+    #[test]
+    fn resource_commands_follow_the_cli_conventions() {
+        fn check(cmd: &clap::Command, resources: &mut usize, problems: &mut Vec<String>) {
+            if cmd.find_subcommand("list").is_some() {
+                *resources += 1;
+                for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                    let name = format!("{} {}", cmd.get_name(), sub.get_name());
+                    let has = |short: Option<char>, long: &str| {
+                        sub.get_arguments().any(|a| {
+                            a.get_long() == Some(long)
+                                && (short.is_none() || a.get_short() == short)
+                        })
+                    };
+                    if sub.get_name() != "create" && !has(Some('i'), "interactive") {
+                        problems.push(format!("{name}: no -i/--interactive"));
+                    }
+                    if ["list", "view"].contains(&sub.get_name()) && !has(None, "json") {
+                        problems.push(format!("{name}: no --json"));
+                    }
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, resources, problems);
+            }
+        }
+        let (mut resources, mut problems) = (0, vec![]);
+        check(&Cli::command(), &mut resources, &mut problems);
+        assert!(resources > 0, "found no resource commands to check");
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
     #[test]
     fn every_command_is_in_the_readme() {
         let readme = include_str!("../README.md");
