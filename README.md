@@ -77,6 +77,21 @@ When credentials expire, `source-coop creds` uses the cached refresh token to fe
 curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
 ```
 
+### Using other tools
+
+The profile gives credentials to anything built on an AWS SDK that reads `~/.aws/config`, renewing them as they expire. Some tools need the endpoint set their own way, and a few can't use the profile's credentials at all:
+
+| Tool | Credentials | Endpoint |
+|------|-------------|----------|
+| AWS CLI v2.13+, boto3, s3fs (pandas, xarray, Zarr), Polars with boto3 installed, AWS SDKs for Go v2, JavaScript v3, Java v2 and Rust | `--profile source-coop` or `AWS_PROFILE=source-coop` | From the profile |
+| s5cmd | `AWS_PROFILE=source-coop` (its `--profile` reads static keys only) | `S3_ENDPOINT_URL=https://data.source.coop` |
+| DuckDB | `CREATE SECRET (TYPE s3, PROVIDER credential_chain, PROFILE 'source-coop', ENDPOINT 'data.source.coop', URL_STYLE 'path')`, read when the secret is created | In the secret |
+| GDAL 3.12+ (`/vsis3/`), rasterio with boto3 installed | `AWS_PROFILE=source-coop` | `AWS_S3_ENDPOINT=data.source.coop` and `AWS_VIRTUAL_HOSTING=FALSE` |
+| GDAL before 3.12 (most QGIS, pyogrio and geopandas installs), Rust `object_store` (obstore, Polars without boto3) | Not from the profile: `eval "$(source-coop creds --format env)"` exports them, valid for an hour | GDAL as above; `object_store` reads `AWS_ENDPOINT_URL_S3` (0.13.2+) or `AWS_ENDPOINT` |
+| MinIO `mc` | Not from the profile: put `creds --format env`'s keys in `MC_HOST_source=https://KEY:SECRET:TOKEN@data.source.coop` | In `MC_HOST_source` |
+
+For staging, use the `source-coop-staging` profile and `data.staging.source.coop`.
+
 ### Logging in on a remote server (no browser)
 
 `auth login` receives the OAuth2 redirect on a local port, so on a headless machine, forward that port over SSH and complete the login in your local browser:
