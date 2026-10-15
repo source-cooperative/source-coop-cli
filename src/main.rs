@@ -57,8 +57,28 @@ fn parse_duration(s: &str) -> Result<u64, String> {
         .ok_or_else(err)
 }
 
+/// How to drive the CLI from a script or an AI agent, shown by `--help`.
+const FOR_SCRIPTS: &str = "\
+For scripts and agents:
+  --json          On reads and writes: one JSON document on stdout, notes on stderr.
+                  Failures are JSON on stderr: {\"error\": {\"code\", \"message\", \"status\", \"field_errors\"}}
+  No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
+                  give fields as flags or -F FILE (- for stdin), and --yes to delete.
+  SOURCE_TOKEN    A bearer token for the API, used instead of the login session.
+
+Exit codes:
+  0 success  1 other failure  2 bad usage  3 input rejected (fix field_errors)
+  4 not signed in or not allowed  5 not found  130 interrupted
+
+Run `source-coop <command> --help` for each command's flags and examples.";
+
 #[derive(Parser)]
-#[command(name = "source-coop", about = "Source Cooperative CLI", version)]
+#[command(
+    name = "source-coop",
+    about = "Source Cooperative CLI",
+    version,
+    after_long_help = FOR_SCRIPTS
+)]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
     #[arg(short, long, global = true)]
@@ -1404,6 +1424,27 @@ mod tests {
         check(&Cli::command(), &mut resources, &mut problems);
         assert!(resources > 0, "found no resource commands to check");
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// `--help` is what agents read, so nothing in it may be blank.
+    #[test]
+    fn every_command_and_argument_has_help() {
+        fn check(cmd: &clap::Command, path: &str, missing: &mut Vec<String>) {
+            if cmd.get_about().is_none() {
+                missing.push(path.to_string());
+            }
+            for a in cmd.get_arguments() {
+                if a.get_help().is_none() && !["help", "version"].contains(&a.get_id().as_str()) {
+                    missing.push(format!("{path} {}", a.get_id()));
+                }
+            }
+            for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                check(sub, &format!("{path} {}", sub.get_name()), missing);
+            }
+        }
+        let mut missing = vec![];
+        check(&Cli::command(), "source-coop", &mut missing);
+        assert!(missing.is_empty(), "no help text: {missing:#?}");
     }
 
     #[test]
