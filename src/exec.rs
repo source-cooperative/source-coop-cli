@@ -20,8 +20,30 @@ pub fn vars(creds: &Credentials, proxy_url: &str, region_set: bool) -> Vec<(&'st
         // KMS) a script calls keep their own endpoints.
         ("AWS_ENDPOINT_URL_S3", endpoint.clone()),
         // s5cmd.
-        ("S3_ENDPOINT_URL", endpoint),
+        ("S3_ENDPOINT_URL", endpoint.clone()),
+        // Rust `object_store` (obstore, Polars without boto3) before 0.13.2,
+        // which doesn't read AWS_ENDPOINT_URL_S3; the AWS SDKs ignore it.
+        ("AWS_ENDPOINT", endpoint),
     ];
+    if let Ok(url) = url::Url::parse(proxy_url) {
+        let http = url.scheme() == "http";
+        if http {
+            // `object_store` refuses plain HTTP (a local proxy) without it.
+            vars.push(("AWS_ALLOW_HTTP", "true".into()));
+        }
+        // GDAL's /vsis3/ (QGIS, rasterio, geopandas), which reads no AWS
+        // endpoint setting: a host without the scheme for GDAL before 3.11,
+        // and paths rather than bucket subdomains.
+        if let Some(host) = url.host_str() {
+            let host = match url.port() {
+                Some(port) => format!("{host}:{port}"),
+                None => host.to_string(),
+            };
+            vars.push(("AWS_S3_ENDPOINT", host));
+            vars.push(("AWS_HTTPS", if http { "NO" } else { "YES" }.into()));
+            vars.push(("AWS_VIRTUAL_HOSTING", "FALSE".into()));
+        }
+    }
     if !region_set {
         vars.push(("AWS_REGION", "us-east-1".into()));
         vars.push(("AWS_DEFAULT_REGION", "us-east-1".into()));
@@ -97,7 +119,24 @@ mod tests {
             );
         }
         assert_eq!(get("AWS_ENDPOINT_URL"), None, "only S3 goes to the proxy");
+        assert_eq!(
+            get("AWS_ENDPOINT"),
+            Some("https://data.staging.source.coop")
+        );
+        assert_eq!(get("AWS_S3_ENDPOINT"), Some("data.staging.source.coop"));
+        assert_eq!(get("AWS_HTTPS"), Some("YES"));
+        assert_eq!(get("AWS_VIRTUAL_HOSTING"), Some("FALSE"));
+        assert_eq!(get("AWS_ALLOW_HTTP"), None);
         assert_eq!(get("AWS_REGION"), Some("us-east-1"));
+    }
+
+    #[test]
+    fn a_local_proxy_over_http_keeps_its_port() {
+        let vars = vars(&creds(), "http://localhost:9000", false);
+        let get = |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("AWS_S3_ENDPOINT"), Some("localhost:9000"));
+        assert_eq!(get("AWS_HTTPS"), Some("NO"));
+        assert_eq!(get("AWS_ALLOW_HTTP"), Some("true"));
     }
 
     #[test]
