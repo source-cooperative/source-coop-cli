@@ -136,14 +136,14 @@ pub struct ViewArgs {
     json: bool,
 }
 
-#[derive(Args)]
-pub struct CreateArgs {
-    /// The new product, as ACCOUNT/PRODUCT (prompted for when omitted)
-    product: Option<ProductRef>,
-
+/// The fields `product create` and `product edit` both take.
+#[derive(Args, Default)]
+pub struct Fields {
+    /// The product's title
     #[arg(long, short = 't')]
     title: Option<String>,
 
+    /// The product's description
     #[arg(long, short = 'd')]
     description: Option<String>,
 
@@ -151,13 +151,22 @@ pub struct CreateArgs {
     #[arg(long)]
     visibility: Option<String>,
 
-    /// The data connection that stores the product's data (fixed once created)
-    #[arg(long = "data-connection")]
-    data_connection_id: Option<String>,
-
     /// Read fields from a JSON object in this file (`-` for stdin); flags win
     #[arg(long, short = 'F', value_name = "PATH")]
     from_file: Option<String>,
+}
+
+#[derive(Args)]
+pub struct CreateArgs {
+    /// The new product, as ACCOUNT/PRODUCT (prompted for when omitted)
+    product: Option<ProductRef>,
+
+    #[command(flatten)]
+    fields: Fields,
+
+    /// The data connection that stores the product's data (fixed once created)
+    #[arg(long = "data-connection")]
+    data_connection_id: Option<String>,
 
     /// Print the new product as JSON
     #[arg(long)]
@@ -175,15 +184,8 @@ pub struct EditArgs {
     #[arg(long, short = 'i')]
     interactive: bool,
 
-    #[arg(long, short = 't')]
-    title: Option<String>,
-
-    #[arg(long, short = 'd')]
-    description: Option<String>,
-
-    /// public, unlisted or restricted
-    #[arg(long)]
-    visibility: Option<String>,
+    #[command(flatten)]
+    fields: Fields,
 
     /// Deactivate the product
     #[arg(long, conflicts_with = "enable")]
@@ -192,10 +194,6 @@ pub struct EditArgs {
     /// Reactivate a deactivated product (admins only)
     #[arg(long)]
     enable: bool,
-
-    /// Read fields from a JSON object in this file (`-` for stdin); flags win
-    #[arg(long, short = 'F', value_name = "PATH")]
-    from_file: Option<String>,
 
     /// Print the edited product as JSON
     #[arg(long)]
@@ -614,12 +612,9 @@ async fn act(
             let args = EditArgs {
                 product: Some(p.clone()),
                 interactive: false,
-                title: None,
-                description: None,
-                visibility: None,
+                fields: Fields::default(),
                 disable: false,
                 enable: false,
-                from_file: None,
                 json: false,
             };
             let refetched = match edit(args, client, site, Some(&mut *ask)).await {
@@ -1081,10 +1076,10 @@ async fn create(
     site: &str,
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
-    let mut body = read_fields(args.from_file.as_deref())?;
-    insert_some(&mut body, "title", args.title);
-    insert_some(&mut body, "description", args.description);
-    insert_some(&mut body, "visibility", args.visibility);
+    let mut body = read_fields(args.fields.from_file.as_deref())?;
+    insert_some(&mut body, "title", args.fields.title);
+    insert_some(&mut body, "description", args.fields.description);
+    insert_some(&mut body, "visibility", args.fields.visibility);
     insert_some(&mut body, "data_connection_id", args.data_connection_id);
 
     // Before the first question, so nobody types a product only to be refused.
@@ -1112,7 +1107,7 @@ async fn create(
         None => {
             let created = sent?;
             if let Ok(saved) = Draft::for_key(&key) {
-                saved.sent_from(args.from_file.as_deref());
+                saved.sent_from(args.fields.from_file.as_deref());
             }
             created
         }
@@ -1242,10 +1237,10 @@ async fn edit(
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let target = named(&args.product)?;
-    let mut body = read_fields(args.from_file.as_deref())?;
-    insert_some(&mut body, "title", args.title);
-    insert_some(&mut body, "description", args.description);
-    insert_some(&mut body, "visibility", args.visibility);
+    let mut body = read_fields(args.fields.from_file.as_deref())?;
+    insert_some(&mut body, "title", args.fields.title);
+    insert_some(&mut body, "description", args.fields.description);
+    insert_some(&mut body, "visibility", args.fields.visibility);
     if args.disable || args.enable {
         body.insert("disabled".into(), json!(args.disable));
     }
@@ -1279,7 +1274,7 @@ async fn edit(
         None => {
             let product = sent?;
             if let Ok(saved) = Draft::for_key(&key) {
-                saved.sent_from(args.from_file.as_deref());
+                saved.sent_from(args.fields.from_file.as_deref());
             }
             product
         }
@@ -1673,11 +1668,8 @@ mod tests {
     fn create_args(product: Option<&str>) -> CreateArgs {
         CreateArgs {
             product: product.map(|p| p.parse().unwrap()),
-            title: None,
-            description: None,
-            visibility: None,
+            fields: Fields::default(),
             data_connection_id: None,
-            from_file: None,
             json: false,
         }
     }
@@ -1686,12 +1678,9 @@ mod tests {
         EditArgs {
             product: Some("acct/prod".parse().unwrap()),
             interactive: false,
-            title: None,
-            description: None,
-            visibility: None,
+            fields: Fields::default(),
             disable: false,
             enable: false,
-            from_file: None,
             json: false,
         }
     }
@@ -1769,8 +1758,8 @@ mod tests {
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let args = || {
             let mut args = create_args(Some("acct/drafted"));
-            args.title = Some("T".into());
-            args.visibility = Some("public".into());
+            args.fields.title = Some("T".into());
+            args.fields.visibility = Some("public".into());
             args.data_connection_id = Some("dc".into());
             args
         };
@@ -1812,7 +1801,7 @@ mod tests {
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/prod"));
         args.data_connection_id = Some("dc".into());
-        args.visibility = Some("public".into());
+        args.fields.visibility = Some("public".into());
         let mut ask = Script::new([Text("T"), Text("D"), Yes(false)]);
         let err = create(args, &client, SITE, Some(&mut ask))
             .await
@@ -2092,7 +2081,7 @@ mod tests {
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/prod"));
-        args.title = Some("T".into());
+        args.fields.title = Some("T".into());
         create(args, &client, SITE, None).await.unwrap();
     }
 
@@ -2348,8 +2337,8 @@ mod tests {
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/prod"));
-        args.title = Some("Flag wins".into());
-        args.from_file = Some(f.to_str().unwrap().into());
+        args.fields.title = Some("Flag wins".into());
+        args.fields.from_file = Some(f.to_str().unwrap().into());
         let mut ask = Script::new([Pick(1), Default]);
         create(args, &client, SITE, Some(&mut ask)).await.unwrap();
         let sent = json!({"title": "Flag wins", "description": "From file",
@@ -2680,7 +2669,7 @@ mod tests {
         let mut args = edit_args();
         args.product = None;
         args.interactive = true;
-        args.title = Some("New".into());
+        args.fields.title = Some("New".into());
         run(
             ProductCommand::Edit(args),
             &client,
@@ -2796,10 +2785,10 @@ mod tests {
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/Bad--ID"));
-        args.title = Some("T".into());
-        args.description = Some("D".into());
+        args.fields.title = Some("T".into());
+        args.fields.description = Some("D".into());
         args.data_connection_id = Some("dc".into());
-        args.visibility = Some("public".into());
+        args.fields.visibility = Some("public".into());
         let mut ask = Script::new([Text("good-id")]);
         create(args, &client, SITE, Some(&mut ask)).await.unwrap();
         // Only the rejected field is asked for, starting from what was sent.
@@ -2818,10 +2807,10 @@ mod tests {
             .await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let mut args = create_args(Some("acct/prod"));
-        args.title = Some("T".into());
-        args.description = Some("D".into());
+        args.fields.title = Some("T".into());
+        args.fields.description = Some("D".into());
         args.data_connection_id = Some("dc".into());
-        args.visibility = Some("public".into());
+        args.fields.visibility = Some("public".into());
         let mut ask = Script::new([]);
         let err = create(args, &client, SITE, Some(&mut ask))
             .await
