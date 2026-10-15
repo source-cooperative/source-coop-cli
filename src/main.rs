@@ -1472,6 +1472,35 @@ mod tests {
         );
     }
 
+    /// Agents copy examples as they are, so each must still parse: a renamed
+    /// flag fails here rather than in someone's script.
+    #[test]
+    fn help_examples_parse() {
+        fn check(cmd: &clap::Command, examples: &mut usize, broken: &mut Vec<String>) {
+            let text = cmd
+                .get_after_help()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            let lines = text.lines().skip_while(|l| *l != "Examples:").skip(1);
+            for line in lines.take_while(|l| l.starts_with("  ")) {
+                // The CLI's part of a pipeline, e.g. `echo '{…}' | source-coop …`.
+                let example = line.rsplit("| ").next().unwrap().trim();
+                let args = shlex::split(example).unwrap_or_default();
+                *examples += 1;
+                if let Err(e) = Cli::try_parse_from(&args) {
+                    broken.push(format!("{example}\n{e}"));
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, examples, broken);
+            }
+        }
+        let (mut examples, mut broken) = (0, vec![]);
+        check(&Cli::command(), &mut examples, &mut broken);
+        assert!(examples > 0, "found no examples to check");
+        assert!(broken.is_empty(), "{}", broken.join("\n\n"));
+    }
+
     #[test]
     fn every_command_is_in_the_readme() {
         let readme = include_str!("../README.md");
