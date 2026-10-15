@@ -366,8 +366,8 @@ pub(crate) fn write_file(path: &Path, json: &str) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
-/// Check if credentials are expired or will expire within a 60-second buffer.
-pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
+/// Whether `creds` run out within `left` from now (or already have).
+pub fn expires_within(creds: &Credentials, left: chrono::Duration) -> Result<bool, String> {
     let expiration = chrono::DateTime::parse_from_rfc3339(&creds.expiration).map_err(|e| {
         format!(
             "Failed to parse expiration timestamp '{}': {e}",
@@ -375,10 +375,7 @@ pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
         )
     })?;
 
-    let now = Utc::now();
-    let buffer = chrono::Duration::seconds(60);
-
-    Ok(expiration <= now + buffer)
+    Ok(expiration <= Utc::now() + left)
 }
 
 #[cfg(test)]
@@ -497,14 +494,14 @@ mod tests {
     fn expired_future_date() {
         let future = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
         let creds = sample_creds(&future);
-        assert!(!is_expired(&creds).unwrap());
+        assert!(!expires_within(&creds, chrono::Duration::seconds(60)).unwrap());
     }
 
     #[test]
     fn expired_past_date() {
         let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
         let creds = sample_creds(&past);
-        assert!(is_expired(&creds).unwrap());
+        assert!(expires_within(&creds, chrono::Duration::seconds(60)).unwrap());
     }
 
     #[test]
@@ -512,13 +509,22 @@ mod tests {
         // 30 seconds from now is within the 60s buffer
         let near_future = (Utc::now() + chrono::Duration::seconds(30)).to_rfc3339();
         let creds = sample_creds(&near_future);
-        assert!(is_expired(&creds).unwrap());
+        assert!(expires_within(&creds, chrono::Duration::seconds(60)).unwrap());
     }
 
     #[test]
     fn expired_invalid_timestamp() {
         let creds = sample_creds("not-a-timestamp");
-        assert!(is_expired(&creds).is_err());
+        assert!(expires_within(&creds, chrono::Duration::seconds(60)).is_err());
+    }
+
+    #[test]
+    fn expires_within_a_longer_margin() {
+        // Fine for `creds`, too short for `exec`'s 15 minutes.
+        let soon = (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
+        let creds = sample_creds(&soon);
+        assert!(!expires_within(&creds, chrono::Duration::seconds(60)).unwrap());
+        assert!(expires_within(&creds, chrono::Duration::minutes(15)).unwrap());
     }
 
     #[test]
