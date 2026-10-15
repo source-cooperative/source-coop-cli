@@ -27,6 +27,30 @@ pub fn id(on: bool, s: &str) -> String {
     paint(on, "90", s)
 }
 
+/// Help text with its section headings (unindented lines ending in `:`)
+/// styled like clap's own "Usage:" and "Options:". clap drops the styling
+/// wherever it prints help without color.
+pub fn help(text: &str) -> clap::builder::StyledStr {
+    let h = clap::builder::Styles::default().get_header().to_owned();
+    let lines: Vec<_> = text
+        .lines()
+        .map(|l| {
+            if l.starts_with(' ') || !l.ends_with(':') {
+                l.to_string()
+            } else {
+                format!("{h}{l}{h:#}")
+            }
+        })
+        .collect();
+    lines.join("\n").into()
+}
+
+/// A command's "Examples:" help section, a command a line.
+pub fn examples(commands: &[&str]) -> clap::builder::StyledStr {
+    let lines: Vec<_> = commands.iter().map(|c| format!("  {c}")).collect();
+    help(&format!("Examples:\n{}", lines.join("\n")))
+}
+
 /// How long ago `then` was, at `now`, in the largest whole unit: "just now",
 /// "5 minutes ago", "3 days ago", "2 years ago".
 pub fn ago(then: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> String {

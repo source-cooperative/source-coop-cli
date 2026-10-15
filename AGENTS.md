@@ -12,6 +12,16 @@ How this CLI behaves, so every command behaves the same way. Each rule names the
 
 Before committing, read the README sections your change touches and fix anything now untrue, including text written before your change. The README isn't a changelog: describe how the CLI works now, not what changed. `every_command_is_in_the_readme` in `src/main.rs` fails if a command is missing from it, but it can't tell whether the description is right. That part is on you.
 
+## Help is the agents' documentation
+
+Agents learn the CLI from `--help`, which always matches the installed version, so it has to stand on its own:
+
+- **Every command and argument has a help line.** `every_command_and_argument_has_help` checks this.
+- **Commands that change things show an example** in `after_help`, using `--json` and, where it applies, `-F -`. `help_examples_parse` checks that every example still parses.
+- **Extra help text goes through `style::help`** (`style::examples` for examples), so its headings look like clap's. `help_headings_are_styled_like_clap_s` checks this.
+- **`FOR_SCRIPTS` in `src/main.rs`** (the end of `source-coop --help`) sums up `--json`, prompts and exit codes. Keep it in step with the README and the JSON rules below.
+- **No separate agent guide.** Help is the reference and the README is the guide. A skill or `llms.txt` should say when to use the CLI and point to `--help`, not copy flags. This file is for contributors: agents that only use the CLI never see it.
+
 ## Commands
 
 - **One shape per resource.** A resource (`product`, and later accounts or members) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`.

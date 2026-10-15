@@ -277,6 +277,8 @@ Exit codes are the same for every command:
 | 5 | Not found (HTTP 404) |
 | 130 | Interrupted (Ctrl+C) |
 
+`source-coop --help` ends with a summary of this section, and each command's `--help` lists its flags with examples, so an AI agent can work out how to use the CLI from the CLI itself.
+
 `creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
 
 ## Managing products
