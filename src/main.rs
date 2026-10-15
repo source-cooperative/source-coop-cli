@@ -1447,6 +1447,36 @@ mod tests {
         assert!(missing.is_empty(), "no help text: {missing:#?}");
     }
 
+    /// Headings in `after_help` look like clap's own, which they only do
+    /// when written through `style::help`.
+    #[test]
+    fn help_headings_are_styled_like_clap_s() {
+        fn check(cmd: &clap::Command, path: &str, plain: &mut Vec<String>) {
+            let h = clap::builder::Styles::default().get_header().to_owned();
+            for text in [cmd.get_after_help(), cmd.get_after_long_help()]
+                .into_iter()
+                .flatten()
+            {
+                let ansi = text.ansi().to_string();
+                for l in text.to_string().lines() {
+                    let heading = !l.starts_with(' ') && l.ends_with(':');
+                    if heading && !ansi.contains(&format!("{h}{l}{h:#}")) {
+                        plain.push(format!("{path}: {l}"));
+                    }
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, &format!("{path} {}", sub.get_name()), plain);
+            }
+        }
+        let mut plain = vec![];
+        check(&Cli::command(), "source-coop", &mut plain);
+        assert!(
+            plain.is_empty(),
+            "write these through style::help: {plain:#?}"
+        );
+    }
+
     #[test]
     fn every_command_is_in_the_readme() {
         let readme = include_str!("../README.md");
