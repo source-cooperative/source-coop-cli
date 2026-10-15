@@ -13,24 +13,24 @@ use std::io::{IsTerminal, Write};
 pub enum ProductCommand {
     /// List public products, or one account's products
     #[command(
-        after_help = crate::style::help("Examples:\n  source-coop product list my-org --json\n  source-coop product list -q climate --format table")
+        after_help = crate::style::examples("  source-coop product list my-org --json\n  source-coop product list -q climate --format table")
     )]
     List(ListArgs),
     /// Show one product
-    #[command(after_help = crate::style::help("Examples:\n  source-coop product view my-org/my-data --json"))]
+    #[command(after_help = crate::style::examples("  source-coop product view my-org/my-data --json"))]
     View(ViewArgs),
     /// Create a product
     #[command(
-        after_help = crate::style::help("Examples:\n  source-coop product create my-org/my-data -t \"My data\" --visibility public --json\n  echo '{\"title\": \"My data\"}' | source-coop product create my-org/my-data -F - --json")
+        after_help = crate::style::examples("  source-coop product create my-org/my-data -t \"My data\" --visibility public --json\n  echo '{\"title\": \"My data\"}' | source-coop product create my-org/my-data -F - --json")
     )]
     Create(CreateArgs),
     /// Change a product's title, description, visibility or state
     #[command(
-        after_help = crate::style::help("Examples:\n  source-coop product edit my-org/my-data -d \"New description\" --json")
+        after_help = crate::style::examples("  source-coop product edit my-org/my-data -d \"New description\" --json")
     )]
     Edit(EditArgs),
     /// Delete a product and, unless --preserve-data, its data
-    #[command(after_help = crate::style::help("Examples:\n  source-coop product delete my-org/my-data --yes --json"))]
+    #[command(after_help = crate::style::examples("  source-coop product delete my-org/my-data --yes --json"))]
     Delete(DeleteArgs),
 }
 

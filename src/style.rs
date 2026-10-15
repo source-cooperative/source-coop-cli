@@ -45,6 +45,11 @@ pub fn help(text: &str) -> clap::builder::StyledStr {
     lines.join("\n").into()
 }
 
+/// A command's "Examples:" help section, one indented command per line.
+pub fn examples(lines: &str) -> clap::builder::StyledStr {
+    help(&format!("Examples:\n{lines}"))
+}
+
 /// How long ago `then` was, at `now`, in the largest whole unit: "just now",
 /// "5 minutes ago", "3 days ago", "2 years ago".
 pub fn ago(then: chrono::DateTime<chrono::Utc>, now: chrono::DateTime<chrono::Utc>) -> String {
