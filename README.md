@@ -249,6 +249,7 @@ source-coop api products/my-org -q limit=5
 source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
   -f visibility=public -f data_connection_id=my-connection
 source-coop api products/my-org/new -X PATCH -F changes.json -f title="Renamed"
+echo '{"title": "Renamed", "tags": ["a"]}' | source-coop api products/my-org/new -X PATCH -F -
 ```
 
 `-q key=value` adds a query parameter. `-f key=value` sets a field in the JSON body: a value that parses as JSON (`5`, `true`, `null`, `["a","b"]`) is sent as that, and anything else as a string. To send something that looks like JSON as a string, quote it: `-f product_id='"2024"'`. `-F file.json` (`-` for stdin) reads the body from a file, and `-f` fields override its keys. The method is `GET`, or `POST` when there's a body; `-X` picks another, and a `GET` takes no body. Paths stay under `/api/v1`, and a query string in the path is kept. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
