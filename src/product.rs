@@ -1206,20 +1206,17 @@ fn reask(
     Ok(())
 }
 
-/// The data connections a product of `account_id` could be stored on: the
-/// unowned ones and the account's own. Empty if they can't be listed, in which
-/// case the caller asks for an ID instead.
+/// The data connections a product of `account_id` could be stored on, as the
+/// API judges them (`usable_for`): the platform's own the caller may use, and
+/// the account's own. Empty if they can't be listed, in which case the caller
+/// asks for an ID instead.
 async fn usable_connections(client: &Client, account_id: &str) -> Vec<Value> {
-    let all: Vec<Value> = match client.get(client.url(&["data-connections"])).await {
-        Ok(all) => all,
-        Err(_) => return vec![],
-    };
-    all.into_iter()
-        .filter(|c| match c.get("owner").and_then(Value::as_str) {
-            None => true,
-            Some(owner) => owner == account_id,
-        })
-        .collect()
+    let mut url = client.url(&["data-connections"]);
+    url.query_pairs_mut().append_pair("usable_for", account_id);
+    match client.get::<Page<Value>>(url).await {
+        Ok(page) => page.items,
+        Err(_) => vec![],
+    }
 }
 
 fn connection_label(c: &Value) -> String {
@@ -2116,14 +2113,13 @@ mod tests {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/data-connections"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {"data_connection_id": "theirs", "name": "Theirs", "owner": "someone-else",
-                 "allowed_visibilities": ["public"]},
+            .and(query_param("usable_for", "acct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
                 {"data_connection_id": "shared", "name": "Shared", "read_only": false,
                  "allowed_visibilities": ["public", "unlisted"]},
                 {"data_connection_id": "mine", "name": "Mine", "owner": "acct", "read_only": true,
                  "allowed_visibilities": ["restricted", "public"]},
-            ])))
+            ], "next_cursor": null})))
             .mount(&server)
             .await;
         expect_create(
@@ -2155,7 +2151,7 @@ mod tests {
                 "Product ID []",
                 "Title [My Data]",
                 "Description (long) []",
-                // Someone else's connection isn't offered.
+                // The connections the API says the account may use.
                 "Data connection [Shared (shared)] of Shared (shared) | Mine (mine, read-only)",
                 // Only what the chosen connection allows, starting on public.
                 "Visibility [public] of restricted | public",
@@ -2172,12 +2168,13 @@ mod tests {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/data-connections"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            .and(query_param("usable_for", "acct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
                 {"data_connection_id": "shared", "name": "Shared",
                  "allowed_visibilities": ["public", "unlisted"]},
                 {"data_connection_id": "mine", "name": "Mine", "owner": "acct", "read_only": true,
                  "allowed_visibilities": ["restricted", "public"]},
-            ])))
+            ], "next_cursor": null})))
             .mount(&server)
             .await;
         expect_create(
