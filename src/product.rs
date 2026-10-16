@@ -788,7 +788,11 @@ fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
         .flatten()
         .filter(|m| {
             str_field(m, "state") == "member"
-                && m.get("repository_id").is_none_or(Value::is_null)
+                // A product-scoped membership names its product `product_id`,
+                // or `repository_id` on servers that predate the rename.
+                && ["product_id", "repository_id"]
+                    .iter()
+                    .all(|k| m.get(*k).is_none_or(Value::is_null))
                 && matches!(str_field(m, "role"), "owners" | "maintainers")
         })
         .map(|m| str_field(m, "membership_account_id").to_string());
@@ -2254,6 +2258,8 @@ mod tests {
             org("read", "read_data", "member"),
             org("invited", "owners", "invited"),
             {"membership_account_id": "scoped", "role": "owners", "state": "member",
+             "product_id": "one-product"},
+            {"membership_account_id": "legacy", "role": "owners", "state": "member",
              "repository_id": "one-product"}
         ]);
         assert_eq!(
