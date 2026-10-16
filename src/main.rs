@@ -12,7 +12,7 @@ mod session;
 mod sts;
 mod style;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[cfg(feature = "staging")]
 mod defaults {
@@ -111,9 +111,8 @@ struct ApiCommandArgs {
     #[arg(long, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
-    /// S3 proxy URL of the environment whose login session to use
-    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
-    proxy_url: String,
+    #[command(flatten)]
+    env: EnvArgs,
 
     #[command(flatten)]
     request: api_cmd::ApiArgs,
@@ -138,13 +137,11 @@ enum AuthCommand {
 
 #[derive(Parser)]
 struct LogoutArgs {
-    /// S3 proxy URL: selects the environment to log out of
-    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
-    proxy_url: String,
+    #[command(flatten)]
+    env: EnvArgs,
 
-    /// Role ARN whose cached credentials to remove
-    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
-    role_arn: String,
+    #[command(flatten)]
+    role: RoleArgs,
 
     /// Print what was removed as JSON
     #[arg(long)]
@@ -153,13 +150,11 @@ struct LogoutArgs {
 
 #[derive(Parser)]
 struct StatusArgs {
-    /// S3 proxy URL: selects the environment to report on
-    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
-    proxy_url: String,
+    #[command(flatten)]
+    env: EnvArgs,
 
-    /// Role ARN whose cached credentials to report on
-    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
-    role_arn: String,
+    #[command(flatten)]
+    role: RoleArgs,
 
     /// Print the status as JSON
     #[arg(long)]
@@ -168,9 +163,8 @@ struct StatusArgs {
 
 #[derive(Parser)]
 struct TokenArgs {
-    /// S3 proxy URL of the environment whose login session to use
-    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
-    proxy_url: String,
+    #[command(flatten)]
+    env: EnvArgs,
 }
 
 #[derive(Parser)]
@@ -183,17 +177,14 @@ struct LoginArgs {
     #[arg(long, env = "SOURCE_OIDC_CLIENT_ID", default_value = defaults::CLIENT_ID)]
     client_id: String,
 
-    /// S3 proxy URL for STS
-    #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
-    proxy_url: String,
+    #[command(flatten)]
+    env: EnvArgs,
 
-    /// Role ARN to assume
-    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
-    role_arn: String,
+    #[command(flatten)]
+    role: RoleArgs,
 
-    /// Output format
-    #[arg(long, default_value = "credential-process")]
-    format: OutputFormat,
+    #[command(flatten)]
+    output: OutputArgs,
 
     /// Session duration, e.g. `3600`, `90s`, `5m`, `12h`, `1d` (bare number = seconds)
     #[arg(long, value_parser = parse_duration)]
@@ -216,22 +207,39 @@ struct LoginArgs {
     /// Skip caching credentials (just print to stdout)
     #[arg(long)]
     no_cache: bool,
-
-    /// Profile name for --format aws-credentials
-    #[arg(long, default_value = "source-coop")]
-    profile: String,
 }
 
 #[derive(Parser)]
 struct CredsArgs {
-    /// Role ARN to read cached credentials for
-    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
-    role_arn: String,
+    #[command(flatten)]
+    role: RoleArgs,
 
-    /// S3 proxy URL: selects the environment whose cache and login session to use
+    #[command(flatten)]
+    env: EnvArgs,
+
+    #[command(flatten)]
+    output: OutputArgs,
+}
+
+/// `--proxy-url`, for every command that works against an environment.
+#[derive(Args)]
+struct EnvArgs {
+    /// S3 proxy URL: selects the environment (login session and cached credentials)
     #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
+}
 
+/// `--role-arn`, for every command that works with a role's credentials.
+#[derive(Args)]
+struct RoleArgs {
+    /// Role ARN whose credentials to use
+    #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
+    role_arn: String,
+}
+
+/// How `login` and `creds` print credentials.
+#[derive(Args)]
+struct OutputArgs {
     /// Output format
     #[arg(long, default_value = "credential-process")]
     format: OutputFormat,
@@ -333,7 +341,7 @@ async fn main() {
             }
         }
         Commands::Api(args) => {
-            let token = api_token(&args.proxy_url, verbose).await;
+            let token = api_token(&args.env.proxy_url, verbose).await;
             let result = async {
                 let client = api::Client::new(&args.api_url, token, verbose)?;
                 api_cmd::run(args.request, &client).await
@@ -370,17 +378,17 @@ async fn whoami(
 }
 
 fn run_status(args: StatusArgs) -> Result<(), String> {
-    let env = cache::env(&args.proxy_url)?;
+    let env = cache::env(&args.env.proxy_url)?;
     let session = cache::read_session(env.as_deref())?;
-    let entry = cache::peek_credentials(env.as_deref(), &args.role_arn)?;
+    let entry = cache::peek_credentials(env.as_deref(), &args.role.role_arn)?;
     let (session, creds) = (session.as_ref(), entry.as_ref().map(|e| &e.creds));
     let now = chrono::Utc::now().timestamp();
     let lifetime = refresh_lifetime();
     let lifetime = lifetime.as_ref().map(|(secs, text)| (*secs, text.as_str()));
     if args.json {
         output::json(&status_json(
-            &args.proxy_url,
-            &args.role_arn,
+            &args.env.proxy_url,
+            &args.role.role_arn,
             session,
             creds,
             now,
@@ -390,8 +398,8 @@ fn run_status(args: StatusArgs) -> Result<(), String> {
         print!(
             "{}",
             status_report(
-                &args.proxy_url,
-                &args.role_arn,
+                &args.env.proxy_url,
+                &args.role.role_arn,
                 session,
                 creds,
                 now,
@@ -694,27 +702,27 @@ fn status_report(
 }
 
 fn run_logout(args: LogoutArgs) -> Result<(), String> {
-    let env = cache::env(&args.proxy_url)?;
+    let env = cache::env(&args.env.proxy_url)?;
     // The session first: a `creds` that still had it may be minting, and the
     // role's lock makes us wait for it before removing what it caches.
     let session = cache::delete_session(env.as_deref())?;
-    let creds = cache::delete_credentials(env.as_deref(), &args.role_arn)?;
+    let creds = cache::delete_credentials(env.as_deref(), &args.role.role_arn)?;
     if args.json {
         output::json(&serde_json::json!({
-            "proxy_url": args.proxy_url,
-            "role_arn": args.role_arn,
+            "proxy_url": args.env.proxy_url,
+            "role_arn": args.role.role_arn,
             "removed": {"session": session, "credentials": creds},
         }));
     } else if session || creds {
-        eprintln!("Logged out of {}.", args.proxy_url);
+        eprintln!("Logged out of {}.", args.env.proxy_url);
     } else {
-        eprintln!("Not logged in to {}.", args.proxy_url);
+        eprintln!("Not logged in to {}.", args.env.proxy_url);
     }
     Ok(())
 }
 
 async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
-    let env = cache::env(&args.proxy_url)?;
+    let env = cache::env(&args.env.proxy_url)?;
     let token = session::token(env.as_deref(), session::Want::Access, verbose)
         .await?
         .ok_or("No access token cached. Run 'source-coop auth login' (with an API audience).")?;
@@ -723,7 +731,7 @@ async fn run_auth_token(args: TokenArgs, verbose: bool) -> Result<(), String> {
 }
 
 async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
-    let env = cache::env(&args.proxy_url)?;
+    let env = cache::env(&args.env.proxy_url)?;
 
     // 1. OIDC Discovery
     eprintln!("Discovering OIDC endpoints...");
@@ -744,12 +752,12 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
 
     // 3. STS credential exchange
     if verbose {
-        eprintln!("[verbose] Assuming role: {}", args.role_arn);
+        eprintln!("[verbose] Assuming role: {}", args.role.role_arn);
     }
     eprintln!("Exchanging token for credentials...");
     let creds = sts::assume_role(
-        &args.proxy_url,
-        &args.role_arn,
+        &args.env.proxy_url,
+        &args.role.role_arn,
         &tokens.id_token,
         args.duration,
         verbose,
@@ -759,10 +767,12 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     // 4. Cache, or print to stdout only with --no-cache (don't leak creds by default).
     if args.no_cache {
         eprintln!("Skipping credential cache (--no-cache)");
-        match args.format {
+        match args.output.format {
             OutputFormat::CredentialProcess => output::print_credential_process(&creds),
             OutputFormat::Env => output::print_env(&creds),
-            OutputFormat::AwsCredentials => output::print_aws_credentials(&creds, &args.profile),
+            OutputFormat::AwsCredentials => {
+                output::print_aws_credentials(&creds, &args.output.profile)
+            }
         }
         return Ok(());
     }
@@ -779,7 +789,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     }
     let session = session::Session::new(
         tokens,
-        args.proxy_url.clone(),
+        args.env.proxy_url.clone(),
         args.client_id,
         endpoints.token_endpoint,
         audience.map(String::from),
@@ -792,7 +802,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     let entry = cache::CacheEntry {
         creds,
         sts: Some(cache::StsSettings {
-            proxy_url: args.proxy_url,
+            proxy_url: args.env.proxy_url,
             duration: args.duration,
         }),
         refresh: None,
@@ -800,8 +810,8 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     // Under the role's lock, so a `creds` minting from the old session can't
     // overwrite this entry afterwards.
     let location = {
-        let _lock = cache::lock(env.as_deref(), &args.role_arn)?;
-        cache::write_credentials(env.as_deref(), &args.role_arn, &entry)?
+        let _lock = cache::lock(env.as_deref(), &args.role.role_arn)?;
+        cache::write_credentials(env.as_deref(), &args.role.role_arn, &entry)?
     };
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");
@@ -829,15 +839,15 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
 }
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    let env = cache::env(&args.proxy_url)?;
+    let env = cache::env(&args.env.proxy_url)?;
     let env = env.as_deref();
-    let cached = cache::read_credentials(env, &args.role_arn)?;
+    let cached = cache::read_credentials(env, &args.role.role_arn)?;
     let entry = match cached {
         Some(entry) if !cache::is_expired(&entry.creds)? => entry,
         _ => {
             // Re-check under the lock: another process may have minted already.
-            let _lock = cache::lock(env, &args.role_arn)?;
-            match cache::read_credentials(env, &args.role_arn)? {
+            let _lock = cache::lock(env, &args.role.role_arn)?;
+            match cache::read_credentials(env, &args.role.role_arn)? {
                 Some(entry) if !cache::is_expired(&entry.creds)? => entry,
                 stale => mint(&args, env, stale, verbose).await.map_err(|e| {
                     format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'.")
@@ -846,10 +856,12 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         }
     };
 
-    match args.format {
+    match args.output.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
         OutputFormat::Env => output::print_env(&entry.creds),
-        OutputFormat::AwsCredentials => output::print_aws_credentials(&entry.creds, &args.profile),
+        OutputFormat::AwsCredentials => {
+            output::print_aws_credentials(&entry.creds, &args.output.profile)
+        }
     }
     Ok(())
 }
@@ -863,14 +875,15 @@ async fn mint(
     stale: Option<cache::CacheEntry>,
     verbose: bool,
 ) -> Result<cache::CacheEntry, String> {
-    let save = |e: &cache::CacheEntry| cache::write_credentials(env, &args.role_arn, e).map(drop);
+    let save =
+        |e: &cache::CacheEntry| cache::write_credentials(env, &args.role.role_arn, e).map(drop);
     match stale {
         Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
-            refresh(&args.role_arn, entry, verbose, save).await
+            refresh(&args.role.role_arn, entry, verbose, save).await
         }
         stale => {
             let sts = stale.and_then(|e| e.sts).unwrap_or(cache::StsSettings {
-                proxy_url: args.proxy_url.clone(),
+                proxy_url: args.env.proxy_url.clone(),
                 duration: None,
             });
             let id_token = session::token(env, session::Want::Id, verbose)
@@ -878,7 +891,7 @@ async fn mint(
                 .ok_or("not logged in")?;
             let creds = sts::assume_role(
                 &sts.proxy_url,
-                &args.role_arn,
+                &args.role.role_arn,
                 &id_token,
                 sts.duration,
                 verbose,
