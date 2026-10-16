@@ -24,7 +24,7 @@ Agents learn the CLI from `--help`, which always matches the installed version, 
 
 ## Commands
 
-- **One shape per resource.** A resource (`product`, and later accounts or members) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`.
+- **One shape per resource.** A resource (`product`, `member`, and later accounts) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`. Where another verb is what people say, use it and keep the standard one as a hidden alias: `member invite` (`create`) and `member revoke` (`delete`).
 - **Signing in lives under `auth`:** `auth login | status | logout | token`. `creds` stays top-level because people's AWS configs run `credential_process = source-coop creds`.
 - **Renaming a command keeps the old name working** as a hidden command that runs the same code (`#[command(hide = true)]`, like top-level `login`). Scripts, docs and habits use the old name. The README shows only the new one, with a note that the old still works.
 - **`-i` wherever a record is named or listed** (everything but `create`, which prompts anyway). It opens the picker, or the record's screen when the record is named. With a name omitted, it picks one first. The test checks this.

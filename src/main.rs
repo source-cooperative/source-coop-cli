@@ -4,6 +4,7 @@ mod cache;
 mod complete;
 mod draft;
 mod failure;
+mod member;
 mod oidc;
 mod output;
 mod picker;
@@ -13,7 +14,7 @@ mod session;
 mod sts;
 mod style;
 
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[cfg(feature = "staging")]
 mod defaults {
@@ -108,6 +109,11 @@ enum Commands {
     Login(LoginArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
+    /// List, view, invite, edit and revoke the members of an organization or
+    /// product, or leave one yourself
+    Member(MemberArgs),
+    /// List, accept and reject the invitations waiting for you
+    Invitation(InvitationArgs),
     /// Send any request to the source.coop API as you, for what the other
     /// commands don't cover
     #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
@@ -284,10 +290,10 @@ struct CredsArgs {
     profile: String,
 }
 
-/// A command that calls the source.coop API, as whoever ran `login` (see
-/// `api_token`).
-#[derive(Parser)]
-struct ProductArgs {
+/// Where a command that calls the source.coop API sends it, as whoever ran
+/// `login` (see `api_token`).
+#[derive(Args)]
+struct Site {
     /// source.coop site URL; the API is served under its `/api/v1`
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
@@ -295,9 +301,47 @@ struct ProductArgs {
     /// S3 proxy URL of the environment whose login session to use
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
+}
+
+impl Site {
+    /// A client signed in as whoever ran `login`, and a prompter when someone
+    /// is there to answer.
+    async fn connect(&self, verbose: bool) -> Result<(api::Client, Option<prompt::Tty>), String> {
+        let token = api_token(&self.proxy_url, verbose).await;
+        let client = api::Client::new(&self.api_url, token, verbose)?;
+        let tty = prompt::tty();
+        if tty.is_some() {
+            picker::handle_interrupts();
+        }
+        Ok((client, tty))
+    }
+}
+
+#[derive(Parser)]
+struct ProductArgs {
+    #[command(flatten)]
+    site: Site,
 
     #[command(subcommand)]
     command: product::ProductCommand,
+}
+
+#[derive(Parser)]
+struct MemberArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: member::MemberCommand,
+}
+
+#[derive(Parser)]
+struct InvitationArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: member::InvitationCommand,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -369,15 +413,37 @@ async fn run() {
         }
         Commands::Product(args) => {
             let json = args.command.wants_json();
-            let token = api_token(&args.proxy_url, verbose).await;
-            let result = match api::Client::new(&args.api_url, token, verbose) {
-                Ok(client) => {
-                    let mut tty = prompt::tty();
-                    if tty.is_some() {
-                        picker::handle_interrupts();
-                    }
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
-                    product::run(args.command, &client, &args.api_url, prompter).await
+                    product::run(args.command, &client, &args.site.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::Member(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    member::run_member(args.command, &client, &args.site.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::Invitation(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    member::run_invitation(args.command, &client, &args.site.api_url, prompter)
+                        .await
                 }
                 Err(e) => Err(e),
             };
@@ -1431,7 +1497,9 @@ mod tests {
                                 && (short.is_none() || a.get_short() == short)
                         })
                     };
-                    if sub.get_name() != "create" && !has(Some('i'), "interactive") {
+                    // `invite` is how memberships are created.
+                    let creates = ["create", "invite"].contains(&sub.get_name());
+                    if !creates && !has(Some('i'), "interactive") {
                         problems.push(format!("{name}: no -i/--interactive"));
                     }
                     if ["list", "view"].contains(&sub.get_name()) && !has(None, "json") {
