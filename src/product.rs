@@ -1466,14 +1466,7 @@ fn product_lines_at(
     });
     let date = |key: &str| {
         chrono::DateTime::parse_from_rfc3339(str_field(p, key))
-            .map(|d| {
-                let d = d.with_timezone(&chrono::Utc);
-                format!(
-                    "{} {}",
-                    d.format("%Y-%m-%d %H:%M UTC"),
-                    paint("2", &format!("({})", crate::style::ago(d, now)))
-                )
-            })
+            .map(|d| crate::style::when(color, d.with_timezone(&chrono::Utc), now, false))
             .ok()
     };
     let none = || paint("2", "(none)");
@@ -1933,8 +1926,8 @@ mod tests {
                 "Account     Acct Inc (organization)",
                 "Mirrors     aws-us-west-2  acct/p/  (primary)",
                 "            aws-us-east-1  acct/p/",
-                "Created     2024-12-13 20:32 UTC (1 year ago)",
-                "Updated     2026-10-13 20:00 UTC (16 hours ago)",
+                "Created     2024-12-13T20:32:55Z (1 year ago)",
+                "Updated     2026-10-13T20:00:00Z (16 hours ago)",
                 "URL         https://source.coop/acct/p",
                 "",
                 "Line one",

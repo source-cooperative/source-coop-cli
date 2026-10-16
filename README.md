@@ -107,9 +107,9 @@ Login          logged in
 Account        Anthony Lukach (alukach)
 Profile        https://source.coop/alukach
 Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12 (in 29 days)
-ID token       expires 2026-10-13T18:00:00Z
-Access token   for https://source.coop, expires 2026-10-13T18:00:00Z
-Credentials    _default: expire 2026-10-13T18:30:00Z
+ID token       expires 2026-10-13T18:00:00Z (in 1 hour)
+Access token   for https://source.coop, expires 2026-10-13T18:00:00Z (in 1 hour)
+Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)
 ```
 
 **How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime, and a value it can't read is ignored with a warning. Where a provider does give an expiry, that's shown instead. Once that expiry has passed, the login shows as expired; once only the estimate has, as likely expired (yellow), since the server's lifetime may be longer. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
