@@ -1020,21 +1020,7 @@ async fn ask_create(
                                 "data_connection_id".into(),
                                 json!(str_field(chosen, "data_connection_id")),
                             );
-                            let vs: Vec<String> = chosen
-                                .get("allowed_visibilities")
-                                .and_then(Value::as_array)
-                                .map(|vs| {
-                                    vs.iter()
-                                        .filter_map(Value::as_str)
-                                        .map(String::from)
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            allowed = if vs.is_empty() {
-                                VISIBILITIES.iter().map(|v| v.to_string()).collect()
-                            } else {
-                                vs
-                            };
+                            allowed = allowed_visibilities(Some(chosen));
                             Next::Asked(Some(Step::Visibility))
                         }
                     }
@@ -1222,6 +1208,46 @@ async fn usable_connections(client: &Client, account_id: &str) -> Vec<Value> {
         .collect()
 }
 
+/// The visibilities a product on connection `c` may have: its
+/// `allowed_visibilities`, or all of them when it doesn't say.
+fn allowed_visibilities(c: Option<&Value>) -> Vec<String> {
+    let vs: Vec<String> = c
+        .and_then(|c| c.get("allowed_visibilities"))
+        .and_then(Value::as_array)
+        .map(|vs| {
+            vs.iter()
+                .filter_map(Value::as_str)
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    if vs.is_empty() {
+        VISIBILITIES.iter().map(|v| v.to_string()).collect()
+    } else {
+        vs
+    }
+}
+
+/// The data connection a product's data lives on: its primary mirror's
+/// (flagged on the mirror, or named by `primary_mirror`), or its only one's.
+fn primary_connection(p: &Value) -> Option<String> {
+    let mirrors = p.pointer("/metadata/mirrors")?.as_object()?;
+    let primary = p
+        .pointer("/metadata/primary_mirror")
+        .and_then(Value::as_str);
+    let (key, m) = mirrors
+        .iter()
+        .find(|(key, m)| {
+            m.get("is_primary").and_then(Value::as_bool) == Some(true)
+                || primary == Some(key.as_str())
+        })
+        .or_else(|| (mirrors.len() == 1).then(|| mirrors.iter().next())?)?;
+    Some(match str_field(m, "connection_id") {
+        "" => key.clone(),
+        c => c.to_string(),
+    })
+}
+
 fn connection_label(c: &Value) -> String {
     let name = str_field(c, "name");
     let id = str_field(c, "data_connection_id");
@@ -1276,7 +1302,7 @@ async fn edit(
         let saved = Draft::for_key(&key)?;
         if !saved.resume(ask, &mut body)? {
             let current: Value = client.get(url.clone()).await?;
-            prompt_edits(ask, &current, &mut body)?;
+            prompt_edits(ask, client, &current, &mut body).await?;
         }
         if body.is_empty() {
             eprintln!("No changes to {}.", target);
@@ -1301,9 +1327,11 @@ async fn edit(
 }
 
 /// Ask which fields to change, then for each, starting from its current value;
-/// only the ones that changed are kept.
-fn prompt_edits(
+/// only the ones that changed are kept. The visibilities offered are the ones
+/// the product's data connection allows.
+async fn prompt_edits(
     ask: &mut dyn Prompter,
+    client: &Client,
     current: &Value,
     body: &mut Map<String, Value>,
 ) -> Result<(), String> {
@@ -1320,7 +1348,18 @@ fn prompt_edits(
             ),
             _ => {
                 let was = str_field(current, "visibility");
-                let options: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
+                let connection = match primary_connection(current) {
+                    Some(id) => client
+                        .get::<Vec<Value>>(client.url(&["data-connections"]))
+                        .await
+                        .ok()
+                        .and_then(|all| {
+                            all.into_iter()
+                                .find(|c| str_field(c, "data_connection_id") == id)
+                        }),
+                    None => None,
+                };
+                let options = allowed_visibilities(connection.as_ref());
                 let default = options.iter().position(|v| v == was).unwrap_or(0);
                 let now = options[ask.select("Visibility", &options, default)?].clone();
                 ("visibility", now)
@@ -2466,6 +2505,48 @@ mod tests {
                 "What do you want to change? of Title | Description | Visibility",
                 "Description (long) []",
                 "Visibility [public] of public | unlisted | restricted",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn edit_offers_the_visibilities_the_product_s_connection_allows() {
+        let server = api_server().await;
+        let mut current = product("acct", "prod");
+        current["metadata"] = json!({"primary_mirror": "west", "mirrors": {
+            "east": {"connection_id": "other", "prefix": "acct/prod/"},
+            "west": {"connection_id": "shared", "prefix": "acct/prod/"}}});
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct/prod"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(current))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/data-connections"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"data_connection_id": "other", "allowed_visibilities": ["restricted"]},
+                {"data_connection_id": "shared", "allowed_visibilities": ["public", "unlisted"]},
+            ])))
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/products/acct/prod"))
+            .and(body_json(json!({"visibility": "unlisted"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([Picks(&[2]), Pick(1)]);
+        edit(edit_args(), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "What do you want to change? of Title | Description | Visibility",
+                "Visibility [public] of public | unlisted",
             ]
         );
     }
