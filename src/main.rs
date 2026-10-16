@@ -434,21 +434,10 @@ fn site(s: &session::Session) -> &str {
         .trim_end_matches('/')
 }
 
-/// `at` relative to `now`, in the largest whole unit: "3 hours ago", or
-/// "in 29 days" while still ahead.
-fn relative(at: i64, now: i64) -> String {
-    let Some((at_t, now_t)) =
-        chrono::DateTime::from_timestamp(at, 0).zip(chrono::DateTime::from_timestamp(now, 0))
-    else {
-        return String::new();
-    };
-    if at <= now {
-        return style::ago(at_t, now_t);
-    }
-    match style::ago(now_t, at_t).as_str() {
-        "just now" => "in under a minute".into(),
-        ahead => format!("in {}", ahead.trim_end_matches(" ago")),
-    }
+/// A Unix timestamp as `style::when` shows it, as of `now`.
+fn when(color: bool, at: i64, now: i64, day: bool) -> String {
+    let t = |s| chrono::DateTime::from_timestamp(s, 0).unwrap_or_default();
+    style::when(color, t(at), t(now), day)
 }
 
 /// A Unix timestamp as RFC 3339, the API's date format.
@@ -561,16 +550,14 @@ fn status_json(
 /// `<expires> <time>` for a Unix timestamp, or `expired <time>` (yellow)
 /// once it's past, as of `now`.
 fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
-    match exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)) {
+    match exp {
         None => "expiry unknown".into(),
-        Some(t) => {
-            let when = t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-            if t.timestamp() > now {
-                format!("{expires} {when}")
-            } else {
-                style::paint(color, "33", &format!("expired {when}"))
-            }
-        }
+        Some(t) if t > now => format!("{expires} {}", when(color, t, now, false)),
+        Some(t) => style::paint(
+            color,
+            "33",
+            &format!("expired {}", when(color, t, now, false)),
+        ),
     }
 }
 
@@ -622,31 +609,18 @@ fn status_report(
             let refresh = match (&s.refresh_token, s.refresh_token_issued_at) {
                 (None, _) => "none: log in again when the ID token expires".into(),
                 (Some(_), None) => "yes".into(),
-                (Some(_), Some(issued)) => format!(
-                    "renewed {} ({})",
-                    rfc3339(issued).unwrap_or_default(),
-                    relative(issued, now)
-                ),
+                (Some(_), Some(issued)) => format!("renewed {}", when(color, issued, now, false)),
             };
-            let expires = refresh_expiry(s, refresh_lifetime).map(|(at, estimated)| {
-                let when = match estimated {
-                    true => chrono::DateTime::from_timestamp(at, 0)
-                        .map(|d| d.format("%Y-%m-%d").to_string())
-                        .unwrap_or_default(),
-                    false => rfc3339(at).unwrap_or_default(),
-                };
-                (at, when)
-            });
-            let refresh = match expires {
-                Some((at, when)) if at > now => {
-                    format!("{refresh}; expires {when} ({})", relative(at, now))
+            let refresh = match refresh_expiry(s, refresh_lifetime) {
+                Some((at, day)) if at > now => {
+                    format!("{refresh}; expires {}", when(color, at, now, day))
                 }
-                Some((at, when)) => format!(
+                Some((at, day)) => format!(
                     "{refresh}; {}",
                     style::paint(
                         color,
                         "33",
-                        &format!("expired {when} ({})", relative(at, now))
+                        &format!("expired {}", when(color, at, now, day))
                     )
                 ),
                 None => refresh,
@@ -1097,9 +1071,9 @@ mod tests {
              Account        Anthony Lukach (alukach)\n\
              Profile        https://source.coop/alukach\n\
              Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
-             ID token       expires 2026-10-13T18:00:00Z\n\
-             Access token   for https://source.coop, expired 2026-10-13T16:59:00Z\n\
-             Credentials    _default: expire 2026-10-13T18:30:00Z\n"
+             ID token       expires 2026-10-13T18:00:00Z (in 1 hour)\n\
+             Access token   for https://source.coop, expired 2026-10-13T16:59:00Z (1 minute ago)\n\
+             Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)\n"
         );
     }
 
@@ -1168,15 +1142,6 @@ mod tests {
         let mut unknown = live_session(now, None);
         unknown.refresh_token_issued_at = None;
         assert_eq!(row(&unknown, (30 * 86_400, "30d")), "Refresh token  yes");
-    }
-
-    #[test]
-    fn relative_times_read_ahead_and_behind() {
-        let now = 1_791_910_800;
-        assert_eq!(relative(now + 29 * 86_400 + 5, now), "in 29 days");
-        assert_eq!(relative(now + 30, now), "in under a minute");
-        assert_eq!(relative(now - 3 * 3600, now), "3 hours ago");
-        assert_eq!(relative(now, now), "just now");
     }
 
     #[test]
@@ -1318,7 +1283,7 @@ mod tests {
         // The ID in gray, and a past expiry in yellow.
         assert!(report.contains("A (\x1b[90malukach\x1b[0m)"), "{report:?}");
         assert!(
-            report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z\x1b[0m"),
+            report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z \x1b[2m(1 minute ago)\x1b[0m"),
             "{report:?}"
         );
         let nobody = status_report(
