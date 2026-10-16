@@ -13,60 +13,48 @@ pub struct ApiArgs {
     /// The path under /api/v1, e.g. `products/my-org` (a query string is kept)
     path: String,
 
-    /// HTTP method; GET, or POST when fields or --input are given
+    /// HTTP method; GET, or POST when there's a body (-f or -F)
     #[arg(long, short = 'X')]
     method: Option<String>,
 
-    /// A field, `key=value`, sent as a string; in the query string for GET
-    #[arg(long = "raw-field", short = 'f', value_name = "KEY=VALUE")]
-    raw_fields: Vec<String>,
+    /// A query parameter, `key=value`; doesn't change the method
+    #[arg(long, short = 'q', value_name = "KEY=VALUE")]
+    query: Vec<String>,
 
-    /// A field, `key=value`, where `true`, `false`, `null` and numbers are
-    /// sent as JSON rather than strings
-    #[arg(long = "field", short = 'F', value_name = "KEY=VALUE")]
+    /// A body field, `key=value`; a value that parses as JSON (`5`, `true`,
+    /// `["a"]`) is sent as that, anything else as a string (quote it, `'"5"'`,
+    /// to send a number as a string)
+    #[arg(long = "field", short = 'f', value_name = "KEY=VALUE")]
     fields: Vec<String>,
 
-    /// Send this file's JSON as the request body (`-` for stdin)
-    #[arg(long, value_name = "PATH", conflicts_with_all = ["raw_fields", "fields"])]
-    input: Option<String>,
+    /// Read the body from a JSON file (`-` for stdin); -f fields win over its keys
+    #[arg(long, short = 'F', value_name = "PATH")]
+    from_file: Option<String>,
 }
 
 /// Prints the response body (pretty if JSON) to stdout, and fails on any
 /// status that isn't a success, as `gh api` does, so scripts can check `$?`.
 pub async fn run(args: ApiArgs, client: &Client) -> Result<(), String> {
     let mut url = client.resolve(&args.path)?;
-    let fields = parse_fields(&args.raw_fields, &args.fields)?;
-    let body = match &args.input {
-        Some(path) => Some(read_json(path)?),
-        None => None,
-    };
+    for q in &args.query {
+        let (k, v) = split(q)?;
+        url.query_pairs_mut().append_pair(&k, &v);
+    }
+    let body = body(args.from_file.as_deref(), &args.fields)?;
     let method = match &args.method {
         Some(m) => m
             .to_uppercase()
             .parse::<Method>()
             .map_err(|_| format!("Invalid method '{m}'"))?,
-        None if body.is_some() || !fields.is_empty() => Method::POST,
+        None if body.is_some() => Method::POST,
         None => Method::GET,
     };
     if method == Method::GET && body.is_some() {
         return Err(
-            "--input sends a request body, which a GET doesn't take: give query fields with -f/-F, or another method with -X"
+            "-f and -F send a request body, which a GET doesn't take: give query parameters with -q, or another method with -X"
                 .into(),
         );
     }
-
-    let body = if method == Method::GET {
-        let mut q = url.query_pairs_mut();
-        for (k, v) in &fields {
-            q.append_pair(k, &v.as_str().map_or_else(|| v.to_string(), String::from));
-        }
-        drop(q);
-        body
-    } else if fields.is_empty() {
-        body
-    } else {
-        Some(Value::Object(fields))
-    };
 
     let (status, text) = client.send(method, url, body.as_ref()).await?;
     match serde_json::from_str::<Value>(&text) {
@@ -82,28 +70,32 @@ pub async fn run(args: ApiArgs, client: &Client) -> Result<(), String> {
     }
 }
 
-/// `-f` values are strings; `-F` values are JSON when they parse as a
-/// boolean, null or number.
-fn parse_fields(raw: &[String], typed: &[String]) -> Result<Map<String, Value>, String> {
-    let mut fields = Map::new();
-    let split = |f: &str| {
-        f.split_once('=')
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .ok_or_else(|| format!("Expected KEY=VALUE, got '{f}'"))
+/// The request body: `from_file`'s JSON with `fields` set over it. None when
+/// neither is given.
+fn body(from_file: Option<&str>, fields: &[String]) -> Result<Option<Value>, String> {
+    let mut body = match from_file {
+        Some(path) => read_json(path)?,
+        None if fields.is_empty() => return Ok(None),
+        None => Value::Object(Map::new()),
     };
-    for f in raw {
-        let (k, v) = split(f)?;
-        fields.insert(k, Value::String(v));
+    if fields.is_empty() {
+        return Ok(Some(body));
     }
-    for f in typed {
+    let Value::Object(map) = &mut body else {
+        return Err("-f fields can only be added to a JSON object from -F".into());
+    };
+    for f in fields {
         let (k, v) = split(f)?;
-        let value = match serde_json::from_str::<Value>(&v) {
-            Ok(j @ (Value::Bool(_) | Value::Null | Value::Number(_))) => j,
-            _ => Value::String(v),
-        };
-        fields.insert(k, value);
+        let value = serde_json::from_str(&v).unwrap_or(Value::String(v));
+        map.insert(k, value);
     }
-    Ok(fields)
+    Ok(Some(body))
+}
+
+fn split(f: &str) -> Result<(String, String), String> {
+    f.split_once('=')
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .ok_or_else(|| format!("Expected KEY=VALUE, got '{f}'"))
 }
 
 /// The JSON in `path` (`-` for stdin).
@@ -131,40 +123,66 @@ mod tests {
         ApiArgs {
             path: path.into(),
             method: None,
-            raw_fields: vec![],
+            query: vec![],
             fields: vec![],
-            input: None,
+            from_file: None,
         }
     }
 
+    fn temp_json(name: &str, text: &str) -> String {
+        let path = std::env::temp_dir().join(format!("api-cmd-{name}-{}.json", std::process::id()));
+        std::fs::write(&path, text).unwrap();
+        path.display().to_string()
+    }
+
     #[test]
-    fn typed_fields_become_json() {
-        let f = parse_fields(
-            &["n=5".into()],
-            &["a=true".into(), "b=null".into(), "c=7".into(), "d=x".into()],
-        )
-        .unwrap();
+    fn fields_are_json_when_they_parse() {
+        let fields = [
+            "a=true",
+            "b=null",
+            "c=7",
+            "d=x",
+            "e=[\"t\"]",
+            "f=\"5\"",
+            "g=a=b",
+        ];
+        let fields: Vec<String> = fields.iter().map(|f| f.to_string()).collect();
         assert_eq!(
-            Value::Object(f),
-            json!({"n": "5", "a": true, "b": null, "c": 7, "d": "x"})
+            body(None, &fields).unwrap(),
+            Some(json!({"a": true, "b": null, "c": 7, "d": "x", "e": ["t"], "f": "5", "g": "a=b"}))
         );
-        assert!(parse_fields(&["nokey".into()], &[]).is_err());
+        assert_eq!(body(None, &[]).unwrap(), None);
+        assert!(body(None, &["nokey".into()]).is_err());
+    }
+
+    #[test]
+    fn fields_win_over_the_file() {
+        let path = temp_json("merge", r#"{"title": "Old", "description": "D"}"#);
+        let merged = body(Some(&path), &["title=New".into()]);
+        let list = temp_json("list", "[1]");
+        let not_object = body(Some(&list), &["title=New".into()]);
+        let _ = (std::fs::remove_file(&path), std::fs::remove_file(&list));
+        assert_eq!(
+            merged.unwrap(),
+            Some(json!({"title": "New", "description": "D"}))
+        );
+        assert!(not_object.is_err());
     }
 
     #[tokio::test]
-    async fn get_puts_fields_in_the_query() {
+    async fn query_parameters_keep_a_get() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct"))
             .and(query_param("limit", "2"))
+            .and(query_param("q", "a b"))
             .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": []})))
             .expect(1)
             .mount(&server)
             .await;
         let client = Client::new(&server.uri(), None, false).unwrap();
         let mut a = args("/products/acct");
-        a.method = Some("get".into());
-        a.fields = vec!["limit=2".into()];
+        a.query = vec!["limit=2".into(), "q=a b".into()];
         run(a, &client).await.unwrap();
     }
 
@@ -180,7 +198,7 @@ mod tests {
             .await;
         let client = Client::new(&server.uri(), None, false).unwrap();
         let mut a = args("products/acct");
-        a.raw_fields = vec!["product_id=p".into(), "title=T".into()];
+        a.fields = vec!["product_id=p".into(), "title=T".into()];
         run(a, &client).await.unwrap();
     }
 
@@ -207,14 +225,11 @@ mod tests {
 
     #[tokio::test]
     async fn a_get_refuses_a_body() {
-        let path = std::env::temp_dir().join(format!("api-cmd-get-{}.json", std::process::id()));
-        std::fs::write(&path, "{}").unwrap();
         let client = Client::new("http://127.0.0.1:9", None, false).unwrap();
         let mut a = args("products/acct");
         a.method = Some("GET".into());
-        a.input = Some(path.display().to_string());
+        a.fields = vec!["limit=2".into()];
         let err = run(a, &client).await.unwrap_err();
-        let _ = std::fs::remove_file(&path);
-        assert!(err.starts_with("--input sends a request body"), "{err}");
+        assert!(err.starts_with("-f and -F send a request body"), "{err}");
     }
 }

@@ -245,13 +245,13 @@ Use `--profile` to change the section name.
 `source-coop api` sends any request to `/api/v1`, signed in as you, and prints the response:
 
 ```bash
-source-coop api products/my-org -X GET -F limit=5
+source-coop api products/my-org -q limit=5
 source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
   -f visibility=public -f data_connection_id=my-connection
-source-coop api products/my-org/new -X PATCH --input changes.json
+source-coop api products/my-org/new -X PATCH -F changes.json -f title="Renamed"
 ```
 
-`-f key=value` sends a string, and `-F key=value` sends `true`, `false`, `null` and numbers as JSON. Fields go in the query string for `GET` and in a JSON body otherwise, and the method is `POST` when fields or `--input` are given; a `GET` takes no `--input`. Paths stay under `/api/v1`. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
+`-q key=value` adds a query parameter. `-f key=value` sets a field in the JSON body: a value that parses as JSON (`5`, `true`, `null`, `["a","b"]`) is sent as that, and anything else as a string. To send something that looks like JSON as a string, quote it: `-f product_id='"2024"'`. `-F file.json` (`-` for stdin) reads the body from a file, and `-f` fields override its keys. The method is `GET`, or `POST` when there's a body; `-X` picks another, and a `GET` takes no body. Paths stay under `/api/v1`, and a query string in the path is kept. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
 
 Reading public data needs no credentials. Anything else acts as whoever ran `source-coop auth login`, which asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
 

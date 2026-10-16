@@ -102,6 +102,12 @@ enum Commands {
     /// List, view, create, edit and delete products
     Product(ProductArgs),
     /// Make any request to the source.coop API, signed in as you
+    #[command(after_help = style::examples(&[
+        "source-coop api products/my-org -q limit=5",
+        "source-coop api products/my-org -f product_id=new -f title=New -f visibility=public -f data_connection_id=my-connection",
+        "source-coop api products/my-org/new -X PATCH -F changes.json -f title=Renamed",
+        "echo '{\"title\": \"Renamed\"}' | source-coop api products/my-org/new -X PATCH -F -",
+    ]))]
     Api(ApiCommandArgs),
 }
 
