@@ -65,6 +65,8 @@ For scripts and agents:
   No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
                   give fields as flags or -F FILE (- for stdin), and --yes to delete.
   SOURCE_TOKEN    A bearer token for the API, used instead of the login session.
+  api             Any API request; prints the API's JSON as is, without --json. Paths and
+                  fields are in the OpenAPI spec at {api}/api/openapi.
 
 Exit codes:
   0 success  1 other failure  2 bad usage  3 input rejected (fix field_errors)
@@ -77,7 +79,7 @@ Run `source-coop <command> --help` for each command's flags and examples.";
     name = "source-coop",
     about = "Source Cooperative CLI",
     version,
-    after_long_help = style::help(FOR_SCRIPTS)
+    after_long_help = style::help(&FOR_SCRIPTS.replace("{api}", defaults::API_URL))
 )]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
@@ -101,9 +103,27 @@ enum Commands {
     Login(LoginArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
-    /// Make any request to the source.coop API, signed in as you
+    /// Send any request to the source.coop API as you, for what the other
+    /// commands don't cover
+    #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
     Api(ApiCommandArgs),
 }
+
+/// `source-coop api --help` after the flags: examples, then where to find
+/// paths and what comes back.
+const API_HELP: &str = "\
+Examples:
+  source-coop api products/my-org -q limit=5
+  source-coop api products/my-org -f product_id=new -f title=New -f visibility=public -f data_connection_id=my-connection
+  source-coop api products/my-org/new -X PATCH -F changes.json -f title=Renamed
+  echo '{\"title\": \"Renamed\"}' | source-coop api products/my-org/new -X PATCH -F -
+
+Paths, fields and responses:
+  The OpenAPI spec lists every path (under /api/v1) and its fields:
+  {api}/api/openapi
+  The response body is printed to stdout as the API sent it, JSON without --json.
+  A status other than success still prints it, and exits 3 when the input was
+  rejected, 4 when not signed in or not allowed, 5 when not found, 1 otherwise.";
 
 #[derive(Parser)]
 struct ApiCommandArgs {
