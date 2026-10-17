@@ -109,7 +109,10 @@ where
     F: Future<Output = Result<Vec<String>, String>>,
 {
     let (tx, rx) = std::sync::mpsc::channel();
-    std::thread::spawn(move || tx.send(client()));
+    // Fails only once we've stopped waiting, when there's no one to tell.
+    std::thread::spawn(move || {
+        let _ = tx.send(client());
+    });
     let Ok(Some(client)) = rx.recv_timeout(answer) else {
         return vec![];
     };
