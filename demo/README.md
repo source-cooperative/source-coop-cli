@@ -13,7 +13,7 @@ It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](h
 ## What's here
 
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
-- `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts and memberships. Add what a new demo needs here.
+- `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys and memberships. Add what a new demo needs here.
 - `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and with agg installed each is also rendered as a GIF beside its cast.
 - `demos/*.py` are the scripts, one per area. Each defines `DEMOS = {name: (title, function)}`.
 

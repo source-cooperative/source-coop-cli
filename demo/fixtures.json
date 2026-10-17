@@ -1,63 +1,254 @@
 {
   "whoami": {
     "identity_id": "00000000-0000-0000-0000-000000000001",
-    "account": {"account_id": "demo-user", "type": "individual", "name": "Demo User",
-                "flags": ["create_repositories"], "disabled": false},
+    "account": {
+      "account_id": "demo-user",
+      "type": "individual",
+      "name": "Demo User",
+      "flags": [
+        "create_repositories"
+      ],
+      "disabled": false
+    },
     "memberships": [
-      {"membership_id": "00000000-0000-0000-0000-0000000000a1", "account_id": "demo-user",
-       "membership_account_id": "demo-org", "role": "owners", "state": "member",
-       "state_changed": "2026-01-05T10:00:00Z"}
+      {
+        "membership_id": "00000000-0000-0000-0000-0000000000a1",
+        "account_id": "demo-user",
+        "membership_account_id": "demo-org",
+        "role": "owners",
+        "state": "member",
+        "state_changed": "2026-01-05T10:00:00Z"
+      }
     ]
   },
   "accounts": [
-    {"account_id": "demo-org", "type": "organization", "name": "Demo Org", "disabled": false, "flags": ["create_service_accounts"]},
-    {"account_id": "demo-org--nightly-sync", "type": "service", "name": "Nightly sync", "owner_account_id": "demo-org",
-     "disabled": false, "flags": [], "metadata_public": {}, "created_at": "2026-09-02T17:04:11Z", "updated_at": "2026-09-02T17:04:11Z"},
-    {"account_id": "demo-org--stac-indexer", "type": "service", "name": "STAC indexer", "owner_account_id": "demo-org",
-     "disabled": false, "flags": [], "metadata_public": {}, "created_at": "2026-09-02T17:04:11Z", "updated_at": "2026-09-02T17:04:11Z"},
-    {"account_id": "demo-org--old-backfill", "type": "service", "name": "Old backfill", "owner_account_id": "demo-org",
-     "disabled": true, "flags": [], "metadata_public": {}, "created_at": "2025-03-11T08:00:00Z", "updated_at": "2026-02-01T08:00:00Z"}
+    {
+      "account_id": "demo-org",
+      "type": "organization",
+      "name": "Demo Org",
+      "disabled": false,
+      "flags": [
+        "create_service_accounts"
+      ]
+    },
+    {
+      "account_id": "demo-org--nightly-sync",
+      "type": "service",
+      "name": "Nightly sync",
+      "owner_account_id": "demo-org",
+      "disabled": false,
+      "flags": [],
+      "metadata_public": {},
+      "created_at": "2026-09-02T17:04:11Z",
+      "updated_at": "2026-09-02T17:04:11Z"
+    },
+    {
+      "account_id": "demo-org--stac-indexer",
+      "type": "service",
+      "name": "STAC indexer",
+      "owner_account_id": "demo-org",
+      "disabled": false,
+      "flags": [],
+      "metadata_public": {},
+      "created_at": "2026-09-02T17:04:11Z",
+      "updated_at": "2026-09-02T17:04:11Z"
+    },
+    {
+      "account_id": "demo-org--old-backfill",
+      "type": "service",
+      "name": "Old backfill",
+      "owner_account_id": "demo-org",
+      "disabled": true,
+      "flags": [],
+      "metadata_public": {},
+      "created_at": "2025-03-11T08:00:00Z",
+      "updated_at": "2026-02-01T08:00:00Z"
+    }
   ],
   "trusts": [
-    {"account_id": "demo-org--nightly-sync", "issuer": "https://token.actions.githubusercontent.com",
-     "subject": "repo:source-cooperative/source.coop:ref:refs/heads/main", "created_at": "2026-09-02T17:04:11Z", "created_by": "demo-user"},
-    {"account_id": "demo-org--stac-indexer", "issuer": "https://token.actions.githubusercontent.com",
-     "subject": "repo:source-cooperative/source.coop:environment:production", "created_at": "2026-09-02T17:04:11Z", "created_by": "demo-user"}
+    {
+      "account_id": "demo-org--nightly-sync",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "subject": "repo:source-cooperative/source.coop:ref:refs/heads/main",
+      "created_at": "2026-09-02T17:04:11Z",
+      "created_by": "demo-user"
+    },
+    {
+      "account_id": "demo-org--stac-indexer",
+      "issuer": "https://token.actions.githubusercontent.com",
+      "subject": "repo:source-cooperative/source.coop:environment:production",
+      "created_at": "2026-09-02T17:04:11Z",
+      "created_by": "demo-user"
+    }
   ],
   "memberships": [
-    {"membership_id": "00000000-0000-0000-0000-0000000000b1", "account_id": "demo-org--nightly-sync",
-     "membership_account_id": "demo-org", "product_id": "climate-grid", "role": "write_data", "state": "member",
-     "state_changed": "2026-09-02T17:04:11Z"},
-    {"membership_id": "00000000-0000-0000-0000-0000000000b2", "account_id": "demo-org--stac-indexer",
-     "membership_account_id": "demo-org", "product_id": "demo-data", "role": "read_data", "state": "member",
-     "state_changed": "2026-09-02T17:04:11Z"}
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000b1",
+      "account_id": "demo-org--nightly-sync",
+      "membership_account_id": "demo-org",
+      "product_id": "climate-grid",
+      "role": "write_data",
+      "state": "member",
+      "state_changed": "2026-09-02T17:04:11Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000b2",
+      "account_id": "demo-org--stac-indexer",
+      "membership_account_id": "demo-org",
+      "product_id": "demo-data",
+      "role": "read_data",
+      "state": "member",
+      "state_changed": "2026-09-02T17:04:11Z"
+    }
   ],
   "data_connections": [
-    {"data_connection_id": "demo-s3", "name": "Demo S3", "read_only": false,
-     "allowed_visibilities": ["public", "unlisted", "restricted"], "details": {"provider": "s3"}},
-    {"data_connection_id": "public-archive", "name": "Public archive", "read_only": true,
-     "allowed_visibilities": ["public"], "details": {"provider": "s3"}}
+    {
+      "data_connection_id": "demo-s3",
+      "name": "Demo S3",
+      "read_only": false,
+      "allowed_visibilities": [
+        "public",
+        "unlisted",
+        "restricted"
+      ],
+      "details": {
+        "provider": "s3"
+      }
+    },
+    {
+      "data_connection_id": "public-archive",
+      "name": "Public archive",
+      "read_only": true,
+      "allowed_visibilities": [
+        "public"
+      ],
+      "details": {
+        "provider": "s3"
+      }
+    }
   ],
   "products": [
-    {"account_id": "demo-org", "product_id": "climate-grid", "title": "Climate Grid",
-     "description": "Daily gridded temperature and precipitation, 1950 to today.", "visibility": "public",
-     "disabled": false, "featured": 1, "created_at": "2025-06-01T12:00:00Z", "updated_at": "2026-09-30T08:15:00Z",
-     "metadata": {"tags": ["climate", "zarr"], "primary_mirror": "demo-s3",
-                  "mirrors": {"demo-s3": {"connection_id": "demo-s3", "prefix": "demo-org/climate-grid/", "is_primary": true}}}},
-    {"account_id": "demo-org", "product_id": "demo-data", "title": "Demo Data",
-     "description": "A small sample dataset for trying things out.", "visibility": "unlisted",
-     "disabled": false, "featured": 0, "created_at": "2026-02-14T09:30:00Z", "updated_at": "2026-02-14T09:30:00Z",
-     "metadata": {"tags": ["sample"], "primary_mirror": "demo-s3",
-                  "mirrors": {"demo-s3": {"connection_id": "demo-s3", "prefix": "demo-org/demo-data/", "is_primary": true}}}},
-    {"account_id": "demo-org", "product_id": "landsat-mirror", "title": "Landsat Mirror",
-     "description": "Cloud-optimized GeoTIFFs mirrored from the USGS archive.", "visibility": "restricted",
-     "disabled": false, "featured": 0, "created_at": "2025-11-20T16:45:00Z", "updated_at": "2026-08-01T11:00:00Z",
-     "metadata": {"tags": ["landsat", "cog"], "primary_mirror": "demo-s3",
-                  "mirrors": {"demo-s3": {"connection_id": "demo-s3", "prefix": "demo-org/landsat-mirror/", "is_primary": true}}}},
-    {"account_id": "demo-user", "product_id": "field-notes", "title": "Field Notes",
-     "description": "Survey photos and GPS tracks.", "visibility": "public",
-     "disabled": false, "featured": 0, "created_at": "2026-04-02T07:00:00Z", "updated_at": "2026-04-02T07:00:00Z",
-     "metadata": {"tags": ["survey"], "primary_mirror": "demo-s3",
-                  "mirrors": {"demo-s3": {"connection_id": "demo-s3", "prefix": "demo-user/field-notes/", "is_primary": true}}}}
+    {
+      "account_id": "demo-org",
+      "product_id": "climate-grid",
+      "title": "Climate Grid",
+      "description": "Daily gridded temperature and precipitation, 1950 to today.",
+      "visibility": "public",
+      "disabled": false,
+      "featured": 1,
+      "created_at": "2025-06-01T12:00:00Z",
+      "updated_at": "2026-09-30T08:15:00Z",
+      "metadata": {
+        "tags": [
+          "climate",
+          "zarr"
+        ],
+        "primary_mirror": "demo-s3",
+        "mirrors": {
+          "demo-s3": {
+            "connection_id": "demo-s3",
+            "prefix": "demo-org/climate-grid/",
+            "is_primary": true
+          }
+        }
+      }
+    },
+    {
+      "account_id": "demo-org",
+      "product_id": "demo-data",
+      "title": "Demo Data",
+      "description": "A small sample dataset for trying things out.",
+      "visibility": "unlisted",
+      "disabled": false,
+      "featured": 0,
+      "created_at": "2026-02-14T09:30:00Z",
+      "updated_at": "2026-02-14T09:30:00Z",
+      "metadata": {
+        "tags": [
+          "sample"
+        ],
+        "primary_mirror": "demo-s3",
+        "mirrors": {
+          "demo-s3": {
+            "connection_id": "demo-s3",
+            "prefix": "demo-org/demo-data/",
+            "is_primary": true
+          }
+        }
+      }
+    },
+    {
+      "account_id": "demo-org",
+      "product_id": "landsat-mirror",
+      "title": "Landsat Mirror",
+      "description": "Cloud-optimized GeoTIFFs mirrored from the USGS archive.",
+      "visibility": "restricted",
+      "disabled": false,
+      "featured": 0,
+      "created_at": "2025-11-20T16:45:00Z",
+      "updated_at": "2026-08-01T11:00:00Z",
+      "metadata": {
+        "tags": [
+          "landsat",
+          "cog"
+        ],
+        "primary_mirror": "demo-s3",
+        "mirrors": {
+          "demo-s3": {
+            "connection_id": "demo-s3",
+            "prefix": "demo-org/landsat-mirror/",
+            "is_primary": true
+          }
+        }
+      }
+    },
+    {
+      "account_id": "demo-user",
+      "product_id": "field-notes",
+      "title": "Field Notes",
+      "description": "Survey photos and GPS tracks.",
+      "visibility": "public",
+      "disabled": false,
+      "featured": 0,
+      "created_at": "2026-04-02T07:00:00Z",
+      "updated_at": "2026-04-02T07:00:00Z",
+      "metadata": {
+        "tags": [
+          "survey"
+        ],
+        "primary_mirror": "demo-s3",
+        "mirrors": {
+          "demo-s3": {
+            "connection_id": "demo-s3",
+            "prefix": "demo-user/field-notes/",
+            "is_primary": true
+          }
+        }
+      }
+    }
+  ],
+  "keys": [
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000c1",
+      "account_id": "demo-org--nightly-sync",
+      "label": "HPC cron job",
+      "hint": "Qx7Lm2",
+      "created_at": "2026-08-20T10:00:00Z",
+      "created_by": "demo-user",
+      "expires_at": "2027-02-01T00:00:00Z",
+      "last_used_at": "2026-10-13T02:00:05Z"
+    },
+    {
+      "key_id": "00000000-0000-0000-0000-0000000000c2",
+      "account_id": "demo-org--nightly-sync",
+      "label": "Old laptop",
+      "hint": "bR4tZ9",
+      "created_at": "2025-12-01T10:00:00Z",
+      "created_by": "demo-user",
+      "expires_at": null,
+      "last_used_at": "2026-03-02T18:30:00Z",
+      "revoked_at": "2026-03-05T09:12:00Z",
+      "revoked_via": "github"
+    }
   ]
 }

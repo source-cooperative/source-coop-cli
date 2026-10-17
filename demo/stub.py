@@ -8,7 +8,7 @@ it checks nothing, so it is no substitute for the API in tests.
     python3 -I demo/stub.py PORT [FIXTURES]
 """
 
-import copy, json, os, re, sys, uuid
+import copy, json, os, re, secrets, string, sys, uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -19,6 +19,7 @@ data = json.load(open(sys.argv[2] if len(sys.argv) > 2 else os.path.join(here, "
 accounts = {a["account_id"]: a for a in data["accounts"]}
 products, trusts, memberships = data["products"], data["trusts"], data["memberships"]
 connections = data["data_connections"]
+keys = data.get("keys", [])
 me = data["whoami"]["account"]["account_id"]
 
 
@@ -32,6 +33,15 @@ def page(items):
 
 def error(status, code, message):
     return status, {"error": {"code": code, "message": message}}
+
+
+def issue(account_id, body):
+    """A new API key for `account_id`: its record, with the key shown this once."""
+    key = "sck_" + "".join(secrets.choice(string.ascii_letters + string.digits) for _ in range(36))
+    k = {"key_id": str(uuid.uuid4()), "account_id": account_id, "label": body.get("label", ""),
+         "hint": key[-6:], "created_at": now(), "created_by": me, "expires_at": body.get("expires_at")}
+    keys.append(k)
+    return dict(k, key=key)
 
 
 def with_account(p):
@@ -99,6 +109,8 @@ def handle(method, path, q, body):
             memberships.extend({"membership_id": str(uuid.uuid4()), "account_id": sid, "membership_account_id": owner,
                                 "product_id": g["product_id"], "role": g["role"], "state": "member",
                                 "state_changed": now()} for g in body.get("grants", []))
+            if body.get("key"):
+                return 201, dict(a, key=issue(sid, body["key"]))
             return 201, a
         return 200, page([a for a in accounts.values() if a.get("owner_account_id") == owner])
     if r := re.fullmatch(r"/accounts/([^/]+)/trusts", path):
@@ -115,6 +127,21 @@ def handle(method, path, q, body):
             trusts.remove(t)
             return 200, t
         return 200, page(mine)
+    if r := re.fullmatch(r"/accounts/([^/]+)/keys", path):
+        if method == "POST":
+            return 201, issue(r[1], body)
+        return 200, page([k for k in keys if k["account_id"] == r[1]])
+    if r := re.fullmatch(r"/accounts/([^/]+)/keys/([^/]+)", path):
+        k = next((k for k in keys if (k["account_id"], k["key_id"]) == (r[1], r[2])), None)
+        if not k:
+            return error(404, "not_found", "No such key")
+        if body.get("revoked"):
+            if k.get("revoked_at"):
+                return error(409, "conflict", "The key is already revoked")
+            k.update(revoked_at=now(), revoked_via="owner", revoked_by=me)
+        if "expires_at" in body:
+            k["expires_at"] = body["expires_at"]
+        return 200, k
     if r := re.fullmatch(r"/accounts/([^/]+)", path):
         a = accounts.get(r[1])
         if not a:
@@ -130,8 +157,8 @@ def handle(method, path, q, body):
             m = dict(body, membership_id=str(uuid.uuid4()), state="member", state_changed=now())
             memberships.append(m)
             return 201, m
-        keys = ("account_id", "membership_account_id", "product_id", "state")
-        return 200, page([m for m in memberships if all(m.get(k) == q[k] for k in keys if k in q)])
+        filters = ("account_id", "membership_account_id", "product_id", "state")
+        return 200, page([m for m in memberships if all(m.get(f) == q[f] for f in filters if f in q)])
     if r := re.fullmatch(r"/memberships/([^/]+)", path):
         m = next((m for m in memberships if m["membership_id"] == r[1]), None)
         if not m:
