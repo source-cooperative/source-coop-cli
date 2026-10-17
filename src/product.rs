@@ -808,12 +808,7 @@ fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
 /// description's first line only, marked when there's more.
 fn review_lines(name: &str, body: &Map<String, Value>) -> Vec<String> {
     let field = |key: &str| body.get(key).and_then(Value::as_str).unwrap_or_default();
-    let description = field("description");
-    let description = match description.lines().next() {
-        None => "(none)".to_string(),
-        Some(first) if description.trim_end() != first => format!("{first} …"),
-        Some(first) => first.to_string(),
-    };
+    let description = one_line(field("description"));
     [
         ("Product", name.to_string()),
         ("Title", field("title").to_string()),
@@ -1299,11 +1294,16 @@ async fn edit(
                     .into(),
             );
         };
-        client.check_signed_in().await?;
+        // Together, as none waits on another: one round trip, not three.
+        let (signed_in, current, connections) = tokio::join!(
+            client.check_signed_in(),
+            client.get::<Value>(url.clone()),
+            usable_connections(client, &target.account_id),
+        );
+        signed_in?;
         let saved = Draft::for_key(&key)?;
         if !saved.resume(ask, &mut body)? {
-            let current: Value = client.get(url.clone()).await?;
-            prompt_edits(ask, client, &current, &mut body).await?;
+            prompt_edits(ask, &current?, connections, &mut body)?;
         }
         if body.is_empty() {
             eprintln!("No changes to {}.", target);
@@ -1327,50 +1327,144 @@ async fn edit(
     Ok(())
 }
 
-/// Ask which fields to change, then for each, starting from its current value;
-/// only the ones that changed are kept. The visibilities offered are the ones
-/// the product's data connection allows.
-async fn prompt_edits(
+/// The edit form: every field with its current value, ↑/↓ to move, Enter to
+/// change the highlighted one starting from what's there, `s` (or the Save
+/// row) to review and send. Only the fields that changed are kept. The
+/// visibilities offered are the ones the product's data connection allows.
+fn prompt_edits(
     ask: &mut dyn Prompter,
-    client: &Client,
     current: &Value,
+    connections: Vec<Value>,
     body: &mut Map<String, Value>,
 ) -> Result<(), String> {
-    let fields = ["Title", "Description", "Visibility"].map(String::from);
-    for picked in ask.multi_select("What do you want to change?", &fields)? {
-        let (key, now) = match picked {
-            0 => (
-                "title",
-                ask.input("Title", str_field(current, "title"), false)?,
-            ),
-            1 => (
-                "description",
-                ask.long_text("Description", str_field(current, "description"))?,
-            ),
-            _ => {
-                let was = str_field(current, "visibility");
-                let connection = match primary_connection(current) {
-                    Some(id) => client
-                        .get::<Vec<Value>>(client.url(&["data-connections"]))
-                        .await
-                        .ok()
-                        .and_then(|all| {
-                            all.into_iter()
-                                .find(|c| str_field(c, "data_connection_id") == id)
-                        }),
-                    None => None,
-                };
-                let options = allowed_visibilities(connection.as_ref());
-                let default = options.iter().position(|v| v == was).unwrap_or(0);
-                let now = options[ask.select("Visibility", &options, default)?].clone();
-                ("visibility", now)
-            }
+    let connection = primary_connection(current).and_then(|id| {
+        connections
+            .into_iter()
+            .find(|c| str_field(c, "data_connection_id") == id)
+    });
+    let visibilities = allowed_visibilities(connection.as_ref());
+    let fields = [
+        ("Title", "title"),
+        ("Description", "description"),
+        ("Visibility", "visibility"),
+    ];
+    let mut edited: Map<String, Value> = Map::new();
+    let label = format!("Edit {}", name(current));
+    let mut place = Place::default();
+    let _screen = ask.fullscreen();
+    loop {
+        let value = |key: &str| {
+            edited
+                .get(key)
+                .and_then(Value::as_str)
+                .unwrap_or(str_field(current, key))
+                .to_string()
         };
-        if now != str_field(current, key) {
-            body.insert(key.into(), json!(now));
+        let mut rows: Vec<String> = fields
+            .iter()
+            .map(|(label, key)| {
+                let shown = one_line(&value(key));
+                if edited.contains_key(*key) {
+                    format!(
+                        "{label:<12} ● {shown}   (was: {})",
+                        one_line(str_field(current, key))
+                    )
+                } else {
+                    format!("{label:<12}   {shown}")
+                }
+            })
+            .collect();
+        rows.push(match edited.len() {
+            0 => "Save changes (nothing changed yet)".into(),
+            1 => "Save changes (1 field)".into(),
+            n => format!("Save changes ({n} fields)"),
+        });
+        ask.clear();
+        let action = ask.browse(&label, &rows, &mut place, false, "s", EDIT_HINT)?;
+        let at = place.at;
+        match action {
+            Action::Back if edited.is_empty() => return Err(crate::prompt::CANCELLED.into()),
+            // ← is "back" everywhere else, so leaving with changes asks first.
+            Action::Back => {
+                ask.clear();
+                let question = format!("Discard your changes to {}?", name(current));
+                match ask.confirm(&question, false) {
+                    Ok(true) => return Err(crate::prompt::CANCELLED.into()),
+                    Err(e) if e != crate::prompt::CANCELLED => return Err(e),
+                    // No, or Esc: back to the form, changes kept.
+                    _ => continue,
+                }
+            }
+            Action::Open if at < fields.len() => {
+                let (label, key) = fields[at];
+                // The form stays in view above the question.
+                ask.clear();
+                for (i, row) in rows[..fields.len()].iter().enumerate() {
+                    eprintln!("{} {row}", if i == at { "›" } else { " " });
+                }
+                eprintln!();
+                let was = value(key);
+                // Esc or ↑ leaves the field as it was.
+                let now = match key {
+                    "title" => ask.input_or_back(label, &was, false),
+                    "description" => ask.long_text_or_back(label, &was),
+                    _ => {
+                        let default = visibilities.iter().position(|v| *v == was).unwrap_or(0);
+                        ask.select_or_back(label, &visibilities, default)
+                            .map(|i| i.map(|i| visibilities[i].clone()))
+                    }
+                };
+                let now = match now {
+                    Ok(Some(now)) => now,
+                    Ok(None) => continue,
+                    Err(e) if e == crate::prompt::CANCELLED => continue,
+                    Err(e) => return Err(e),
+                };
+                if now == str_field(current, key) {
+                    edited.remove(key);
+                } else {
+                    edited.insert(key.into(), json!(now));
+                }
+            }
+            _ if edited.is_empty() => return Ok(()),
+            _ => {
+                let review: Vec<String> = fields
+                    .iter()
+                    .filter(|(_, key)| edited.contains_key(*key))
+                    .map(|(label, key)| {
+                        format!(
+                            "{label:<12}  {}  →  {}",
+                            one_line(str_field(current, key)),
+                            one_line(&value(key))
+                        )
+                    })
+                    .collect();
+                ask.clear();
+                match ask.confirm_or_back(
+                    &format!("Save these changes to {}?", name(current)),
+                    &review,
+                )? {
+                    None => continue,
+                    Some(false) => return Err(crate::prompt::CANCELLED.into()),
+                    Some(true) => {
+                        body.extend(edited);
+                        return Ok(());
+                    }
+                }
+            }
         }
     }
-    Ok(())
+}
+
+const EDIT_HINT: &str = "↑/↓ move · Enter edit · s save · Esc cancel";
+
+/// `text`'s first line, marked "…" when there's more, or "(none)".
+fn one_line(text: &str) -> String {
+    match text.lines().next() {
+        None => "(none)".into(),
+        Some(first) if text.trim_end() != first => format!("{first} …"),
+        Some(first) => first.into(),
+    }
 }
 
 async fn delete(
@@ -2491,16 +2585,31 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Picks(&[1, 2]), Text("New"), Pick(1)]);
+        let mut ask = Script::new([
+            Browse(1, Action::Open),
+            Text("New"),
+            Browse(2, Action::Open),
+            Pick(1),
+            // ← at the review is back to the form, as it was.
+            Browse(2, Action::Key('s')),
+            Back,
+            Browse(2, Action::Key('s')),
+            Default,
+        ]);
         edit(edit_args(), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
         assert_eq!(
             ask.asked,
             [
-                "What do you want to change? of Title | Description | Visibility",
+                "Edit acct/prod [Title          prod title] of Title          prod title | Description    (none) | Visibility     public | Save changes (nothing changed yet) (keys s)",
                 "Description (long) []",
+                "Edit acct/prod [Description  ● New   (was: (none))] of Title          prod title | Description  ● New   (was: (none)) | Visibility     public | Save changes (1 field) (keys s)",
                 "Visibility [public] of public | unlisted | restricted",
+                "Edit acct/prod [Visibility   ● unlisted   (was: public)] of Title          prod title | Description  ● New   (was: (none)) | Visibility   ● unlisted   (was: public) | Save changes (2 fields) (keys s)",
+                "Save these changes to acct/prod? {Description   (none)  →  New | Visibility    public  →  unlisted} (back)",
+                "Edit acct/prod [Visibility   ● unlisted   (was: public)] of Title          prod title | Description  ● New   (was: (none)) | Visibility   ● unlisted   (was: public) | Save changes (2 fields) (keys s)",
+                "Save these changes to acct/prod? {Description   (none)  →  New | Visibility    public  →  unlisted} [true]",
             ]
         );
     }
@@ -2519,10 +2628,11 @@ mod tests {
             .await;
         Mock::given(method("GET"))
             .and(path("/api/v1/data-connections"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            .and(query_param("usable_for", "acct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
                 {"data_connection_id": "other", "allowed_visibilities": ["restricted"]},
                 {"data_connection_id": "shared", "allowed_visibilities": ["public", "unlisted"]},
-            ])))
+            ], "next_cursor": null})))
             .mount(&server)
             .await;
         Mock::given(method("PATCH"))
@@ -2534,21 +2644,28 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        let mut ask = Script::new([Picks(&[2]), Pick(1)]);
+        let mut ask = Script::new([
+            Browse(2, Action::Open),
+            Pick(1),
+            Browse(3, Action::Open),
+            Default,
+        ]);
         edit(edit_args(), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
         assert_eq!(
             ask.asked,
             [
-                "What do you want to change? of Title | Description | Visibility",
+                "Edit acct/prod [Title          prod title] of Title          prod title | Description    (none) | Visibility     public | Save changes (nothing changed yet) (keys s)",
                 "Visibility [public] of public | unlisted",
+                "Edit acct/prod [Visibility   ● unlisted   (was: public)] of Title          prod title | Description    (none) | Visibility   ● unlisted   (was: public) | Save changes (1 field) (keys s)",
+                "Save these changes to acct/prod? {Visibility    public  →  unlisted} [true]",
             ]
         );
     }
 
     #[tokio::test]
-    async fn esc_on_any_field_of_an_edit_sends_nothing() {
+    async fn leaving_the_edit_form_or_no_at_its_review_sends_nothing() {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/products/acct/prod"))
@@ -2562,18 +2679,33 @@ mod tests {
             .await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
 
-        // Esc on the title (a line), on the description (long text), and on
-        // the visibility (a choice), each after earlier fields were answered.
+        // Esc on an unchanged form; Esc on a changed one, which asks before
+        // discarding (No and Esc there return to the form); "No" at the review.
         for script in [
-            Script::new([Picks(&[0, 1]), Cancel]),
-            Script::new([Picks(&[0, 1]), Text("New title"), Cancel]),
-            Script::new([Picks(&[1, 2]), Text("New"), Cancel]),
+            Script::new([Browse(0, Action::Back)]),
+            Script::new([
+                Browse(0, Action::Open),
+                Text("New title"),
+                Browse(0, Action::Back),
+                Yes(false),
+                Browse(0, Action::Back),
+                Cancel,
+                Browse(0, Action::Back),
+                Yes(true),
+            ]),
+            Script::new([
+                Browse(0, Action::Open),
+                Text("New title"),
+                Browse(3, Action::Open),
+                Yes(false),
+            ]),
         ] {
             let mut ask = script;
             let err = edit(edit_args(), &client, SITE, Some(&mut ask))
                 .await
                 .unwrap_err();
             assert_eq!(err, crate::prompt::CANCELLED);
+            assert!(ask.answers.is_empty(), "unused: {:?}", ask.answers);
         }
     }
 
@@ -2592,8 +2724,15 @@ mod tests {
             .await;
 
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
-        // Picking a field and keeping its value changes nothing either.
-        let mut ask = Script::new([Picks(&[0]), Default]);
+        // Keeping a field's value, or Esc on one, changes nothing either; and
+        // saving nothing sends nothing, without a review.
+        let mut ask = Script::new([
+            Browse(0, Action::Open),
+            Default,
+            Browse(1, Action::Open),
+            Cancel,
+            Browse(2, Action::Key('s')),
+        ]);
         edit(edit_args(), &client, SITE, Some(&mut ask))
             .await
             .unwrap();

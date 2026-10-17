@@ -56,11 +56,24 @@ pub fn say_interrupted() {
 }
 
 impl FullScreen {
-    pub fn enter() -> FullScreen {
+    /// None when it's already up (an edit form opened from `-i`): the screen
+    /// that's up stays, and the outer guard puts the terminal back.
+    pub fn enter() -> Option<FullScreen> {
+        if IN_FULLSCREEN.load(Ordering::SeqCst) {
+            return None;
+        }
         handle_interrupts();
         IN_FULLSCREEN.store(true, Ordering::SeqCst);
         eprint!("\x1b[?1049h\x1b[H");
-        FullScreen
+        Some(FullScreen)
+    }
+
+    /// Back onto the alternate screen if it's up: a full-screen editor run
+    /// meanwhile (Ctrl+E) leaves it as it exits.
+    pub fn reenter() {
+        if IN_FULLSCREEN.load(Ordering::SeqCst) {
+            eprint!("\x1b[?1049h\x1b[H");
+        }
     }
 }
 
@@ -320,8 +333,9 @@ pub enum Line {
     Text(String),
     /// Esc.
     Cancelled,
-    /// Ctrl+E, when `editor` was offered: open the person's editor instead.
-    Editor,
+    /// Ctrl+E, when `editor` was offered, with what was in the line: open the
+    /// person's editor instead.
+    Editor(String),
     /// ↑, or ← at the start of the line, when `back` was offered: return to
     /// the question before.
     Back,
@@ -383,7 +397,7 @@ pub fn line(
             // elsewhere it moves there first.
             Key::End | Key::Char('\u{5}') if editor && at == text.len() => {
                 done(style("✎").cyan().to_string(), "(in your editor)")?;
-                return Ok(Line::Editor);
+                return Ok(Line::Editor(text.iter().collect()));
             }
             Key::CtrlC => {
                 term.write_line("").map_err(failed)?;
@@ -400,8 +414,9 @@ pub fn line(
                     continue;
                 }
                 // Long text (the one with an editor) keeps what was there on
-                // an empty Enter, so say that rather than show nothing.
-                let shown = if editor && value.trim().is_empty() {
+                // an empty Enter, so say that rather than show nothing. A
+                // line that started with the text and was emptied clears it.
+                let shown = if editor && value.trim().is_empty() && initial.is_empty() {
                     style("(no change)").dim().to_string()
                 } else {
                     value.clone()

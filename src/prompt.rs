@@ -5,7 +5,7 @@
 //! command sends what it was given, and the API says what's missing.
 
 use crate::picker::Line;
-use dialoguer::{theme::ColorfulTheme, Confirm, Editor, MultiSelect, Select};
+use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Select};
 use std::io::IsTerminal;
 
 /// What someone did in a `browse` list or at a `keypress`.
@@ -64,7 +64,8 @@ pub trait Prompter {
     /// Wait for back or one of `keys`, showing `hint`.
     fn keypress(&mut self, hint: &str, keys: &str) -> Result<Action, String>;
     /// Take over the screen until the returned guard is dropped (see
-    /// `crate::picker::FullScreen`); None where there's no screen to take.
+    /// `crate::picker::FullScreen`); None where there's no screen to take, or
+    /// it's already taken (the outer guard puts it back).
     fn fullscreen(&mut self) -> Option<crate::picker::FullScreen> {
         None
     }
@@ -75,8 +76,6 @@ pub trait Prompter {
     /// Ask for text that may run to paragraphs, starting from `current`: typed
     /// on one line, or written in the person's editor.
     fn long_text(&mut self, label: &str, current: &str) -> Result<String, String>;
-    /// Ask for any number of `items`; returns their indexes.
-    fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String>;
 
     /// `input`, `select` and `long_text` for a question with one before it:
     /// None means the person went back to it (↑, or ← at the start of a line
@@ -175,18 +174,44 @@ pub fn confirm_by_name(ask: &mut dyn Prompter, name: &str, action: &str) -> Resu
 
 /// `Tty::long_text`, and None for back when `back` was offered.
 fn long_text(label: &str, current: &str, back: bool) -> Result<Option<String>, String> {
-    let keep = if current.is_empty() { "skip" } else { "keep" };
-    let hint = format!("{label} [Enter to {keep} · Ctrl+E editor · Esc cancel]");
-    match crate::picker::line(&hint, "", true, true, back)? {
+    // Text of one line starts in the line to keep or edit; more than that
+    // can't, so Enter on the empty line keeps it.
+    let (initial, hint) = if current.contains('\n') {
+        (
+            "",
+            format!("{label} [Enter to keep · Ctrl+E editor · Esc cancel]"),
+        )
+    } else if current.is_empty() {
+        (
+            "",
+            format!("{label} [Enter to skip · Ctrl+E editor · Esc cancel]"),
+        )
+    } else {
+        (current, format!("{label} [Ctrl+E editor · Esc cancel]"))
+    };
+    match crate::picker::line(&hint, initial, true, true, back)? {
         Line::Cancelled => Err(CANCELLED.into()),
         Line::Back => Ok(None),
-        Line::Text(typed) if typed.trim().is_empty() => Ok(Some(current.to_string())),
+        // An empty line keeps the text it stood for; a line that held the
+        // text and was emptied clears it.
+        Line::Text(typed) if typed.trim().is_empty() => Ok(Some(
+            if initial.is_empty() { current } else { "" }.to_string(),
+        )),
         Line::Text(typed) => Ok(Some(typed)),
-        Line::Editor => {
+        Line::Editor(typed) => {
+            // The editor starts from what's in the line, or from the text an
+            // empty line stood for.
+            let start = if initial.is_empty() && typed.trim().is_empty() {
+                current
+            } else {
+                &typed
+            };
             let edited = Editor::new()
                 .require_save(true)
-                .edit(current)
-                .map_err(|e| format!("Couldn't open your editor: {e}"))?;
+                .edit(start)
+                .map_err(|e| format!("Couldn't open your editor: {e}"));
+            crate::picker::FullScreen::reenter();
+            let edited = edited?;
             // Quitting without saving keeps what was there.
             Ok(Some(edited.map_or_else(
                 || current.to_string(),
@@ -202,7 +227,7 @@ impl Prompter for Tty {
     fn input(&mut self, label: &str, default: &str, allow_empty: bool) -> Result<String, String> {
         match crate::picker::line(label, default, allow_empty, false, false)? {
             Line::Text(text) => Ok(text),
-            Line::Cancelled | Line::Editor | Line::Back => Err(CANCELLED.into()),
+            Line::Cancelled | Line::Editor(_) | Line::Back => Err(CANCELLED.into()),
         }
     }
 
@@ -215,7 +240,7 @@ impl Prompter for Tty {
         match crate::picker::line(label, default, allow_empty, false, true)? {
             Line::Text(text) => Ok(Some(text)),
             Line::Back => Ok(None),
-            Line::Cancelled | Line::Editor => Err(CANCELLED.into()),
+            Line::Cancelled | Line::Editor(_) => Err(CANCELLED.into()),
         }
     }
 
@@ -264,7 +289,7 @@ impl Prompter for Tty {
     }
 
     fn fullscreen(&mut self) -> Option<crate::picker::FullScreen> {
-        Some(crate::picker::FullScreen::enter())
+        crate::picker::FullScreen::enter()
     }
 
     fn clear(&mut self) {
@@ -282,22 +307,13 @@ impl Prompter for Tty {
 
     /// Enter keeps what's there, anything typed is the new text, and Ctrl+E
     /// opens `$VISUAL` or `$EDITOR` on it, for text of several paragraphs. The
-    /// line starts empty rather than holding text that may span lines.
+    /// line starts with the text when it's one line, and empty otherwise.
     fn long_text(&mut self, label: &str, current: &str) -> Result<String, String> {
         Ok(long_text(label, current, false)?.unwrap_or_default())
     }
 
     fn long_text_or_back(&mut self, label: &str, current: &str) -> Result<Option<String>, String> {
         long_text(label, current, true)
-    }
-
-    fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
-        cancellable(
-            MultiSelect::with_theme(&self.theme)
-                .with_prompt(format!("{label} (Space to pick, Enter when done)"))
-                .items(items)
-                .interact_opt(),
-        )
     }
 }
 
@@ -313,7 +329,6 @@ pub mod scripted {
         Default,
         Text(&'static str),
         Pick(usize),
-        Picks(&'static [usize]),
         Yes(bool),
         /// In a `browse` list: highlight item `.0` and press `.1`.
         Browse(usize, Action),
@@ -455,15 +470,6 @@ pub mod scripted {
                 Answer::Text(t) => t.to_string(),
                 Answer::Cancel => return Err(super::CANCELLED.into()),
                 a => panic!("{label}: expected text, scripted {a:?}"),
-            })
-        }
-
-        fn multi_select(&mut self, label: &str, items: &[String]) -> Result<Vec<usize>, String> {
-            self.asked.push(format!("{label} of {}", items.join(" | ")));
-            Ok(match self.next(label) {
-                Answer::Picks(p) => p.to_vec(),
-                Answer::Cancel => return Err(super::CANCELLED.into()),
-                a => panic!("{label}: expected picks, scripted {a:?}"),
             })
         }
 
