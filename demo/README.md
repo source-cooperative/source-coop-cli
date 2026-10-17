@@ -6,16 +6,15 @@
 cargo build
 python3 -I demo/record.py demo/demos/products.py                    # every demo in the script, to demo/casts/
 python3 -I demo/record.py demo/demos/products.py product-create     # just one
-python3 -I demo/record.py demo/demos/products.py --upload           # and upload them, printing markdown for the PR
 ```
 
-It needs Python 3.10 or later on macOS or Linux, and, for `--upload`, [asciinema](https://asciinema.org) (`brew install asciinema`). Demos that pipe through `jq` need it installed.
+It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](https://github.com/asciinema/agg), and to upload, [asciinema](https://asciinema.org) (`brew install agg asciinema`). Demos that pipe through `jq` need it installed.
 
 ## What's here
 
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts and memberships. Add what a new demo needs here.
-- `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt.
+- `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and with agg installed each is also rendered as a GIF beside its cast.
 - `demos/*.py` are the scripts, one per area. Each defines `DEMOS = {name: (title, function)}`.
 
 ## Writing a demo
@@ -42,12 +41,23 @@ Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` pointing at the stub, an
 
 ## In a PR description
 
-`--upload` sends each cast to asciinema.org. Anyone with the link can watch it, so record only the stub's made-up data. It prints a block like this to paste:
+GitHub fetches images in PR descriptions through its proxy, which can't load asciinema.org's previews. So a PR shows each demo as a GIF served from this repo's `demo-assets` branch, linking to its asciinema.org player. For PR 60:
+
+```bash
+python3 -I demo/record.py demo/demos/products.py --upload \
+    --gif-base https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60 > demos.md
+
+git worktree add ../demo-assets demo-assets             # the branch holds only images
+mkdir -p ../demo-assets/pr-60 && cp demo/casts/*.gif ../demo-assets/pr-60/
+git -C ../demo-assets add pr-60 && git -C ../demo-assets commit -m "Demo GIFs for #60" && git -C ../demo-assets push
+```
+
+Paste `demos.md` into the description. Each entry looks like this:
 
 ```markdown
 **source-coop product create (prompted)**
 
-[![product-create](https://asciinema.org/a/ID.svg)](https://asciinema.org/a/ID)
+[![product-create](https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60/product-create.gif)](https://asciinema.org/a/ID)
 ```
 
-GitHub shows the SVG as a preview of the recording's last frame, and clicking it plays the recording. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
+The GIF plays inline, and clicking it opens the player, where you can pause and copy text. Anyone with a link can watch the recording, so record only the stub's made-up data. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.

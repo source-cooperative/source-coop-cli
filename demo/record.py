@@ -8,9 +8,10 @@ person, and the recording keeps the real timing (idle time capped).
     python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [--upload] [NAME ...]
 
 SCRIPT defines DEMOS = {name: (title, function)}; each function drives a
-`Session` (see demo/demos/products.py). --upload sends each cast to
-asciinema.org, where anyone with the link can watch it, and prints markdown
-for a PR description.
+`Session` (see demo/demos/products.py). Each cast is also rendered as a GIF
+with agg, when it's installed. --upload sends each cast to asciinema.org,
+where anyone with the link can watch it, and prints markdown for a PR
+description: the GIF, served from --gif-base, linking to the player.
 """
 
 import argparse, fcntl, json, os, pty, re, runpy, shutil, socket, struct
@@ -150,6 +151,16 @@ def record(name, title, fn, bin_dir, out):
         shutil.rmtree(home, ignore_errors=True)
 
 
+def gif(cast):
+    """The cast as an animated GIF beside it, or None without agg."""
+    if not shutil.which("agg"):
+        return None
+    out = cast.removesuffix(".cast") + ".gif"
+    subprocess.run(["agg", "--font-size", "14", "--idle-time-limit", "2.5", "--last-frame-duration", "4",
+                    cast, out], check=True, capture_output=True)
+    return out
+
+
 def upload(path):
     done = subprocess.run(["asciinema", "upload", path], capture_output=True, text=True, check=True)
     # asciinema prints the URL on stderr or stdout, depending on its version.
@@ -166,7 +177,13 @@ def main():
     p.add_argument("--bin", default="target/debug", help="the directory holding source-coop [target/debug]")
     p.add_argument("--out", default="demo/casts", help="where to write the .cast files [demo/casts]")
     p.add_argument("--upload", action="store_true", help="upload each cast to asciinema.org and print markdown")
+    p.add_argument("--gif-base", help="with --upload: the URL the GIFs will be served from, e.g. "
+                   "https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60")
     args = p.parse_args()
+    if args.upload and not args.gif_base:
+        # GitHub's image proxy can't fetch asciinema.org's previews, so a PR
+        # shows GIFs served from GitHub, linking to the player.
+        p.error("--upload needs --gif-base: where the GIFs will be served (see demo/README.md)")
     demos = runpy.run_path(args.script, init_globals=dict(KEYS))["DEMOS"]
     bin_dir = os.path.abspath(args.bin)
     if not os.path.exists(os.path.join(bin_dir, "source-coop")):
@@ -177,9 +194,13 @@ def main():
         title, fn = demos[name]
         path = record(name, title, fn, bin_dir, args.out)
         print(f"recorded {path}", file=sys.stderr)
+        rendered = gif(path)
+        if rendered:
+            print(f"rendered {rendered}", file=sys.stderr)
         if args.upload:
             url = upload(path)
-            markdown += [f"**{title}**", "", f"[![{name}]({url}.svg)]({url})", ""]
+            image = f"{args.gif_base.rstrip('/')}/{name}.gif"
+            markdown += [f"**{title}**", "", f"[![{name}]({image})]({url})", ""]
     if markdown:
         print("\n".join(markdown))
 
