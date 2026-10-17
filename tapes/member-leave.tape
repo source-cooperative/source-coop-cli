@@ -1,0 +1,18 @@
+Output "/Users/alukach/.claude/jobs/7cb421d2/tmp/demo/out/member-leave.gif"
+Source "/Users/alukach/.claude/jobs/7cb421d2/tmp/demo/tapes/header.tape"
+Hide
+Type "export PATH=/Users/alukach/.claude/jobs/7cb421d2/tmp/demo/bin:$PATH SOURCE_API_URL=http://127.0.0.1:4106 SOURCE_TOKEN=demo PAGER=cat PS1='$ ' && cd /Users/alukach/.claude/jobs/7cb421d2/tmp/demo/work && clear"
+Enter
+Sleep 300ms
+Show
+Type "source-coop member leave ocean-watch"
+Enter
+Sleep 1.5s
+Type "ocean-watch"
+Sleep 400ms
+Enter
+Sleep 2s
+Type `source-coop member leave ocean-watch --yes; echo "exit $?"`
+Enter
+Sleep 2.5s
+Sleep 3s
