@@ -123,21 +123,20 @@ A reviewer should see what a change is like to use without building it. A PR tha
 
 ### Demos
 
-Record with `demo/` (see `demo/README.md`). Recordings are asciicasts uploaded to asciinema.org, where a reviewer can pause, rewind and copy the text.
+Record with `demo/`: `demo/README.md` says how to write a demo, record it and get it into the PR.
 
 - **One demo per command or flow,** each with a bold title. Show the interactive paths: prompts, ← back, the review, and `-i` screens with their keys. Show the failure paths too: a refusal, a typed confirmation typed wrong, and an exit code (`; echo "exit $?"`). Pipe `--json` through `jq -c` to keep it short.
-- **Paste what `record.py --upload` prints:** `[![name](https://asciinema.org/a/ID.svg)](https://asciinema.org/a/ID)`. GitHub shows the SVG as a still of the last frame, and it links to the player. Don't commit GIFs or video: GitHub plays video only when it's dragged into the web editor, so scripts can't add it.
+- **Show each as a GIF linked to its player.** Paste what `record.py --upload --gif-base …` prints: `[![name](…/raw/demo-assets/pr-N/name.gif)](https://asciinema.org/a/ID)`, and push the GIFs to the `demo-assets` branch under `pr-N/`. The GIF plays inline. The player is where a reviewer can pause, rewind and copy text. Don't embed asciinema.org's own SVG or PNG previews: GitHub's image proxy can't fetch them, so they show as broken images. GIFs live only on `demo-assets`, never on a branch that gets merged.
 - **Say in the PR that the demos run against the stub,** so the `http://localhost:PORT` URLs in them aren't mistaken for real ones.
 - **Uploads are public to anyone with the link.** Record only the stub's made-up data, never a real account or token. Uploads belong to the machine's asciinema install ID, and asciinema.org may delete those not linked to an account. Run `asciinema auth` once to link yours.
-- **Recording is a review pass.** An awkward message or a screen titled wrongly in a demo is a bug: fix it in the PR and re-record.
+- **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.
 
 ### The stub server
 
-`demo/stub.py` stands in for the source.coop API when recording. It isn't for tests, which mock the API with `wiremock`.
+`demo/stub.py` stands in for the source.coop API when recording, serving the made-up records in `demo/fixtures.json`. `demo/README.md` explains how it runs. It isn't for tests, which mock the API with `wiremock`. When a demo needs more of it:
 
-- **What it is:** stdlib Python, `python3 -I demo/stub.py PORT [FIXTURES]`, listening only on 127.0.0.1 and serving under `/api/v1`. `record.py` starts a fresh one on a free port for each demo, so every demo starts from `fixtures.json` as written. Within a demo, what one command creates, edits or deletes is what the next command sees, and it's gone when the stub stops.
-- **Isolation:** each session gets `SOURCE_TOKEN=demo` (any token works), `SOURCE_API_URL` pointing at the stub, and a throwaway `HOME`. So the CLI never reads the real login session or the OS keychain, and drafts land in the throwaway `HOME`. Don't point a demo at a real environment instead.
-- **Fixtures:** made-up records only. The signed-in `demo-user` owns the organization `demo-org`, with products, data connections, service accounts, trusts and memberships. Add the records a new demo needs to `fixtures.json`, keeping the names obviously fake.
-- **It answers only what's been needed so far.** Anything else gets a 404 saying `The demo stub has no METHOD PATH`, so a missing endpoint is plain from the recording. Add a branch to `handle()` for each new path.
-- **Match the API's shapes, not the CLI's guesses.** Take paths, bodies, status codes and response shapes from the OpenAPI spec (`https://source.coop/api/openapi`) or source.coop's `src/app/api/v1` routes. For example, membership lists come back as plain JSON arrays, while product lists come in pages (`{"items", "next_cursor"}`). A stub that answers in a shape the API doesn't use would make the demo show behaviour real users never see.
-- **It checks almost nothing.** It returns the API's error shape (`{"error": {"code", "message", "field_errors"?}}`) only where a demo needs to show a refusal, such as a 409 for an ID that's taken. Add those per demo rather than reimplementing the API's rules.
+- **Never point a demo at a real environment instead.** Every session runs with `SOURCE_TOKEN=demo` and a throwaway `HOME`, so it can't read a real login or the OS keychain. Keep it that way.
+- **Keep fixtures obviously fake,** under `demo-user` and its organization `demo-org`. Add the records a new demo needs there.
+- **Add endpoints as demos need them.** Anything else gets a 404 saying `The demo stub has no METHOD PATH`, so a missing endpoint is plain from the recording. Add a branch to `handle()` for each new path.
+- **Match the API's shapes, not the CLI's guesses.** Take paths, bodies, status codes and response shapes from the OpenAPI spec (`https://source.coop/api/openapi`) or source.coop's `src/app/api/v1` routes. Listings come in pages (`{"items", "next_cursor"}`): products, data connections, memberships, service accounts, trusts and API keys. A stub that answers in a shape the API doesn't use makes the demo show behaviour real users never see, and hides the CLI bugs a demo should catch.
+- **It checks almost nothing.** It returns the API's error shape (`{"error": {"code", "message", "field_errors"?}}`) only where a demo shows a refusal, such as a 409 for an ID that's taken or a key revoked twice. Add those per demo rather than reimplementing the API's rules.
