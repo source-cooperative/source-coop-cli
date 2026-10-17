@@ -1,0 +1,9 @@
+member-list https://asciinema.org/a/5Ecp53IAhJxlgrjL
+member-view https://asciinema.org/a/9qU6effOyetxO9u8
+member-invite https://asciinema.org/a/XEB3GOnMAS3OlLiq
+member-edit https://asciinema.org/a/oVFKzFO5FLwbNDDQ
+member-revoke https://asciinema.org/a/mOf2TM6VnHQjLyen
+member-leave https://asciinema.org/a/T1wDCfb1puc6UVIh
+member-list-i https://asciinema.org/a/MtmEmGlTDGAaDUjz
+invitation https://asciinema.org/a/iuT4iA6T2kwTu4lN
+invitation-list-i https://asciinema.org/a/81oXnwVtviEcf5T1
