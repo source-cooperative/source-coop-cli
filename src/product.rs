@@ -499,11 +499,16 @@ async fn browse_products(
             ask.clear();
         }
         let label = match &query {
-            Some(q) => format!("Products matching \"{q}\""),
+            Some(q) => format!("Products matching \"{q}\" · from the server"),
             None => "Products".into(),
         };
         let more = listing.cursor.is_some();
-        let action = ask.browse(&label, &listing.labels(), &mut place, more, keys, hint)?;
+        // Back from search results is back to the whole listing, not out.
+        let hint = match query {
+            Some(_) => hint.replace("← quit", "← all products"),
+            None => hint.to_string(),
+        };
+        let action = ask.browse(&label, &listing.labels(), &mut place, more, keys, &hint)?;
         let i = place.at;
         let (after, notice) = match action {
             // Back from search results is back to the whole listing.
@@ -2545,6 +2550,12 @@ mod tests {
         assert!(err.contains("data_connection_id: A data connection is required"));
     }
 
+    #[test]
+    fn search_results_can_relabel_the_hints_quit() {
+        // `browse_products` swaps this text for "← all products".
+        assert!(LIST_HINT.contains("← quit") && CHOOSE_HINT.contains("← quit"));
+    }
+
     #[tokio::test]
     async fn edit_sends_disabled_and_without_a_terminal_refuses_an_empty_patch() {
         let server = api_server().await;
@@ -2872,7 +2883,7 @@ mod tests {
             ask.asked,
             [
                 "Products [a/one  one title  public] of a/one  one title  public | b/two  two title  public (keys )",
-                "Products matching \"crop\" [ag/crop  crop title  public] of ag/crop  crop title  public (keys )",
+                "Products matching \"crop\" · from the server [ag/crop  crop title  public] of ag/crop  crop title  public (keys )",
                 "Products [a/one  one title  public] of a/one  one title  public | b/two  two title  public (keys )",
             ]
         );
