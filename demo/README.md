@@ -4,8 +4,9 @@
 
 ```bash
 cargo build
-python3 -I demo/record.py demo/demos/products.py                    # every demo in the script, to demo/casts/
-python3 -I demo/record.py demo/demos/products.py product-create     # just one
+# write demo/scripts/pr-60.py for your change (see "Writing a demo"), then:
+python3 -I demo/record.py demo/scripts/pr-60.py                     # every demo in the script, to demo/casts/
+python3 -I demo/record.py demo/scripts/pr-60.py product-create      # just one
 ```
 
 It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](https://github.com/asciinema/agg), and to upload, [asciinema](https://asciinema.org) (`brew install agg asciinema`). Demos that pipe through `jq` need it installed.
@@ -15,13 +16,14 @@ It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](h
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys and memberships. Add what a new demo needs here.
 - `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and with agg installed each is also rendered as a GIF beside its cast.
-- `demos/*.py` are the scripts, one per area. Each defines `DEMOS = {name: (title, function)}`.
+- No demo scripts are kept. Each PR writes its own, for what it changes, in `demo/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
 
 ## Writing a demo
 
-A demo is a function that drives a `Session`:
+A script is a Python file defining `DEMOS = {name: (title, function)}`, where each function drives a `Session`. `record.py` provides `DOWN`, `UP`, `RIGHT`, `LEFT`, `ESC` and `BACKSPACE`.
 
 ```python
+# demo/scripts/pr-60.py
 def create(s):
     s.run("source-coop product create")   # type a command at the prompt and run it
     s.see("Account")                      # wait for text (a regex) to appear
@@ -33,7 +35,12 @@ def create(s):
     s.see("Create this product")
     s.pause(3)                            # give the viewer time to read
     s.enter()
+
+
+DEMOS = {"product-create": ("source-coop product create (prompted)", create)}
 ```
+
+Write one demo for each command or flow the PR changes, showing what changed: prompts and their order, `-i` screens and their keys, refusals and exit codes. Add whatever the demos need to `stub.py` and `fixtures.json`. Those are kept, so the next PR starts from them.
 
 Wait with `see` before every keypress that answers a prompt. Run each command after the first with `s.prompt()` in between, so it waits for the one before. If a `see` never matches, recording stops and prints the end of the screen.
 
@@ -44,7 +51,7 @@ Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` pointing at the stub, an
 GitHub fetches images in PR descriptions through its proxy, which can't load asciinema.org's previews. So a PR shows each demo as a GIF served from this repo's `demo-assets` branch, linking to its asciinema.org player. For PR 60:
 
 ```bash
-python3 -I demo/record.py demo/demos/products.py --upload \
+python3 -I demo/record.py demo/scripts/pr-60.py --upload \
     --gif-base https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60 > demos.md
 
 git worktree add ../demo-assets demo-assets             # the branch holds only images

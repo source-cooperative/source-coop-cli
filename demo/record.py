@@ -8,7 +8,7 @@ person, and the recording keeps the real timing (idle time capped).
     python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [--upload] [NAME ...]
 
 SCRIPT defines DEMOS = {name: (title, function)}; each function drives a
-`Session` (see demo/demos/products.py). Each cast is also rendered as a GIF
+`Session` (see demo/README.md). Each cast is also rendered as a GIF
 with agg, when it's installed. --upload sends each cast to asciinema.org,
 where anyone with the link can watch it, and prints markdown for a PR
 description: the GIF, served from --gif-base, linking to the player.
