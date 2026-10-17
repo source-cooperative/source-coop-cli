@@ -2456,6 +2456,12 @@ mod tests {
         assert!(err.contains("data_connection_id: A data connection is required"));
     }
 
+    #[test]
+    fn search_results_can_relabel_the_hints_quit() {
+        // `browse_products` swaps this text for "← all products".
+        assert!(LIST_HINT.contains("← quit") && CHOOSE_HINT.contains("← quit"));
+    }
+
     #[tokio::test]
     async fn edit_sends_disabled_and_without_a_terminal_refuses_an_empty_patch() {
         let server = api_server().await;

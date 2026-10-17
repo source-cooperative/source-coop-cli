@@ -153,7 +153,8 @@ pub fn browse(
         })
         .dim();
         let mut lines = vec![match (filtering, filter.is_empty()) {
-            (true, _) => format!("{} /{filter}▏  {count}", style(label).bold()),
+            (true, true) => format!("{} /▏", style(label).bold()),
+            (true, false) => format!("{} /{filter}▏  {count}", style(label).bold()),
             (false, false) => format!("{} /{filter}  {count}", style(label).bold()),
             (false, true) => style(label).bold().to_string(),
         }];
