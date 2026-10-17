@@ -99,6 +99,10 @@ enum Commands {
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile, refreshing them first if expired
     Creds(CredsArgs),
+    /// Print the script that sets up TAB completion of commands, flags and
+    /// product names in your shell
+    #[command(after_help = style::help(COMPLETIONS_HELP))]
+    Completions(CompletionsArgs),
     /// Log in through the browser (now `auth login`; this name still works)
     #[command(hide = true)]
     Login(LoginArgs),
@@ -125,6 +129,24 @@ Paths, fields and responses:
   The response body is printed to stdout as the API sent it, JSON without --json.
   A status other than success still prints it, and exits 3 when the input was
   rejected, 4 when not signed in or not allowed, 5 when not found, 1 otherwise.";
+
+/// `source-coop completions --help` after the flags.
+const COMPLETIONS_HELP: &str = "\
+Examples:
+  source-coop completions zsh
+
+Set up, in your shell's startup file:
+  ~/.bashrc                     eval \"$(source-coop completions bash)\"
+  ~/.zshrc, after compinit      eval \"$(source-coop completions zsh)\"
+  ~/.config/fish/config.fish    source-coop completions fish | source
+  $PROFILE (PowerShell)         source-coop completions powershell | Out-String | Invoke-Expression";
+
+#[derive(Parser)]
+struct CompletionsArgs {
+    /// The shell to write the script for
+    #[arg(value_enum)]
+    shell: complete::Shell,
+}
 
 #[derive(Parser)]
 struct ApiCommandArgs {
@@ -304,7 +326,9 @@ fn fail(e: String, json: bool) -> ! {
 fn main() {
     // Answers the shell's TAB when run as `COMPLETE=<shell> source-coop ...`,
     // before the runtime starts: completers run their own (`complete`).
-    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+    clap_complete::CompleteEnv::with_factory(Cli::command)
+        .var(complete::VAR)
+        .complete();
     tokio::runtime::Runtime::new()
         .expect("failed to start the async runtime")
         .block_on(run());
@@ -359,6 +383,11 @@ async fn run() {
             };
             if let Err(e) = result {
                 fail(e, json);
+            }
+        }
+        Commands::Completions(args) => {
+            if let Err(e) = complete::registration(args.shell, &mut std::io::stdout()) {
+                fail(e, false);
             }
         }
         Commands::Api(args) => {

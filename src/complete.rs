@@ -8,7 +8,9 @@
 
 use crate::api::Client;
 use crate::{cache, defaults, product, session};
+use clap::ValueEnum;
 use clap_complete::engine::CompletionCandidate;
+use clap_complete::env::Shells;
 use serde_json::Value;
 use std::ffi::OsStr;
 use std::future::Future;
@@ -16,6 +18,50 @@ use std::time::Duration;
 
 /// How long a TAB waits on the API before offering nothing.
 const TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Set, to the shell's name, only by the script `source-coop completions`
+/// prints, when it runs the binary to ask for completions. A name of our own,
+/// so a `COMPLETE` meant for another program can't turn every run into one.
+pub const VAR: &str = "SOURCE_COOP_COMPLETE";
+
+/// A shell `source-coop completions` writes a script for.
+#[derive(Clone, Copy, ValueEnum)]
+pub enum Shell {
+    Bash,
+    Elvish,
+    Fish,
+    Powershell,
+    Zsh,
+}
+
+/// Write `shell`'s script registering completion for `source-coop`. On each
+/// TAB it runs this binary again with `VAR` set: by name from `PATH` if it
+/// was run that way, so an upgrade doesn't break it, otherwise by its path.
+pub fn registration(shell: Shell, out: &mut dyn std::io::Write) -> Result<(), String> {
+    let name = shell.to_possible_value().unwrap();
+    let shells = Shells::builtins();
+    let shell = shells
+        .completer(name.get_name())
+        .ok_or_else(|| format!("No completion script for {}", name.get_name()))?;
+    let bin = std::env::args_os()
+        .next()
+        .unwrap_or_else(|| "source-coop".into());
+    let bin = std::path::Path::new(&bin);
+    let bin = if bin.components().count() > 1 {
+        std::path::absolute(bin).map_err(|e| e.to_string())?
+    } else {
+        bin.to_path_buf()
+    };
+    shell
+        .write_registration(
+            VAR,
+            "source-coop",
+            "source-coop",
+            &bin.to_string_lossy(),
+            out,
+        )
+        .map_err(|e| format!("Couldn't write the completion script: {e}"))
+}
 
 /// An existing product, as `ACCOUNT/PRODUCT`.
 pub fn product(current: &OsStr) -> Vec<CompletionCandidate> {
@@ -198,6 +244,16 @@ mod tests {
             .await;
         let client = Client::new(&server.uri(), None, false).unwrap();
         (server, client)
+    }
+
+    #[test]
+    fn every_shell_s_script_calls_back_with_our_variable() {
+        for shell in Shell::value_variants() {
+            let mut out = vec![];
+            registration(*shell, &mut out).unwrap();
+            let script = String::from_utf8(out).unwrap();
+            assert!(script.contains(VAR), "{script}");
+        }
     }
 
     #[tokio::test]

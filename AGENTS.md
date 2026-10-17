@@ -74,7 +74,7 @@ Everything goes through the `Prompter` trait (`src/prompt.rs`), so tests can scr
 
 Scripts and AI agents use the CLI through `--json`, so it is a contract, not a second layout.
 
-- **Every command that reports information takes `--json`:** reads, writes (the resulting record), `auth status`. Exceptions, which already print machine output or none of their own: `creds` (`--format`), `exec` (its command's output), `auth token` (a bare token), `auth login` (a browser sign-in; `auth status --json` reports the result), `api` (the API's response) and `-i` modes (interactive; `list --json` is their counterpart).
+- **Every command that reports information takes `--json`:** reads, writes (the resulting record), `auth status`. Exceptions, which already print machine output or none of their own: `creds` (`--format`), `exec` (its command's output), `auth token` (a bare token), `auth login` (a browser sign-in; `auth status --json` reports the result), `api` (the API's response), `completions` (a shell script) and `-i` modes (interactive; `list --json` is their counterpart).
 - **One JSON document on stdout and nothing else there.** Progress and notes go to stderr. No color, no padding, no pager.
 - **Field names are the API's** (`account_id`, `created_at` in RFC 3339), plus derived fields only where they spare scripts work (`"expired": true`). Never human renderings like "3 years ago".
 - **Adding fields is fine. Renaming or removing one is a breaking change.** Human output may change freely.
