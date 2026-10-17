@@ -307,7 +307,7 @@ With `-i`, lists and products answer to keys:
 | ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
 | → Enter (`l`) | open the product | |
 | ← Esc (`h` `q`) | quit (from search results: back to the whole list) | back to the list |
-| `/` | filter by typed text (Esc clears it); among all public products, Enter searches them on the server | |
+| `/` | filter the loaded entries by typed text, with a count of how many match (Esc clears it); among all public products, Enter searches them all on the server, and ← leaves the results | |
 | `b` | open in the browser | open in the browser |
 | `e` | | edit |
 | `d` | | delete |

@@ -123,8 +123,11 @@ pub fn browse(
     let mut drawn = place.drawn;
     let mut notice = place.notice.take();
     loop {
+        // While a filter is typed on a list the server can search, a last row
+        // says what Enter does.
+        let search_row = filtering && place.server_search && !filter.trim().is_empty();
         let height = (rows as usize)
-            .saturating_sub(3 + usize::from(notice.is_some()))
+            .saturating_sub(3 + usize::from(notice.is_some()) + usize::from(search_row))
             .max(3);
         let needle = filter.to_lowercase();
         let shown: Vec<usize> = (0..items.len())
@@ -142,13 +145,20 @@ pub fn browse(
             .saturating_sub(height - 1)
             .min(shown.len().saturating_sub(height));
 
+        // A filter only sees what's loaded so far, and the count says so.
+        let count = style(if more {
+            format!("{} of {} loaded", shown.len(), items.len())
+        } else {
+            format!("{} of {}", shown.len(), items.len())
+        })
+        .dim();
         let mut lines = vec![match (filtering, filter.is_empty()) {
-            (true, _) => format!("{} /{filter}▏", style(label).bold()),
-            (false, false) => format!("{} /{filter}", style(label).bold()),
+            (true, _) => format!("{} /{filter}▏  {count}", style(label).bold()),
+            (false, false) => format!("{} /{filter}  {count}", style(label).bold()),
             (false, true) => style(label).bold().to_string(),
         }];
         if shown.is_empty() {
-            lines.push(style("  (nothing matches)").dim().to_string());
+            lines.push(style("  (nothing loaded matches)").dim().to_string());
         }
         for (row, &i) in shown.iter().enumerate().skip(top).take(height) {
             lines.push(if row == sel {
@@ -158,6 +168,10 @@ pub fn browse(
                 format!("  {}", fit(&items[i], cols.saturating_sub(2)))
             });
         }
+        if search_row {
+            let row = format!("  ↵ Search the server for \"{}\"", filter.trim());
+            lines.push(style(row).dim().to_string());
+        }
         if let Some(n) = &notice {
             lines.push(style(n).yellow().to_string());
         }
@@ -165,7 +179,7 @@ pub fn browse(
             style(if near_end {
                 "Loading more…"
             } else if filtering && place.server_search {
-                "type to filter · Enter search all · ↓ done · Esc clear"
+                "type to filter · ↓ pick · Esc clear"
             } else if filtering {
                 "type to filter · Enter/↓ done · Esc clear"
             } else {
