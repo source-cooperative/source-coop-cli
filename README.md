@@ -324,7 +324,7 @@ Output is for people on a terminal and for scripts when piped: `list` shows each
 
 ## Managing service accounts
 
-A service account is an account software signs in as: a GitHub Actions workflow, or a script with an API key. It belongs to an owner (you, or an organization you own or maintain, once source.coop has let that account own service accounts), and its ID is the owner's followed by its own: `my-org--nightly-sync`. `source-coop service-account` (or `sa`) manages them through the API, laid out as the web UI's service account page is: who it is, how it signs in, and what it can reach.
+A service account is an account software signs in as: a GitHub Actions workflow, or a script with an API key. It belongs to an owner (you, or an organization you own or maintain, once source.coop has let that account own service accounts), and its ID is the owner's followed by its own: `my-org--nightly-sync`. `source-coop service-account` manages them through the API, laid out as the web UI's service account page is: who it is, how it signs in, and what it can reach.
 
 ```bash
 source-coop service-account list my-org             # my-org's service accounts (yours without an owner)

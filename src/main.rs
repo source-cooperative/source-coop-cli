@@ -106,7 +106,6 @@ enum Commands {
     Product(ProductArgs),
     /// Manage service accounts: the accounts software signs in as, how it
     /// signs in, and the products it can reach
-    #[command(visible_alias = "sa")]
     ServiceAccount(ServiceAccountArgs),
     /// Send any request to the source.coop API as you, for what the other
     /// commands don't cover
