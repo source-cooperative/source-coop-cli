@@ -4,3 +4,6 @@
 .env
 .env.local
 !.env.staging
+
+# Recorded demos (demo/README.md)
+demo/casts/
