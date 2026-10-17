@@ -6,7 +6,7 @@
 //! login: it uses an unexpired cached token (or `SOURCE_TOKEN`), and offers
 //! nothing when the API fails or is slow.
 
-use crate::api::{Client, Page};
+use crate::api::Client;
 use crate::{cache, defaults, product, session};
 use clap_complete::engine::CompletionCandidate;
 use serde_json::Value;
@@ -19,52 +19,61 @@ const TIMEOUT: Duration = Duration::from_secs(2);
 
 /// An existing product, as `ACCOUNT/PRODUCT`.
 pub fn product(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(
-        client(),
-        current,
-        |c, s| async move { products(&c, &s).await },
-    )
+    complete(client, TIMEOUT, current, |c, s| async move {
+        products(&c, &s).await
+    })
 }
 
 /// A product to create: the accounts you may create under, then nothing,
 /// since the product ID is new.
 pub fn new_product(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(client(), current, |c, s| async move {
+    complete(client, TIMEOUT, current, |c, s| async move {
         new_products(&c, &s).await
     })
 }
 
 /// An account you belong to.
 pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(
-        client(),
-        current,
-        |c, s| async move { accounts(&c, &s).await },
-    )
+    complete(client, TIMEOUT, current, |c, s| async move {
+        accounts(&c, &s).await
+    })
 }
 
-/// Run `find` with `current` and offer what it returns. The client is passed
-/// in, not made here, so tests never reach `client()`, which reads the login
-/// session from the OS keyring.
+/// Make the client with `client`, run `find` with `current`, and offer what
+/// it returns, or nothing once `timeout` passes. `client` is passed in so
+/// tests never reach `client()`, which reads the login session from the OS
+/// keyring. That read can block (an unlock prompt), so it runs on its own
+/// thread inside the timeout, and is abandoned rather than waited for.
 fn complete<F>(
-    client: Option<Client>,
+    client: impl FnOnce() -> Option<Client> + Send + 'static,
+    timeout: Duration,
     current: &OsStr,
     find: impl FnOnce(Client, String) -> F,
 ) -> Vec<CompletionCandidate>
 where
     F: Future<Output = Result<Vec<String>, String>>,
 {
-    let (Some(client), Ok(rt)) = (
-        client,
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build(),
-    ) else {
+    let Ok(rt) = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    else {
         return vec![];
     };
     let current = current.to_string_lossy().into_owned();
     // The timer needs the runtime, so it is made inside it.
-    rt.block_on(async { tokio::time::timeout(TIMEOUT, find(client, current)).await })
+    let found = rt.block_on(async {
+        tokio::time::timeout(timeout, async {
+            let client = tokio::task::spawn_blocking(client)
+                .await
+                .ok()
+                .flatten()
+                .ok_or_else(String::new)?;
+            find(client, current).await
+        })
+        .await
+    });
+    rt.shutdown_background();
+    found
         .ok()
         .and_then(Result::ok)
         .unwrap_or_default()
@@ -91,28 +100,33 @@ fn client() -> Option<Client> {
 }
 
 /// `ACCOUNT/PRODUCT` names starting with `current`: before the `/`, the
-/// accounts you belong to; after it, that account's products.
+/// accounts you belong to; after it, that account's products. An account's
+/// listing may ignore `q`, so every page is read (within the timeout) and
+/// filtered here.
 async fn products(client: &Client, current: &str) -> Result<Vec<String>, String> {
-    let Some((account, prefix)) = current.split_once('/') else {
+    let Some((account, prefix)) = current.split_once('/').filter(|(a, _)| !a.is_empty()) else {
         return Ok(slashed(accounts(client, current).await?));
     };
     let mut url = client.url(&["products", account]);
-    {
-        let mut q = url.query_pairs_mut();
-        // ponytail: one page; an account with more than 100 matches is narrowed by typing more
-        q.append_pair("limit", "100");
-        if !prefix.is_empty() {
-            q.append_pair("q", prefix);
+    if !prefix.is_empty() {
+        url.query_pairs_mut().append_pair("q", prefix);
+    }
+    let mut found = vec![];
+    let mut cursor = None;
+    loop {
+        let page = product::fetch_page(client, &url, 100, cursor.as_deref()).await?;
+        found.extend(
+            page.items
+                .iter()
+                .filter_map(|p| p.get("product_id")?.as_str())
+                .filter(|id| id.starts_with(prefix))
+                .map(|id| format!("{account}/{id}")),
+        );
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return Ok(found),
         }
     }
-    let page: Page<Value> = client.get(url).await?;
-    Ok(page
-        .items
-        .iter()
-        .filter_map(|p| p.get("product_id")?.as_str())
-        .filter(|id| id.starts_with(prefix))
-        .map(|id| format!("{account}/{id}"))
-        .collect())
 }
 
 async fn new_products(client: &Client, current: &str) -> Result<Vec<String>, String> {
@@ -211,6 +225,29 @@ mod tests {
             .mount(&server)
             .await;
         assert_eq!(products(&client, "org/cl").await.unwrap(), ["org/climate"]);
+        // No account before the `/` is not an account's listing.
+        assert!(products(&client, "/cl").await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn every_page_of_an_account_s_products_is_read() {
+        let (server, client) = server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/org"))
+            .and(query_param("cursor", "2"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items": [{"product_id": "zebra"}], "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/org"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items": [{"product_id": "aerial"}], "next_cursor": "2"
+            })))
+            .mount(&server)
+            .await;
+        assert_eq!(products(&client, "org/z").await.unwrap(), ["org/zebra"]);
     }
 
     #[tokio::test]
@@ -230,14 +267,24 @@ mod tests {
                 .map(|c| c.get_value().to_string_lossy().into())
                 .collect()
         };
-        let found = complete(client(), OsStr::new("org/"), |_, s| async move {
+        let found = complete(client, TIMEOUT, OsStr::new("org/"), |_, s| async move {
             tokio::time::sleep(Duration::from_millis(1)).await;
             Ok(vec![s])
         });
         assert_eq!(names(found), ["org/"]);
-        let found = complete(client(), OsStr::new(""), |_, _| async {
-            tokio::time::sleep(TIMEOUT * 2).await;
+        let short = Duration::from_millis(50);
+        let found = complete(client, short, OsStr::new(""), |_, _| async {
+            tokio::time::sleep(TIMEOUT).await;
             Ok(vec!["too late".into()])
+        });
+        assert!(found.is_empty());
+        // A keyring read stuck on an unlock prompt is timed out too.
+        let stuck = || {
+            std::thread::sleep(TIMEOUT);
+            None
+        };
+        let found = complete(stuck, short, OsStr::new(""), |_, _| async {
+            Ok(vec!["unreachable".into()])
         });
         assert!(found.is_empty());
     }

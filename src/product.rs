@@ -682,7 +682,7 @@ async fn act(
 
 /// One page of a listing: up to `limit` products (the API caps a page at
 /// 100), from `cursor` on.
-async fn fetch_page(
+pub(crate) async fn fetch_page(
     client: &Client,
     url: &url::Url,
     limit: usize,
