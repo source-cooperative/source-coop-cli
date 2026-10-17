@@ -367,7 +367,9 @@ pub async fn run_member(
             }
             let json = args.json;
             if let Some(m) = edit(args, client, prompter).await? {
-                report(&m, json, "Changed");
+                report(&m, json, |who, at, role| {
+                    format!("{who} is now {role} in {at}")
+                });
             }
             Ok(())
         }
@@ -382,7 +384,9 @@ pub async fn run_member(
             }
             let json = args.json;
             let m = revoke(args, client, prompter).await?;
-            report(&m, json, "Revoked");
+            report(&m, json, |who, at, _| {
+                format!("Revoked {who}'s membership of {at}")
+            });
             Ok(())
         }
         MemberCommand::Leave(mut args) => {
@@ -397,7 +401,7 @@ pub async fn run_member(
             }
             let json = args.json;
             let m = leave(args, client, prompter).await?;
-            report(&m, json, "Left");
+            report(&m, json, |_, at, role| format!("Left {at} ({role})"));
             Ok(())
         }
     }
@@ -443,15 +447,10 @@ pub async fn run_invitation(
         }
     };
     let m = answer(client, &scope, verb).await?;
-    report(
-        &m,
-        json,
-        if verb == "accept" {
-            "Accepted"
-        } else {
-            "Rejected"
-        },
-    );
+    report(&m, json, |_, at, role| match verb {
+        "accept" => format!("You're now a member of {at} ({role})"),
+        _ => format!("Turned down the invitation to {at}"),
+    });
     Ok(())
 }
 
@@ -642,13 +641,13 @@ fn state_label(color: bool, state: &str) -> String {
 }
 
 /// A change's result: the membership as JSON, or a line for the person.
-fn report(m: &Value, as_json: bool, verb: &str) {
+/// `said` is given the member, where, and the role.
+fn report(m: &Value, as_json: bool, said: impl Fn(&str, Scope, &str) -> String) {
     if as_json {
         crate::output::json(m);
     } else {
-        let who = str_field(m, "account_id");
-        let role = str_field(m, "role");
-        eprintln!("{verb} {who} of {} ({role})", Scope::of(m));
+        let (who, role) = (str_field(m, "account_id"), str_field(m, "role"));
+        eprintln!("{}", said(who, Scope::of(m), role));
     }
 }
 
@@ -1275,7 +1274,10 @@ async fn browse_invitations(
         let mut notice: Option<String> = None;
         loop {
             ask.clear();
-            for line in member_lines(&items[i], color) {
+            // Titled with where they're invited, not with themselves.
+            let mut lines = member_lines(&items[i], color);
+            lines[0] = crate::style::paint(color, "1", &Scope::of(&items[i]).to_string());
+            for line in lines {
                 println!("{line}");
             }
             println!();
