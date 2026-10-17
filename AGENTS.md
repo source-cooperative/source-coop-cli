@@ -109,3 +109,35 @@ Scripts and AI agents use the CLI through `--json`, so it is a contract, not a s
 - Squash-merge with the PR title; release-please reads it.
 - Use `--force-with-lease` pinned to the expected commit only for rebases. Otherwise push plainly.
 - Read a pushed commit's hash from the push output before reporting it.
+
+## Pull request descriptions
+
+A reviewer should see what a change is like to use without building it. A PR that changes what a user can see or do has these sections, in this order. Leave out the ones with nothing to say.
+
+1. **A paragraph on what users can now do**, then the commands as a `bash` block of examples, one per command or flag, with a comment where it isn't obvious.
+2. **How it behaves:** prompts and their order, confirmations, what `--json` prints, exit codes, and anything a script relies on.
+3. **Demos:** one recording for each command or flow in the change (below).
+4. **Not in this PR:** what was deliberately left out, why, and when it would be worth adding.
+5. **Follow-ups elsewhere**, such as source.coop server changes the CLI works around. Name the file and the problem.
+6. **Testing:** the commands run and how many tests were added, and what wasn't tried, such as a real or staging API. Say it plainly.
+
+### Demos
+
+Record with `demo/`: `demo/README.md` says how to write a demo, record it and get it into the PR.
+
+- **Write the demo script for your change:** one per PR, in `demo/scripts/` (git ignores it). None are kept and none are waiting to be updated: you know what your change does, so script that. Grow `demo/stub.py` and `demo/fixtures.json` with what your demos need, and commit those.
+- **One demo per command or flow,** each with a bold title. Show the interactive paths: prompts, ← back, the review, and `-i` screens with their keys. Show the failure paths too: a refusal, a typed confirmation typed wrong, and an exit code (`; echo "exit $?"`). Pipe `--json` through `jq -c` to keep it short.
+- **Show each as a GIF linked to its player.** Paste what `record.py --upload --gif-base …` prints: `[![name](…/raw/demo-assets/pr-N/name.gif)](https://asciinema.org/a/ID)`, and push the GIFs to the `demo-assets` branch under `pr-N/`. The GIF plays inline. The player is where a reviewer can pause, rewind and copy text. Don't embed asciinema.org's own SVG or PNG previews: GitHub's image proxy can't fetch them, so they show as broken images. GIFs live only on `demo-assets`, never on a branch that gets merged.
+- **Say in the PR that the demos run against the stub,** so the `http://localhost:PORT` URLs in them aren't mistaken for real ones.
+- **Uploads are public to anyone with the link.** Record only the stub's made-up data, never a real account or token. Uploads belong to the machine's asciinema install ID, and asciinema.org may delete those not linked to an account. Run `asciinema auth` once to link yours.
+- **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.
+
+### The stub server
+
+`demo/stub.py` stands in for the source.coop API when recording, serving the made-up records in `demo/fixtures.json`. `demo/README.md` explains how it runs. It isn't for tests, which mock the API with `wiremock`. When a demo needs more of it:
+
+- **Never point a demo at a real environment instead.** Every session runs with `SOURCE_TOKEN=demo` and a throwaway `HOME`, so it can't read a real login or the OS keychain. Keep it that way.
+- **Keep fixtures obviously fake,** under `demo-user` and its organization `demo-org`. Add the records a new demo needs there.
+- **Add endpoints as demos need them.** Anything else gets a 404 saying `The demo stub has no METHOD PATH`, so a missing endpoint is plain from the recording. Add a branch to `handle()` for each new path.
+- **Match the API's shapes, not the CLI's guesses.** Take paths, bodies, status codes and response shapes from the OpenAPI spec (`https://source.coop/api/openapi`) or source.coop's `src/app/api/v1` routes. Listings come in pages (`{"items", "next_cursor"}`): products, data connections, memberships, service accounts, trusts and API keys. A stub that answers in a shape the API doesn't use makes the demo show behaviour real users never see, and hides the CLI bugs a demo should catch.
+- **It checks almost nothing.** It returns the API's error shape (`{"error": {"code", "message", "field_errors"?}}`) only where a demo shows a refusal, such as a 409 for an ID that's taken or a key revoked twice. Add those per demo rather than reimplementing the API's rules.
