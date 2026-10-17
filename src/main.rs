@@ -8,6 +8,7 @@ mod output;
 mod picker;
 mod product;
 mod prompt;
+mod service_account;
 mod session;
 mod sts;
 mod style;
@@ -103,6 +104,10 @@ enum Commands {
     Login(LoginArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
+    /// Manage service accounts: the accounts software signs in as, how it
+    /// signs in, and the products it can reach
+    #[command(visible_alias = "sa")]
+    ServiceAccount(ServiceAccountArgs),
     /// Send any request to the source.coop API as you, for what the other
     /// commands don't cover
     #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
@@ -277,6 +282,23 @@ struct ProductArgs {
     command: product::ProductCommand,
 }
 
+/// `service-account`, which calls the API as `product` does, and names the
+/// proxy its snippets sign in to.
+#[derive(Parser)]
+struct ServiceAccountArgs {
+    /// source.coop site URL; the API is served under its `/api/v1`
+    #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
+    api_url: String,
+
+    /// S3 proxy URL of the environment whose login session to use, and that
+    /// service accounts sign in to
+    #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
+    proxy_url: String,
+
+    #[command(subcommand)]
+    command: service_account::ServiceAccountCommand,
+}
+
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// AWS credential_process JSON format
@@ -345,6 +367,25 @@ async fn main() {
                     }
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
                     product::run(args.command, &client, &args.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::ServiceAccount(args) => {
+            let json = args.command.wants_json();
+            let token = api_token(&args.proxy_url, verbose).await;
+            let result = match api::Client::new(&args.api_url, token, verbose) {
+                Ok(client) => {
+                    let mut tty = prompt::tty();
+                    if tty.is_some() {
+                        picker::handle_interrupts();
+                    }
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    let ctx = service_account::Ctx::new(&client, &args.api_url, &args.proxy_url);
+                    service_account::run(args.command, &ctx, prompter).await
                 }
                 Err(e) => Err(e),
             };
@@ -1385,7 +1426,12 @@ mod tests {
         fn check(cmd: &clap::Command, resources: &mut usize, problems: &mut Vec<String>) {
             if cmd.find_subcommand("list").is_some() {
                 *resources += 1;
-                for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                // A group (`service-account sign-in`) is checked as its own
+                // commands, below.
+                for sub in cmd
+                    .get_subcommands()
+                    .filter(|s| s.get_name() != "help" && !s.has_subcommands())
+                {
                     let name = format!("{} {}", cmd.get_name(), sub.get_name());
                     let has = |short: Option<char>, long: &str| {
                         sub.get_arguments().any(|a| {

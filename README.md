@@ -258,7 +258,7 @@ Reading public data needs no credentials. Anything else acts as whoever ran `sou
 
 ### JSON output and exit codes
 
-Every command that reports information takes `--json`: `auth status`, and `product list`, `view`, `create`, `edit` and `delete` (which print the resulting record). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
+Every command that reports information takes `--json`: `auth status`; `product list`, `view`, `create`, `edit` and `delete`; and `service-account list`, `view`, `create`, `edit`, `delete`, `sign-in add`, `edit` and `remove`, and `access set` and `remove` (the writes print the resulting record). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
 
 A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
 
@@ -280,7 +280,7 @@ Exit codes are the same for every command:
 
 `source-coop --help` ends with a summary of this section, and each command's `--help` lists its flags with examples, so an AI agent can work out how to use the CLI from the CLI itself.
 
-`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
+`creds` (`--format`), `auth token` (a bare token), `api` (the API's response) and `service-account usage` (a workflow or shell exports) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
 
 ## Managing products
 
@@ -321,6 +321,70 @@ To back out of any prompt, press Esc (or `q`) on a choice; on a text prompt that
 Before asking anything, `create`, `edit` and `delete` check that you're signed in, so you don't fill in a form only to be refused. If sending your answers fails anyway (a lost connection, an expired login, a server error), they're saved as a draft: run the same command again and you're offered them back, with any flags you pass taking precedence, or pass the saved file with `--from-file`. Drafts live where your OS keeps app state, not its cache: `~/.local/state/source-coop/drafts` on Linux (`$XDG_STATE_HOME`), `~/Library/Application Support/source-coop/drafts` on macOS, and `%LocalAppData%\source-coop\drafts` on Windows. A successful send removes the draft.
 
 Output is for people on a terminal and for scripts when piped: `list` shows each product's fields (`--format table` prints an aligned table with a header on a terminal, and tab-separated rows without one when piped); `create` and `edit` print the product's URL on stdout and their message on stderr, so `url=$(source-coop product create ...)` works.
+
+## Managing service accounts
+
+A service account is an account software signs in as: a GitHub Actions workflow, or a script with an API key. It belongs to an owner (you, or an organization you own or maintain, once source.coop has let that account own service accounts), and its ID is the owner's followed by its own: `my-org--nightly-sync`. `source-coop service-account` (or `sa`) manages them through the API, laid out as the web UI's service account page is: who it is, how it signs in, and what it can reach.
+
+```bash
+source-coop service-account list my-org             # my-org's service accounts (yours without an owner)
+source-coop service-account list my-org -i          # move through them and act on them (keys as for products)
+source-coop service-account view my-org--nightly-sync          # --json adds its `trusts`, `keys` and `memberships`
+source-coop service-account create                  # prompts for everything, as the web form asks it
+source-coop service-account create my-org--nightly-sync --name "Nightly sync" \
+    --github my-org/data --branch main --access my-org/my-data=write
+source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
+source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+source-coop service-account delete my-org--nightly-sync           # asks you to type its ID back
+```
+
+**Signing in.** A service account signs in with a GitHub Actions workflow it trusts: one repository, pinned to one branch, tag or environment. GitHub vouches for every run, so there's no secret to store. Where there's no GitHub, an API key does instead.
+
+```bash
+source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --branch main
+source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --environment production
+source-coop service-account sign-in add my-org--nightly-sync --subject repo:my-org/data:ref:refs/tags/v1
+source-coop service-account sign-in remove my-org--nightly-sync repo:my-org/data:ref:refs/heads/main
+source-coop service-account sign-in remove my-org--nightly-sync -i   # pick which
+```
+
+`--github OWNER/REPO` with `--branch`, `--tag` or `--environment` builds the subject GitHub's tokens carry (`repo:OWNER/REPO:ref:refs/heads/main`); `--subject` takes one as it is. The CLI asks GitHub how the repository's tokens name it, as the web UI does, since a repository whose tokens name it by ID (`owner@123/repo@456`) would never match it typed as `owner/repo`. For a private repository, set `GH_TOKEN` (or `GITHUB_TOKEN`) so GitHub answers; otherwise the CLI says it couldn't check and how to find the name yourself. Without these flags, in a terminal, `sign-in add` asks for the repository and the runs to trust, and shows the condition it will trust before adding it.
+
+An API key is for environments without GitHub's tokens, such as a cron job on a cluster. Each key has a label saying where it lives, so you know which one to revoke. It expires after 30 days, 90 (the default), a year, never, or on a date you give:
+
+```bash
+source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job" --expires 1y --out ~/.source-coop/nightly.key
+key=$(source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job")   # piped: the key alone on stdout
+source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never      # a new expiry, counted from now
+source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3                    # revoke it; asks you to type key:a1B2c3 back
+```
+
+A key is shown once, when it's issued, and never again. `--out PATH` writes it to a file only you can read, which is where the AWS tools want it anyway. Piped, the key alone goes to stdout. On a terminal, you're offered a file to save it to, or Enter shows it. `view` lists each key by its label and its last six characters, `key:a1B2c3`, which is how `sign-in edit` and `remove` name it, with when it was last used and when it expires. Revoked and expired keys are listed too, dimmed. A revoked key can't be restored. Without flags, in a terminal, `sign-in add` asks whether to add a workflow or a key, and `sign-in edit -i` and `sign-in remove -i` pick which.
+
+If a key leaks, anyone holding it can revoke it, with no sign-in needed. The key is read from stdin so it stays out of your shell history:
+
+```bash
+source-coop service-account sign-in revoke-key < leaked-key-file
+```
+
+**Reaching products.** A service account can read, or read and write, its owner's products. Each grant is an ordinary membership of the product:
+
+```bash
+source-coop service-account access set my-org--nightly-sync my-org/my-data --role write   # grants it, or changes its role
+source-coop service-account access remove my-org--nightly-sync my-org/my-data
+```
+
+**Using it.** Workflows and scripts sign in with stock AWS tools, not this CLI. `usage` prints what they need, the same snippets the web UI shows:
+
+```bash
+source-coop service-account usage my-org--nightly-sync --subject repo:my-org/data:ref:refs/heads/main \
+    > .github/workflows/source-coop.yml   # a workflow that signs in with aws-actions/configure-aws-credentials
+source-coop service-account usage my-org--nightly-sync --key   # the AWS_* variables for a key saved to a file
+```
+
+Without `--subject` or `--key`, in a terminal, `usage` asks which sign-in to show.
+
+`create` takes its fields as flags (`--name`, one `--github` workflow, a `--key` with `--expires` and `--out`, `--access` repeated), from a JSON object in the API's shape with `--from-file` (`name`, `local_id`, `github_subjects`, `key`, `grants`), or both. In a terminal it asks for whatever is missing: the owner, the name, the ID (made from the name), workflows to trust and an API key, products to grant. Then it shows everything, including the condition each workflow must match, before creating it. A key issued with the account is handed over as `sign-in add` does, except that stdout keeps the account's ID: to capture the key, use `--out` or `--json`. Going back, drafts, sign-in checks and `--yes` work as they do for products. `create` and `edit` print the service account's ID on stdout, so `id=$(source-coop service-account create …)` works. Its ID is what the AWS tools name it by: `role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess`.
 
 ## Credential storage
 

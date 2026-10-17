@@ -321,7 +321,7 @@ pub async fn run(
     }
 }
 
-const NEEDS_TERMINAL: &str = "-i needs a terminal to pick from.";
+pub(crate) const NEEDS_TERMINAL: &str = "-i needs a terminal to pick from.";
 
 /// The product a command was given; `run` fills it in for `-i`.
 fn named(product: &Option<ProductRef>) -> Result<ProductRef, String> {
@@ -689,12 +689,12 @@ async fn fetch_page(
 
 /// `$SOURCE_PAGER`, `$PAGER` or `less -FRX`, reading what is written to its
 /// stdin. Dropping it closes stdin and waits for the user to quit.
-struct Pager(std::process::Child);
+pub(crate) struct Pager(std::process::Child);
 
 impl Pager {
     /// None when the pager is empty or `cat`, or won't start (no `less` on
     /// Windows): print straight to stdout.
-    fn spawn() -> Option<Pager> {
+    pub(crate) fn spawn() -> Option<Pager> {
         let cmd = std::env::var("SOURCE_PAGER")
             .or_else(|_| std::env::var("PAGER"))
             .unwrap_or_else(|_| "less -FRX".into());
@@ -708,7 +708,7 @@ impl Pager {
             .map(Pager)
     }
 
-    fn write(&mut self, rows: &[String]) -> std::io::Result<()> {
+    pub(crate) fn write(&mut self, rows: &[String]) -> std::io::Result<()> {
         let stdin = self.0.stdin.as_mut().expect("piped stdin");
         stdin.write_all((rows.join("\n") + "\n").as_bytes())
     }
@@ -1413,7 +1413,7 @@ async fn delete(
 
 /// The JSON object in `path` (`-` for stdin), or an empty one. Its fields are
 /// sent as they are; the API says if any is wrong.
-fn read_fields(path: Option<&str>) -> Result<Map<String, Value>, String> {
+pub(crate) fn read_fields(path: Option<&str>) -> Result<Map<String, Value>, String> {
     let Some(path) = path else {
         return Ok(Map::new());
     };
@@ -1445,7 +1445,7 @@ fn report(product: &Value, as_json: bool, verb: &str, site: &str) {
     }
 }
 
-fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
+pub(crate) fn str_field<'a>(v: &'a Value, key: &str) -> &'a str {
     v.get(key).and_then(Value::as_str).unwrap_or("")
 }
 
