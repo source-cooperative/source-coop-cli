@@ -2,9 +2,10 @@
 //! Commands, flags and their values complete from the clap definitions
 //! (`CompleteEnv` in `main`); these add the names only the API knows.
 //!
-//! A completer runs on every TAB, so it never prompts, prints or refreshes the
-//! login: it uses an unexpired cached token (or `SOURCE_TOKEN`), and offers
-//! nothing when the API fails or is slow.
+//! A completer runs on every TAB, so it never prints or refreshes the login:
+//! it uses an unexpired cached token (or `SOURCE_TOKEN`), and offers nothing
+//! when the API fails or is slow. Its one longer wait is on the OS, when
+//! reading the login from the keyring raises a password dialog (`complete`).
 
 use crate::api::Client;
 use crate::{cache, defaults, product, session};
@@ -18,6 +19,10 @@ use std::time::Duration;
 
 /// How long a TAB waits on the API before offering nothing.
 const TIMEOUT: Duration = Duration::from_secs(2);
+
+/// How long a TAB waits for the keyring, which may be showing a password
+/// dialog, before offering nothing.
+const ANSWER: Duration = Duration::from_secs(60);
 
 /// Set, to the shell's name, only by the script `source-coop completions`
 /// prints, when it runs the binary to ask for completions. A name of our own,
@@ -65,7 +70,7 @@ pub fn registration(shell: Shell, out: &mut dyn std::io::Write) -> Result<(), St
 
 /// An existing product, as `ACCOUNT/PRODUCT`.
 pub fn product(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(client, TIMEOUT, current, |c, s| async move {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
         products(&c, &s).await
     })
 }
@@ -73,14 +78,14 @@ pub fn product(current: &OsStr) -> Vec<CompletionCandidate> {
 /// A product to create: the accounts you may create under, then nothing,
 /// since the product ID is new.
 pub fn new_product(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(client, TIMEOUT, current, |c, s| async move {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
         new_products(&c, &s).await
     })
 }
 
 /// An account you belong to.
 pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
-    complete(client, TIMEOUT, current, |c, s| async move {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
         accounts(&c, &s).await
     })
 }
@@ -88,10 +93,14 @@ pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
 /// Make the client with `client`, run `find` with `current`, and offer what
 /// it returns, or nothing once `timeout` passes. `client` is passed in so
 /// tests never reach `client()`, which reads the login session from the OS
-/// keyring. That read can block (an unlock prompt), so it runs on its own
-/// thread inside the timeout, and is abandoned rather than waited for.
+/// keyring. That read can wait on macOS's password dialog, so it gets
+/// `answer` rather than `timeout`: someone pressed TAB to answer it, and
+/// exiting mid-dialog would throw away their "Always Allow" and ask again on
+/// the next TAB. It is still bounded, since a keyring's unlock prompt may be
+/// somewhere nobody can see, such as a desktop behind an SSH session.
 fn complete<F>(
     client: impl FnOnce() -> Option<Client> + Send + 'static,
+    answer: Duration,
     timeout: Duration,
     current: &OsStr,
     find: impl FnOnce(Client, String) -> F,
@@ -99,6 +108,14 @@ fn complete<F>(
 where
     F: Future<Output = Result<Vec<String>, String>>,
 {
+    let (tx, rx) = std::sync::mpsc::channel();
+    // Fails only once we've stopped waiting, when there's no one to tell.
+    std::thread::spawn(move || {
+        let _ = tx.send(client());
+    });
+    let Ok(Some(client)) = rx.recv_timeout(answer) else {
+        return vec![];
+    };
     let Ok(rt) = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -107,17 +124,7 @@ where
     };
     let current = current.to_string_lossy().into_owned();
     // The timer needs the runtime, so it is made inside it.
-    let found = rt.block_on(async {
-        tokio::time::timeout(timeout, async {
-            let client = tokio::task::spawn_blocking(client)
-                .await
-                .ok()
-                .flatten()
-                .ok_or_else(String::new)?;
-            find(client, current).await
-        })
-        .await
-    });
+    let found = rt.block_on(async { tokio::time::timeout(timeout, find(client, current)).await });
     rt.shutdown_background();
     found
         .ok()
@@ -316,30 +323,46 @@ mod tests {
     /// Clap calls completers outside any runtime, as `main` runs them.
     #[test]
     fn a_completer_runs_and_times_out_without_a_runtime_of_its_own() {
-        let client = || Client::new("http://127.0.0.1:1", None, false).ok();
+        let offline = || Client::new("http://127.0.0.1:1", None, false).ok();
         let names = |found: Vec<CompletionCandidate>| -> Vec<String> {
             found
                 .iter()
                 .map(|c| c.get_value().to_string_lossy().into())
                 .collect()
         };
-        let found = complete(client, TIMEOUT, OsStr::new("org/"), |_, s| async move {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-            Ok(vec![s])
-        });
+        let found = complete(
+            offline,
+            ANSWER,
+            TIMEOUT,
+            OsStr::new("org/"),
+            |_, s| async move {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                Ok(vec![s])
+            },
+        );
         assert_eq!(names(found), ["org/"]);
         let short = Duration::from_millis(50);
-        let found = complete(client, short, OsStr::new(""), |_, _| async {
+        let found = complete(offline, ANSWER, short, OsStr::new(""), |_, _| async {
             tokio::time::sleep(TIMEOUT).await;
             Ok(vec!["too late".into()])
         });
         assert!(found.is_empty());
-        // A keyring read stuck on an unlock prompt is timed out too.
-        let stuck = || {
-            std::thread::sleep(TIMEOUT);
-            None
+        // A keyring read waiting on its password dialog outlasts the API's
+        // timeout: giving up would discard the answer.
+        let slow = move || {
+            std::thread::sleep(short * 2);
+            offline()
         };
-        let found = complete(stuck, short, OsStr::new(""), |_, _| async {
+        let found = complete(slow, ANSWER, short, OsStr::new(""), |_, _| async {
+            Ok(vec!["answered".into()])
+        });
+        assert_eq!(names(found), ["answered"]);
+        // But one nobody answers is given up on.
+        let stuck = move || {
+            std::thread::sleep(ANSWER);
+            offline()
+        };
+        let found = complete(stuck, short, short, OsStr::new(""), |_, _| async {
             Ok(vec!["unreachable".into()])
         });
         assert!(found.is_empty());

@@ -47,7 +47,7 @@ source-coop completions fish | source           # ~/.config/fish/config.fish
 source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
 ```
 
-`elvish` works too. The script asks `source-coop` itself on every TAB (running it with `SOURCE_COOP_COMPLETE` set), so completion always matches the installed version. Names come from the API, as you: the completer uses your cached login while its access token is unexpired (or `SOURCE_TOKEN`), and never refreshes it, so after a long break only public products complete until the next command renews the login. It reads `SOURCE_API_URL` and `SOURCE_PROXY_URL` from the environment, but not `--api-url` or `--proxy-url` typed on the line. If the API doesn't answer within 2 seconds, it offers no names (bash then falls back to file names).
+`elvish` works too. The script asks `source-coop` itself on every TAB (running it with `SOURCE_COOP_COMPLETE` set), so completion always matches the installed version. Names come from the API, as you: the completer uses your cached login while its access token is unexpired (or `SOURCE_TOKEN`), and never refreshes it, so after a long break only public products complete until the next command renews the login. It reads `SOURCE_API_URL` and `SOURCE_PROXY_URL` from the environment, but not `--api-url` or `--proxy-url` typed on the line. If the API doesn't answer within 2 seconds, it offers no names (bash then falls back to file names). If macOS asks for your password to read the login from the keychain, the TAB waits up to a minute for your answer; choose **Always Allow** so it doesn't ask again (until you install a new build).
 
 ## Usage
 
