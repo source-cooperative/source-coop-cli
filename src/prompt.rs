@@ -340,6 +340,8 @@ pub mod scripted {
         Cancel,
         /// Go back to the question before (↑ or ←), where one may be asked.
         Back,
+        /// Fail with this error, as an editor that won't open does.
+        Fail(&'static str),
     }
 
     #[derive(Default)]
@@ -469,6 +471,7 @@ pub mod scripted {
                 Answer::Default => current.to_string(),
                 Answer::Text(t) => t.to_string(),
                 Answer::Cancel => return Err(super::CANCELLED.into()),
+                Answer::Fail(e) => return Err(e.into()),
                 a => panic!("{label}: expected text, scripted {a:?}"),
             })
         }
