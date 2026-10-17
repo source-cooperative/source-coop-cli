@@ -43,6 +43,9 @@ pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
     )
 }
 
+/// Run `find` with `current` and offer what it returns. The client is passed
+/// in, not made here, so tests never reach `client()`, which reads the login
+/// session from the OS keyring.
 fn complete<F>(
     client: Option<Client>,
     current: &OsStr,
