@@ -33,6 +33,22 @@ brew install source-cooperative/tap/source-coop
 cargo install --git https://github.com/source-cooperative/source-coop-cli
 ```
 
+### Shell completion
+
+TAB completes commands, flags and their values, and the names of records: `source-coop product view my-org/<TAB>` offers my-org's products, and before the `/` it offers the accounts you belong to. Load it from your shell's startup file:
+
+```bash
+eval "$(COMPLETE=bash source-coop)"          # ~/.bashrc
+eval "$(COMPLETE=zsh source-coop)"           # ~/.zshrc, after compinit
+COMPLETE=fish source-coop | source           # ~/.config/fish/config.fish
+```
+
+```powershell
+$env:COMPLETE = "powershell"; source-coop | Out-String | Invoke-Expression; Remove-Item Env:\COMPLETE   # $PROFILE
+```
+
+The script asks `source-coop` itself on every TAB, so completion always matches the installed version. Names come from the API, as you: the completer uses your cached login while its access token is unexpired (or `SOURCE_TOKEN`), and never refreshes it, so after a long break only public products complete until the next command renews the login. It reads `SOURCE_API_URL` and `SOURCE_PROXY_URL` from the environment, but not `--api-url` or `--proxy-url` typed on the line. If the API doesn't answer within 2 seconds, it offers nothing.
+
 ## Usage
 
 ### Using with AWS credential_process

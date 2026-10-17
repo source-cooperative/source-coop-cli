@@ -1,6 +1,7 @@
 mod api;
 mod api_cmd;
 mod cache;
+mod complete;
 mod draft;
 mod failure;
 mod oidc;
@@ -12,7 +13,7 @@ mod session;
 mod sts;
 mod style;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[cfg(feature = "staging")]
 mod defaults {
@@ -300,8 +301,16 @@ fn fail(e: String, json: bool) -> ! {
     std::process::exit(failure.exit_code());
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // Answers the shell's TAB when run as `COMPLETE=<shell> source-coop ...`,
+    // before the runtime starts: completers run their own (`complete`).
+    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+    tokio::runtime::Runtime::new()
+        .expect("failed to start the async runtime")
+        .block_on(run());
+}
+
+async fn run() {
     let cli = Cli::parse();
 
     let verbose = cli.verbose;
@@ -1398,6 +1407,13 @@ mod tests {
                     }
                     if ["list", "view"].contains(&sub.get_name()) && !has(None, "json") {
                         problems.push(format!("{name}: no --json"));
+                    }
+                    for a in sub.get_positionals() {
+                        if a.get::<clap_complete::engine::ArgValueCompleter>()
+                            .is_none()
+                        {
+                            problems.push(format!("{name}: {} doesn't complete", a.get_id()));
+                        }
                     }
                 }
             }
