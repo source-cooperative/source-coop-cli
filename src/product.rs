@@ -5,6 +5,7 @@ use crate::api::{ApiError, Client, Page};
 use crate::draft::Draft;
 use crate::prompt::{Action, Place, Prompter};
 use clap::{Args, Subcommand, ValueEnum};
+use clap_complete::engine::ArgValueCompleter;
 use reqwest::Method;
 use serde_json::{json, Map, Value};
 use std::io::{IsTerminal, Write};
@@ -57,6 +58,7 @@ impl ProductCommand {
 #[derive(Args, Default)]
 pub struct Filters {
     /// This account's products (all public products when omitted)
+    #[arg(add = ArgValueCompleter::new(crate::complete::account))]
     account: Option<String>,
 
     /// Only products whose title, description or IDs contain this text
@@ -137,7 +139,10 @@ pub enum ListFormat {
 pub struct ViewArgs {
     /// The product, as ACCOUNT/PRODUCT (with -i, picked from public products
     /// when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::product)
+    )]
     product: Option<ProductRef>,
 
     /// Show the product with shortcuts: b browser, e edit, d delete, ← back
@@ -176,6 +181,7 @@ pub struct Fields {
 #[derive(Args)]
 pub struct CreateArgs {
     /// The new product, as ACCOUNT/PRODUCT (prompted for when omitted)
+    #[arg(add = ArgValueCompleter::new(crate::complete::new_product))]
     product: Option<ProductRef>,
 
     #[command(flatten)]
@@ -194,7 +200,10 @@ pub struct CreateArgs {
 pub struct EditArgs {
     /// The product, as ACCOUNT/PRODUCT (with -i, picked from your account's
     /// products when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::product)
+    )]
     product: Option<ProductRef>,
 
     /// Pick the product from your account's products when it isn't named
@@ -221,7 +230,10 @@ pub struct EditArgs {
 pub struct DeleteArgs {
     /// The product, as ACCOUNT/PRODUCT (with -i, picked from your account's
     /// products when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::product)
+    )]
     product: Option<ProductRef>,
 
     /// Pick the product from your account's products when it isn't named
@@ -675,7 +687,7 @@ async fn act(
 
 /// One page of a listing: up to `limit` products (the API caps a page at
 /// 100), from `cursor` on.
-async fn fetch_page(
+pub(crate) async fn fetch_page(
     client: &Client,
     url: &url::Url,
     limit: usize,
@@ -768,7 +780,7 @@ const VISIBILITIES: [&str; 3] = ["public", "unlisted", "restricted"];
 /// org-wide owner or maintainer of; none for a disabled or service account.
 /// The flag says whether they're an admin, who may create under any account.
 /// The API still decides; this only chooses what to offer.
-fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
+pub(crate) fn creatable_accounts(me: &Value) -> (Vec<String>, bool) {
     let account = me.get("account").unwrap_or(&Value::Null);
     let has_flag = |flag: &str| {
         account

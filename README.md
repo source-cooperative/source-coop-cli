@@ -33,6 +33,22 @@ brew install source-cooperative/tap/source-coop
 cargo install --git https://github.com/source-cooperative/source-coop-cli
 ```
 
+### Shell completion
+
+TAB completes commands, flags and their values, and the names of records: `source-coop product view my-org/<TAB>` offers my-org's products, and before the `/` it offers the accounts you belong to. Load it from your shell's startup file:
+
+```bash
+eval "$(source-coop completions bash)"          # ~/.bashrc
+eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
+source-coop completions fish | source           # ~/.config/fish/config.fish
+```
+
+```powershell
+source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
+```
+
+`elvish` works too. The script asks `source-coop` itself on every TAB (running it with `SOURCE_COOP_COMPLETE` set), so completion always matches the installed version. Names come from the API, as you: the completer uses your cached login while its access token is unexpired (or `SOURCE_TOKEN`), and never refreshes it, so after a long break only public products complete until the next command renews the login. It reads `SOURCE_API_URL` and `SOURCE_PROXY_URL` from the environment, but not `--api-url` or `--proxy-url` typed on the line. If the API doesn't answer within 2 seconds, it offers no names (bash then falls back to file names).
+
 ## Usage
 
 ### Using with AWS credential_process
@@ -280,7 +296,7 @@ Exit codes are the same for every command:
 
 `source-coop --help` ends with a summary of this section, and each command's `--help` lists its flags with examples, so an AI agent can work out how to use the CLI from the CLI itself.
 
-`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
+`creds` (`--format`), `auth token` (a bare token), `api` (the API's response) and `completions` (a shell script) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
 
 ## Managing products
 
