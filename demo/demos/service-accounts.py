@@ -69,10 +69,12 @@ def edit(s):
     s.run(f"source-coop service-account edit {ORG}--stac-indexer --disable"); s.prompt(); s.pause(2)
     s.run(f"source-coop service-account edit {ORG}--stac-indexer --enable"); s.prompt()
     s.run(f"source-coop service-account edit {ORG}--stac-indexer")
+    s.see("Save changes"); s.pause(1); s.enter()   # Name
     s.see("Name"); s.pause(0.8)
     s.key(BACKSPACE * len("STAC indexer"))
     s.type("STAC indexer (production)"); s.enter()
-
+    s.see("Save changes"); s.pause(1.2); s.key("s")
+    s.see("Save these changes"); s.pause(2.5); s.enter()
 
 def delete(s):
     s.run(f"source-coop service-account delete {ORG}--old-backfill")
@@ -114,12 +116,18 @@ def keys(s):
 
 
 def access(s):
-    s.run(f"source-coop service-account access set {ORG}--nightly-sync {ORG}/demo-data --role write"); s.prompt()
-    s.run(f"source-coop service-account access set {ORG}--nightly-sync {ORG}/demo-data --role read --json | jq -c '{{product_id, role}}'"); s.prompt()
-    s.run(f"source-coop service-account access remove {ORG}--nightly-sync -i")
-    s.see("Remove access"); s.pause(1.2); s.enter(); s.prompt()
-    s.run(f"source-coop service-account view {ORG}--nightly-sync | tail -4")
-
+    s.run(f"source-coop service-account edit {ORG}--nightly-sync --access {ORG}/demo-data=write"); s.prompt()
+    s.run(f"source-coop service-account edit {ORG}--nightly-sync")
+    s.see("Save changes"); s.pause(1.5)
+    s.key(DOWN); s.enter()                      # demo-org/climate-grid
+    s.see("Access to"); s.key(DOWN); s.enter()  # No access
+    s.see("Save changes"); s.key(DOWN, 2); s.enter()   # Grant a product…
+    s.see("Grant which product"); s.pause(1); s.enter()
+    s.see("Access"); s.enter()                  # Read
+    s.see("Save changes"); s.pause(1.5); s.key("s")
+    s.see("Save these changes"); s.pause(3); s.enter()
+    s.prompt()
+    s.run(f"source-coop service-account view {ORG}--nightly-sync | sed -n '/Can reach/,$p'")
 
 def usage(s):
     s.run(f"source-coop service-account usage {ORG}--stac-indexer")
@@ -133,10 +141,10 @@ DEMOS = {
     "create": ("`service-account create` with prompts: owner, name, ID, a GitHub workflow (checked with GitHub), an API key, a product grant, review, then saving the key", create),
     "create-flags": ("`service-account create` from flags, `--json`", create_flags),
     "picker": ("`service-account list -i`: open a record, go back, delete one from its screen", browse),
-    "edit": ("`service-account edit`: `--disable` and `--enable` (with the web UI's explanations), then a rename from the current name", edit),
+    "edit": ("`service-account edit`: `--disable` and `--enable` (with the web UI's explanations), then a rename in the edit form", edit),
     "delete": ("`service-account delete`: typed confirmation, then `--yes --json`", delete),
     "sign-in": ("`service-account sign-in add` with prompts (a workflow) and from flags, `sign-in remove -i`, `sign-in revoke-key`", sign_in),
     "keys": ("`service-account view` with API keys, `sign-in add --key --out`, `sign-in edit -i` (a new expiry) and `sign-in remove key:HINT` (revoke, typed back)", keys),
-    "access": ("`service-account access set` (grant, then change role) and `access remove -i`", access),
+    "access": ("`service-account edit --access`, then the edit form: take a product away, grant another, review and save", access),
     "usage": ("`service-account usage`: pick a sign-in for its workflow, then `--key`", usage),
 }

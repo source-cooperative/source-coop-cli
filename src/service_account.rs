@@ -37,10 +37,12 @@ pub enum ServiceAccountCommand {
         ])
     )]
     Create(CreateArgs),
-    /// Rename, disable or enable a service account
+    /// Rename a service account, change what it can reach, or disable or
+    /// enable it
     #[command(
         after_help = crate::style::examples(&[
             "source-coop service-account edit my-org--nightly-sync --name \"Nightly sync\" --json",
+            "source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old=none --json",
             "source-coop service-account edit my-org--nightly-sync --disable --json",
         ])
     )]
@@ -51,9 +53,6 @@ pub enum ServiceAccountCommand {
     /// Add or remove the ways software signs in as a service account
     #[command(subcommand)]
     SignIn(SignInCommand),
-    /// Grant, change or remove a service account's access to products
-    #[command(subcommand)]
-    Access(AccessCommand),
     /// Print what a workflow or script needs to sign in as a service account:
     /// a GitHub Actions workflow, or the environment for an API key
     #[command(
@@ -100,24 +99,6 @@ pub enum SignInCommand {
     RevokeKey(RevokeKeyArgs),
 }
 
-#[derive(Subcommand)]
-pub enum AccessCommand {
-    /// Grant the service account one of its owner's products, or change its role
-    #[command(
-        after_help = crate::style::examples(&[
-            "source-coop service-account access set my-org--nightly-sync my-org/my-data --role write --json",
-        ])
-    )]
-    Set(AccessSetArgs),
-    /// Take away the service account's access to a product
-    #[command(
-        after_help = crate::style::examples(&[
-            "source-coop service-account access remove my-org--nightly-sync my-org/my-data --json",
-        ])
-    )]
-    Remove(AccessRemoveArgs),
-}
-
 impl ServiceAccountCommand {
     /// Whether `--json` was asked for, so a failure is reported as JSON too.
     pub fn wants_json(&self) -> bool {
@@ -131,8 +112,6 @@ impl ServiceAccountCommand {
             Self::SignIn(SignInCommand::Edit(a)) => a.json,
             Self::SignIn(SignInCommand::Remove(a)) => a.json,
             Self::SignIn(SignInCommand::RevokeKey(_)) => false,
-            Self::Access(AccessCommand::Set(a)) => a.json,
-            Self::Access(AccessCommand::Remove(a)) => a.json,
             Self::Usage(_) => false,
         }
     }
@@ -286,11 +265,16 @@ pub struct EditArgs {
     #[arg(long)]
     enable: bool,
 
+    /// Grant one of the owner's products, change its role, or take it away,
+    /// as ACCOUNT/PRODUCT=read, =write or =none (repeatable)
+    #[arg(long, value_name = "PRODUCT=ROLE")]
+    access: Vec<String>,
+
     /// Read fields from a JSON object in this file (`-` for stdin); flags win
     #[arg(long, short = 'F', value_name = "PATH")]
     from_file: Option<String>,
 
-    /// Print the edited service account as JSON
+    /// Print the edited service account as JSON, as `view --json` does
     #[arg(long)]
     json: bool,
 }
@@ -403,47 +387,22 @@ impl Role {
             Role::Write => "write_data",
         }
     }
-}
 
-#[derive(Args)]
-pub struct AccessSetArgs {
-    /// The service account, as OWNER--NAME
-    #[arg(value_parser = parse_id, add = ArgValueCompleter::new(crate::complete::service_account))]
-    account: String,
+    fn from_api(role: &str) -> Option<Role> {
+        match role {
+            "read_data" => Some(Role::Read),
+            "write_data" => Some(Role::Write),
+            _ => None,
+        }
+    }
 
-    /// One of its owner's products, as ACCOUNT/PRODUCT
-    #[arg(add = ArgValueCompleter::new(crate::complete::product))]
-    product: ProductRef,
-
-    /// What it may do with the product's data
-    #[arg(long, value_enum, default_value_t = Role::Read)]
-    role: Role,
-
-    /// Print the membership as JSON
-    #[arg(long)]
-    json: bool,
-}
-
-#[derive(Args)]
-pub struct AccessRemoveArgs {
-    /// The service account, as OWNER--NAME
-    #[arg(value_parser = parse_id, add = ArgValueCompleter::new(crate::complete::service_account))]
-    account: String,
-
-    /// The product to take away, as ACCOUNT/PRODUCT (with -i, picked when omitted)
-    #[arg(
-        required_unless_present = "interactive",
-        add = ArgValueCompleter::new(crate::complete::product)
-    )]
-    product: Option<ProductRef>,
-
-    /// Pick the product when it isn't named
-    #[arg(long, short = 'i')]
-    interactive: bool,
-
-    /// Print the ended membership as JSON
-    #[arg(long)]
-    json: bool,
+    /// What it lets the account do, after "can": `read`, `read and write`.
+    fn verb(self) -> &'static str {
+        match self {
+            Role::Read => "read",
+            Role::Write => "read and write",
+        }
+    }
 }
 
 #[derive(Args)]
@@ -536,8 +495,6 @@ pub async fn run(
         C::SignIn(SignInCommand::Edit(args)) => sign_in_edit(args, ctx, prompter).await,
         C::SignIn(SignInCommand::Remove(args)) => sign_in_remove(args, ctx, prompter).await,
         C::SignIn(SignInCommand::RevokeKey(_)) => revoke_key(ctx.client).await,
-        C::Access(AccessCommand::Set(args)) => access_set(args, ctx).await,
-        C::Access(AccessCommand::Remove(args)) => access_remove(args, ctx, prompter).await,
         C::Usage(args) => usage(args, ctx, prompter).await,
     }
 }
@@ -1141,6 +1098,7 @@ async fn act(
                 name: None,
                 disable: false,
                 enable: false,
+                access: vec![],
                 from_file: None,
                 json: false,
             };
@@ -1383,16 +1341,27 @@ async fn ask_github(ask: &mut dyn Prompter, github_api: &str) -> Result<Option<S
 /// in the create body. The product must be the owner's, where the API takes
 /// only its ID.
 fn grant(spec: &str, owner: &str) -> Result<Value, String> {
-    let bad = || format!("expected --access ACCOUNT/PRODUCT=read or =write, got '{spec}'");
-    let (product, role) = spec.rsplit_once('=').ok_or_else(bad)?;
-    let product: ProductRef = product.parse()?;
-    let role = Role::from_str(role, true).map_err(|_| bad())?;
+    let (product, role) = parse_access(spec)?;
+    let role = role.ok_or_else(|| format!("{product}=none grants nothing: use read or write"))?;
     if product.account_id != owner {
         return Err(format!(
             "A service account can only be granted its owner's products: {product} isn't {owner}'s."
         ));
     }
     Ok(json!({"product_id": product.product_id, "role": role.api()}))
+}
+
+/// `ACCOUNT/PRODUCT=read|write|none`, as `--access` takes it: the product,
+/// and its role, or None to take it away.
+fn parse_access(spec: &str) -> Result<(ProductRef, Option<Role>), String> {
+    let bad = || format!("expected --access ACCOUNT/PRODUCT=read, =write or =none, got '{spec}'");
+    let (product, role) = spec.rsplit_once('=').ok_or_else(bad)?;
+    let product: ProductRef = product.parse()?;
+    let role = match role {
+        "none" => None,
+        r => Some(Role::from_str(r, true).map_err(|_| bad())?),
+    };
+    Ok((product, role))
 }
 
 /// Append `value` to the array at `key`, unless it's there already.
@@ -1894,19 +1863,27 @@ async fn edit(
     if args.disable || args.enable {
         body.insert("disabled".into(), json!(args.disable));
     }
+    // Access changes ride in the body, so a draft keeps them, but go to
+    // /memberships rather than in the PATCH.
+    for spec in &args.access {
+        let (product, role) = parse_access(spec)?;
+        let reach = body.entry("access").or_insert_with(|| json!({}));
+        reach[product.to_string()] = role.map_or(Value::Null, |r| json!(r.api()));
+    }
     let key = format!("service-account-edit/{id}");
     let mut draft = None;
     if body.is_empty() {
         let Some(ask) = prompter.as_deref_mut() else {
             return Err(
-                "Nothing to change: pass --name, --disable, --enable or --from-file.".into(),
+                "Nothing to change: pass --name, --access, --disable, --enable or --from-file."
+                    .into(),
             );
         };
         ctx.client.check_signed_in().await?;
         let saved = Draft::for_key(&key)?;
         if !saved.resume(ask, &mut body)? {
-            let current = fetch(ctx.client, &id).await?;
-            prompt_edits(ask, &current, &mut body)?;
+            let current = fetch_whole(ctx.client, &id).await?;
+            edit_form(ask, ctx, &current, &mut body).await?;
         }
         if body.is_empty() {
             eprintln!("No changes to {id}.");
@@ -1914,15 +1891,40 @@ async fn edit(
         }
         draft = Some(saved);
     }
-    let url = ctx.client.url(&["accounts", &id]);
-    let sent = send_until_accepted(ctx.client, Method::PATCH, url, &mut body, prompter).await;
-    let edited = match &draft {
+
+    let mut fields = body.clone();
+    let reach = fields.remove("access");
+    let mut said = vec![];
+    let sent = async {
+        if !fields.is_empty() {
+            let url = ctx.client.url(&["accounts", &id]);
+            send_until_accepted(ctx.client, Method::PATCH, url, &mut fields, prompter).await?;
+        }
+        for (product, role) in reach.iter().flat_map(|r| r.as_object()).flatten() {
+            let product: ProductRef = product.parse()?;
+            let role = role.as_str().and_then(Role::from_api);
+            said.push(set_access(ctx.client, &id, &product, role).await?);
+        }
+        Ok(())
+    }
+    .await;
+    // Fields asked for again count as answers, for the draft.
+    body.extend(fields);
+    match &draft {
         Some(draft) => draft.finish(sent, &body)?,
         None => sent?,
-    };
-    report(&edited, args.json, "Edited");
+    }
+    if args.json {
+        crate::output::json(&fetch_whole(ctx.client, &id).await?);
+        return Ok(());
+    }
+    eprintln!("Edited {id}");
+    for line in said {
+        eprintln!("{line}");
+    }
+    println!("{id}");
     // What disabling or enabling does, as the web UI's confirmation says it.
-    if !args.json && (args.disable || args.enable) {
+    if args.disable || args.enable {
         eprintln!(
             "{}",
             if args.disable {
@@ -1935,28 +1937,251 @@ async fn edit(
     Ok(())
 }
 
+/// Give the service account `role` on `product`, or take its access away
+/// (None), through its membership: a new one, a changed role, or ended.
+/// Already so is fine, so a draft sent twice does no harm. Returns what
+/// changed, as a sentence.
+async fn set_access(
+    client: &Client,
+    id: &str,
+    product: &ProductRef,
+    role: Option<Role>,
+) -> Result<String, String> {
+    let membership = membership(client, id, product).await?;
+    let id_role = |m: &Value| str_field(m, "role").to_string();
+    match (membership, role) {
+        (None, None) => Ok(format!("{id} already can't reach {product}")),
+        (Some(m), None) => {
+            let url = client.url(&["memberships", str_field(&m, "membership_id")]);
+            client
+                .request::<Value>(Method::PATCH, url, Some(&json!({"state": "revoked"})))
+                .await?;
+            Ok(format!("{id} can no longer reach {product}"))
+        }
+        (Some(m), Some(r)) if id_role(&m) == r.api() => {
+            Ok(format!("{id} already can {} {product}", r.verb()))
+        }
+        (Some(m), Some(r)) => {
+            let url = client.url(&["memberships", str_field(&m, "membership_id")]);
+            client
+                .request::<Value>(Method::PATCH, url, Some(&json!({"role": r.api()})))
+                .await?;
+            Ok(format!("{id} can now {} {product}", r.verb()))
+        }
+        (None, Some(r)) => {
+            let body = json!({
+                "membership_account_id": product.account_id,
+                "product_id": product.product_id,
+                "account_id": id,
+                "role": r.api(),
+            });
+            client
+                .request::<Value>(Method::POST, client.url(&["memberships"]), Some(&body))
+                .await?;
+            Ok(format!("{id} can now {} {product}", r.verb()))
+        }
+    }
+}
+
+/// `edit`'s keys, as `product edit`'s form has them.
+const EDIT_HINT: &str = "↑/↓ move · Enter change · s save · Esc cancel";
+
+/// The choices for one product's access in the edit form.
+const ACCESS_CHOICES: [&str; 3] = ["Read", "Read and write", "No access"];
+
+/// A role as the form shows it, or "No access".
+fn reach_label(role: Option<&str>) -> &str {
+    role.map_or("No access", role_label)
+}
+
+/// The edit form, as `product edit` has one: the name and each product the
+/// account reaches, as they are now, then "Grant a product…" and "Save
+/// changes". Enter changes the highlighted row, `s` or Save shows what will
+/// change and asks to confirm; Esc or ← cancels, asking first if anything
+/// changed. Puts the changes in `body`: `name`, and `access` as
+/// `{"ACCOUNT/PRODUCT": "read_data" | "write_data" | null}`.
+async fn edit_form(
+    ask: &mut dyn Prompter,
+    ctx: &Ctx<'_>,
+    current: &Value,
+    body: &mut Map<String, Value>,
+) -> Result<(), String> {
+    let id = str_field(current, "account_id").to_string();
+    let owner = str_field(current, "owner_account_id").to_string();
+    let was_name = str_field(current, "name").to_string();
+    let was: std::collections::BTreeMap<String, String> = current
+        .get("memberships")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .map(|m| {
+            let product = format!(
+                "{}/{}",
+                str_field(m, "membership_account_id"),
+                str_field(m, "product_id")
+            );
+            (product, str_field(m, "role").to_string())
+        })
+        .collect();
+    let mut name = was_name.clone();
+    let mut reach: std::collections::BTreeMap<String, Option<String>> = was
+        .iter()
+        .map(|(p, r)| (p.clone(), Some(r.clone())))
+        .collect();
+    let mut owned: Option<Vec<String>> = None;
+    let mut place = Place::default();
+    let _screen = ask.fullscreen();
+    loop {
+        let changed: Vec<String> = reach
+            .iter()
+            .filter(|(p, r)| r.as_deref() != was.get(*p).map(String::as_str))
+            .map(|(p, _)| p.clone())
+            .collect();
+        let count = changed.len() + usize::from(name != was_name);
+        let products: Vec<String> = reach.keys().cloned().collect();
+        let width = products.iter().map(String::len).max().unwrap_or(0).max(12);
+        let mut rows = vec![if name != was_name {
+            format!("{:<width$} ● {name}   (was: {was_name})", "Name")
+        } else {
+            format!("{:<width$}   {name}", "Name")
+        }];
+        for p in &products {
+            let now = reach_label(reach[p].as_deref());
+            rows.push(if changed.contains(p) {
+                let before = reach_label(was.get(p).map(String::as_str));
+                format!("{p:<width$} ● {now}   (was: {before})")
+            } else {
+                format!("{p:<width$}   {now}")
+            });
+        }
+        rows.push("Grant a product…".into());
+        rows.push(match count {
+            0 => "Save changes (nothing changed yet)".into(),
+            1 => "Save changes (1 change)".into(),
+            n => format!("Save changes ({n} changes)"),
+        });
+        ask.clear();
+        let action = ask.browse(
+            &format!("Edit {id}"),
+            &rows,
+            &mut place,
+            false,
+            "s",
+            EDIT_HINT,
+        )?;
+        let at = place.at;
+        // Esc or ↑ on a question leaves its row as it was.
+        let kept = |e: &String| e == crate::prompt::CANCELLED;
+        match action {
+            Action::Back if count == 0 => return Err(crate::prompt::CANCELLED.into()),
+            Action::Back => {
+                ask.clear();
+                match ask.confirm(&format!("Discard your changes to {id}?"), false) {
+                    Ok(true) => return Err(crate::prompt::CANCELLED.into()),
+                    Err(e) if !kept(&e) => return Err(e),
+                    _ => continue,
+                }
+            }
+            Action::Open if at == 0 => match ask.input_or_back("Name", &name, false) {
+                Ok(Some(n)) => name = n.trim().to_string(),
+                Ok(None) => {}
+                Err(e) if kept(&e) => {}
+                Err(e) => return Err(e),
+            },
+            Action::Open if at <= products.len() => {
+                let p = &products[at - 1];
+                let options = ACCESS_CHOICES.map(String::from);
+                let now = match reach[p].as_deref() {
+                    Some("read_data") => 0,
+                    Some(_) => 1,
+                    None => 2,
+                };
+                match ask.select_or_back(&format!("Access to {p}"), &options, now) {
+                    Ok(Some(i)) => {
+                        let role = [Some(Role::Read), Some(Role::Write), None][i];
+                        reach.insert(p.clone(), role.map(|r| r.api().to_string()));
+                    }
+                    Ok(None) => {}
+                    Err(e) if kept(&e) => {}
+                    Err(e) => return Err(e),
+                }
+            }
+            Action::Open if at == products.len() + 1 => {
+                if owned.is_none() {
+                    let listed = all(ctx.client, ctx.client.url(&["products", &owner]))
+                        .await
+                        .unwrap_or_default();
+                    owned = Some(
+                        listed
+                            .iter()
+                            .map(|p| format!("{owner}/{}", str_field(p, "product_id")))
+                            .collect(),
+                    );
+                }
+                let options: Vec<String> = owned
+                    .iter()
+                    .flatten()
+                    .filter(|p| !reach.contains_key(*p))
+                    .cloned()
+                    .collect();
+                if options.is_empty() {
+                    place.notice = Some(format!("It already lists every product of {owner}."));
+                    continue;
+                }
+                let Ok(Some(i)) = ask.select_or_back("Grant which product?", &options, 0) else {
+                    continue;
+                };
+                let roles = ACCESS_CHOICES[..2]
+                    .iter()
+                    .map(|r| r.to_string())
+                    .collect::<Vec<_>>();
+                if let Ok(Some(r)) = ask.select_or_back("Access", &roles, 0) {
+                    let role = [Role::Read, Role::Write][r];
+                    reach.insert(options[i].clone(), Some(role.api().into()));
+                }
+            }
+            _ if count == 0 => return Ok(()),
+            _ => {
+                let mut review = vec![];
+                if name != was_name {
+                    review.push(format!("{:<width$}  {was_name}  →  {name}", "Name"));
+                }
+                for p in &changed {
+                    let before = reach_label(was.get(p).map(String::as_str));
+                    let now = reach_label(reach[p].as_deref());
+                    review.push(format!("{p:<width$}  {before}  →  {now}"));
+                }
+                ask.clear();
+                match ask.confirm_or_back(&format!("Save these changes to {id}?"), &review)? {
+                    None => continue,
+                    Some(false) => return Err(crate::prompt::CANCELLED.into()),
+                    Some(true) => {
+                        if name != was_name {
+                            body.insert("name".into(), json!(name));
+                        }
+                        if !changed.is_empty() {
+                            let access: Map<String, Value> = changed
+                                .iter()
+                                .map(|p| {
+                                    (p.clone(), reach[p].clone().map_or(Value::Null, Value::from))
+                                })
+                                .collect();
+                            body.insert("access".into(), Value::Object(access));
+                        }
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// What disabling and enabling do, as the web UI's confirmation says it.
 const DISABLE_SAYS: &str = "Nothing can sign in as it, by workflow or by API key, and within five \
     minutes credentials already generated are cut back to public data. Its workflows, keys and \
     product access are kept.";
 const ENABLE_SAYS: &str =
     "Its trusted workflows and unrevoked API keys can sign in again, so revoke any key that leaked first.";
-
-/// Ask for a new name, starting from the current one: the only field a
-/// service account takes besides `disabled`, which is a flag (`--disable`,
-/// `--enable`), as it is for products.
-fn prompt_edits(
-    ask: &mut dyn Prompter,
-    current: &Value,
-    body: &mut Map<String, Value>,
-) -> Result<(), String> {
-    let was = str_field(current, "name");
-    let name = ask.input("Name", was, false)?;
-    if name != was {
-        body.insert("name".into(), json!(name));
-    }
-    Ok(())
-}
 
 async fn delete(
     args: DeleteArgs,
@@ -2376,95 +2601,6 @@ async fn membership(
         str_field(m, "membership_account_id") == product.account_id
             && str_field(m, "product_id") == product.product_id
     }))
-}
-
-async fn access_set(args: AccessSetArgs, ctx: &Ctx<'_>) -> Result<(), String> {
-    split_id(&args.account)?;
-    let client = ctx.client;
-    let role = args.role.api();
-    let result: Value = match membership(client, &args.account, &args.product).await? {
-        Some(m) if str_field(&m, "role") == role => m,
-        Some(m) => {
-            let url = client.url(&["memberships", str_field(&m, "membership_id")]);
-            client
-                .request(Method::PATCH, url, Some(&json!({"role": role})))
-                .await?
-        }
-        None => {
-            let body = json!({
-                "membership_account_id": args.product.account_id,
-                "product_id": args.product.product_id,
-                "account_id": args.account,
-                "role": role,
-            });
-            client
-                .request(Method::POST, client.url(&["memberships"]), Some(&body))
-                .await?
-        }
-    };
-    if args.json {
-        crate::output::json(&result);
-    } else {
-        eprintln!(
-            "{} can {} {}",
-            args.account,
-            match args.role {
-                Role::Read => "read",
-                Role::Write => "read and write",
-            },
-            args.product
-        );
-    }
-    Ok(())
-}
-
-async fn access_remove(
-    args: AccessRemoveArgs,
-    ctx: &Ctx<'_>,
-    prompter: Option<&mut dyn Prompter>,
-) -> Result<(), String> {
-    split_id(&args.account)?;
-    let client = ctx.client;
-    let m = match &args.product {
-        Some(p) => membership(client, &args.account, p)
-            .await?
-            .ok_or_else(|| not_found(format!("{} has no access to {p}", args.account)))?,
-        None => {
-            let ask = prompter.ok_or(NEEDS_TERMINAL)?;
-            let mut all = memberships(client, &args.account).await?;
-            if all.is_empty() {
-                eprintln!("{} can't reach any products.", args.account);
-                return Ok(());
-            }
-            let labels: Vec<String> = all
-                .iter()
-                .map(|m| {
-                    format!(
-                        "{}/{}  {}",
-                        str_field(m, "membership_account_id"),
-                        str_field(m, "product_id"),
-                        role_label(str_field(m, "role"))
-                    )
-                })
-                .collect();
-            all.swap_remove(ask.select("Remove access to which product?", &labels, 0)?)
-        }
-    };
-    let url = client.url(&["memberships", str_field(&m, "membership_id")]);
-    let ended: Value = client
-        .request(Method::PATCH, url, Some(&json!({"state": "revoked"})))
-        .await?;
-    if args.json {
-        crate::output::json(&ended);
-    } else {
-        eprintln!(
-            "{} can no longer reach {}/{}",
-            args.account,
-            str_field(&m, "membership_account_id"),
-            str_field(&m, "product_id")
-        );
-    }
-    Ok(())
 }
 
 async fn usage(
@@ -2915,22 +3051,45 @@ mod tests {
         assert_eq!(crate::failure::classify(&err).exit_code(), 5, "{err}");
     }
 
+    fn edit_args(access: &[&str]) -> EditArgs {
+        EditArgs {
+            account: Some("org--sa".into()),
+            interactive: false,
+            name: None,
+            disable: false,
+            enable: false,
+            access: access.iter().map(|a| a.to_string()).collect(),
+            from_file: None,
+            json: false,
+        }
+    }
+
     #[tokio::test]
-    async fn access_set_grants_once_and_changes_the_role_after() {
+    async fn edit_access_grants_changes_and_takes_away_once_each() {
         let server = api_server().await;
         let github = github_server().await;
-        let existing = json!({"membership_id": "m1", "account_id": "org--sa",
-                              "membership_account_id": "org", "product_id": "data",
-                              "role": "read_data", "state": "member"});
+        let reads = json!({"membership_id": "m1", "account_id": "org--sa",
+                           "membership_account_id": "org", "product_id": "data",
+                           "role": "read_data", "state": "member"});
+        let old = json!({"membership_id": "m2", "account_id": "org--sa",
+                         "membership_account_id": "org", "product_id": "old",
+                         "role": "write_data", "state": "member"});
         Mock::given(method("GET"))
             .and(path("/api/v1/memberships"))
-            .respond_with(page(json!([existing])))
+            .respond_with(page(json!([reads, old])))
             .mount(&server)
             .await;
         Mock::given(method("PATCH"))
             .and(path("/api/v1/memberships/m1"))
             .and(body_json(json!({"role": "write_data"})))
-            .respond_with(ResponseTemplate::new(200).set_body_json(&existing))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&reads))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/memberships/m2"))
+            .and(body_json(json!({"state": "revoked"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&old))
             .expect(1)
             .mount(&server)
             .await;
@@ -2940,24 +3099,109 @@ mod tests {
                 json!({"membership_account_id": "org", "product_id": "new",
                                   "account_id": "org--sa", "role": "read_data"}),
             ))
-            .respond_with(ResponseTemplate::new(201).set_body_json(&existing))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&reads))
             .expect(1)
             .mount(&server)
             .await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let ctx = ctx(&client, &github);
-        let set = |product: &str, role| AccessSetArgs {
-            account: "org--sa".into(),
-            product: product.parse().unwrap(),
-            role,
-            json: true,
-        };
-        access_set(set("org/data", Role::Write), &ctx)
+        let args = edit_args(&["org/data=write", "org/old=none", "org/new=read"]);
+        edit(args, &ctx, None).await.unwrap();
+        // Already so, both ways: nothing sent (each mock above expects one call).
+        edit(edit_args(&["org/old=write", "org/gone=none"]), &ctx, None)
             .await
             .unwrap();
-        access_set(set("org/new", Role::Read), &ctx).await.unwrap();
-        // Already so: nothing sent.
-        access_set(set("org/data", Role::Read), &ctx).await.unwrap();
+
+        let err = edit(edit_args(&["org/data=admin"]), &ctx, None)
+            .await
+            .unwrap_err();
+        assert!(err.contains("=read, =write or =none"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_changes_the_name_and_access_after_a_review() {
+        let server = api_server().await;
+        let github = github_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/org/service-accounts"))
+            .respond_with(page(json!([account("org--sa")])))
+            .mount(&server)
+            .await;
+        for empty in ["trusts", "keys"] {
+            Mock::given(method("GET"))
+                .and(path(format!("/api/v1/accounts/org--sa/{empty}")))
+                .respond_with(page(json!([])))
+                .mount(&server)
+                .await;
+        }
+        let reads = json!({"membership_id": "m1", "account_id": "org--sa",
+                           "membership_account_id": "org", "product_id": "data",
+                           "role": "read_data", "state": "member"});
+        Mock::given(method("GET"))
+            .and(path("/api/v1/memberships"))
+            .respond_with(page(json!([reads])))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/org"))
+            .respond_with(page(
+                json!([{"product_id": "data"}, {"product_id": "other"}]),
+            ))
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/accounts/org--sa"))
+            .and(body_json(json!({"name": "Renamed"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(account("org--sa")))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/memberships/m1"))
+            .and(body_json(json!({"state": "revoked"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(&reads))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/memberships"))
+            .and(body_json(
+                json!({"membership_account_id": "org", "product_id": "other",
+                                  "account_id": "org--sa", "role": "write_data"}),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(&reads))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([
+            Browse(0, Action::Open), // Name
+            Text("Renamed"),
+            Browse(1, Action::Open), // org/data
+            Pick(2),                 // No access
+            Browse(2, Action::Open), // Grant a product…
+            Pick(0),                 // org/other
+            Pick(1),                 // Read and write
+            Browse(0, Action::Key('s')),
+            Yes(true),
+        ]);
+        edit(edit_args(&[]), &ctx(&client, &github), Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "Edit org--sa [Name           Nightly sync] of Name           Nightly sync | org/data       Read | Grant a product… | Save changes (nothing changed yet) (keys s)",
+                "Name [Nightly sync]",
+                "Edit org--sa [Name         ● Renamed   (was: Nightly sync)] of Name         ● Renamed   (was: Nightly sync) | org/data       Read | Grant a product… | Save changes (1 change) (keys s)",
+                "Access to org/data [Read] of Read | Read and write | No access",
+                "Edit org--sa [org/data     ● No access   (was: Read)] of Name         ● Renamed   (was: Nightly sync) | org/data     ● No access   (was: Read) | Grant a product… | Save changes (2 changes) (keys s)",
+                "Grant which product? [org/other] of org/other",
+                "Access [Read] of Read | Read and write",
+                "Edit org--sa [org/other    ● Read and write   (was: No access)] of Name         ● Renamed   (was: Nightly sync) | org/data     ● No access   (was: Read) | org/other    ● Read and write   (was: No access) | Grant a product… | Save changes (3 changes) (keys s)",
+                "Save these changes to org--sa? {Name          Nightly sync  →  Renamed | org/data      Read  →  No access | org/other     No access  →  Read and write} [true]",
+            ]
+        );
     }
 
     #[tokio::test]

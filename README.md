@@ -274,7 +274,7 @@ Reading public data needs no credentials. Anything else acts as whoever ran `sou
 
 ### JSON output and exit codes
 
-Every command that reports information takes `--json`: `auth status`; `product list`, `view`, `create`, `edit` and `delete`; the `member` and `invitation` commands; and `service-account list`, `view`, `create`, `edit`, `delete`, `sign-in add`, `edit` and `remove`, and `access set` and `remove` (the writes print the resulting record). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
+Every command that reports information takes `--json`: `auth status`; `product list`, `view`, `create`, `edit` and `delete`; the `member` and `invitation` commands; and `service-account list`, `view`, `create`, `edit`, `delete`, `sign-in add`, `edit` and `remove` (the writes print the resulting record; `service-account edit --json` prints the account as `view --json` does). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
 
 A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
 
@@ -378,13 +378,14 @@ A service account is an account software signs in as: a GitHub Actions workflow,
 
 ```bash
 source-coop service-account list my-org             # my-org's service accounts (yours without an owner)
+source-coop service-account list my-org --no-pager  # printed straight out, not through the pager
 source-coop service-account list my-org -i          # move through them and act on them (keys as for products)
 source-coop service-account view my-org--nightly-sync          # --json adds its `trusts`, `keys` and `memberships`
 source-coop service-account create                  # prompts for everything, as the web form asks it
 source-coop service-account create my-org--nightly-sync --name "Nightly sync" \
     --github my-org/data --branch main --access my-org/my-data=write
 source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
-source-coop service-account edit my-org--nightly-sync            # asks for a new name, starting from the current one
+source-coop service-account edit my-org--nightly-sync            # a form of its name and the products it reaches
 source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
 source-coop service-account delete my-org--nightly-sync           # asks you to type its ID back
 ```
@@ -418,12 +419,13 @@ If a key leaks, anyone holding it can revoke it, with no sign-in needed. The key
 source-coop service-account sign-in revoke-key < leaked-key-file
 ```
 
-**Reaching products.** A service account can read, or read and write, its owner's products. Each grant is an ordinary membership of the product:
+**Reaching products.** A service account can read, or read and write, its owner's products. Each grant is an ordinary membership of the product. `create --access` grants them at the start, and `edit --access` grants one, changes its role, or takes it away (`=none`):
 
 ```bash
-source-coop service-account access set my-org--nightly-sync my-org/my-data --role write   # grants it, or changes its role
-source-coop service-account access remove my-org--nightly-sync my-org/my-data
+source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old-data=none
 ```
+
+`edit` with no flags opens a form, taking the whole terminal until you leave it, of the account's name and each product it reaches, with its role. ↑/↓ moves, and Enter changes the highlighted row: the name from its current value, or a product's access to Read, Read and write or No access. *Grant a product…* adds one of the owner's other products. Changed rows are marked with what they were. `s`, or Enter on *Save changes*, shows what will change and asks you to confirm, with ← back to the form. Esc or ← on the form cancels, asking first if you've changed anything. Asking for a role a product already has, or taking away access it doesn't have, changes nothing, so running an edit twice is safe. `--disable` and `--enable` are flags only.
 
 **Using it.** Workflows and scripts sign in with stock AWS tools, not this CLI. `usage` prints what they need, the same snippets the web UI shows:
 
@@ -435,7 +437,7 @@ source-coop service-account usage my-org--nightly-sync --key   # the AWS_* varia
 
 Without `--subject` or `--key`, in a terminal, `usage` asks which sign-in to show.
 
-`create` takes its fields as flags (`--name`, one `--github` workflow, a `--key` with `--expires` and `--out`, `--access` repeated), from a JSON object in the API's shape with `--from-file` (`name`, `local_id`, `github_subjects`, `key`, `grants`), or both. In a terminal it asks for whatever is missing: the owner, the name, the ID (made from the name), workflows to trust and an API key, products to grant. Then it shows everything, including the condition each workflow must match, before creating it. A key issued with the account is handed over as `sign-in add` does, except that stdout keeps the account's ID: to capture the key, use `--out` or `--json`. Going back, drafts, sign-in checks and `--yes` work as they do for products. `create` and `edit` print the service account's ID on stdout, so `id=$(source-coop service-account create …)` works. Its ID is what the AWS tools name it by: `role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess`.
+`create` takes its fields as flags (`--name`, one `--github` workflow, a `--key` with `--expires` and `--out`, `--access` repeated), from a JSON object in the API's shape with `--from-file` (`name`, `local_id`, `github_subjects`, `key`, `grants`), or both. In a terminal it asks for whatever is missing: the owner, the name, the ID (made from the name), workflows to trust and an API key, products to grant. Then it shows everything, including the condition each workflow must match, before creating it. A key issued with the account is handed over as `sign-in add` does, except that stdout keeps the account's ID: to capture the key, use `--out` or `--json`. Going back, drafts, sign-in checks and `--yes` work as they do for products. `create` and `edit` print the service account's ID on stdout, so `id=$(source-coop service-account create …)` works. `list` goes through your pager on a terminal (`$SOURCE_PAGER`, `$PAGER`, then `less -FRX`). `--no-pager` prints straight to the terminal, and so does `SOURCE_PAGER=cat`; piped output never goes through it. Its ID is what the AWS tools name it by: `role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess`.
 
 ## Credential storage
 
