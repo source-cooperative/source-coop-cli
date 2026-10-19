@@ -338,6 +338,40 @@ Before asking anything, `create`, `edit` and `delete` check that you're signed i
 
 Output is for people on a terminal and for scripts when piped: `list` shows each product's fields (`--format table` prints an aligned table with a header on a terminal, and tab-separated rows without one when piped); `create` and `edit` print the product's URL on stdout and their message on stderr, so `url=$(source-coop product create ...)` works.
 
+## Managing members
+
+`source-coop member` manages who belongs to an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`), and `source-coop invitation` answers the invitations sent to you. Members are named by their account ID; there's no inviting by email.
+
+```bash
+source-coop member list my-org                    # members and pending invitations
+source-coop member list my-org/my-data --json     # a product's own members, as JSON
+source-coop member list my-org --state invited    # only invitations not yet answered
+source-coop member list my-org -i                 # move through the members and act on them
+source-coop member view my-org alice              # one member; -i for its screen
+source-coop member invite my-org alice bob --role maintainers
+source-coop member invite my-org/my-data -A people.txt --role read_data
+source-coop member invite my-org                  # prompts for who and which role
+source-coop member edit my-org alice --role owners
+source-coop member edit my-org -i                 # pick a member, then a role
+source-coop member revoke my-org alice            # also withdraws a pending invitation
+source-coop member leave my-org                   # give up your own membership
+
+source-coop invitation list                       # invitations waiting for you
+source-coop invitation list -i                    # open one to accept (a) or reject (r) it
+source-coop invitation accept my-org/my-data
+source-coop invitation reject my-org
+```
+
+With [shell completion](#shell-completion), TAB offers the organizations you belong to and their products for `ACCOUNT` or `ACCOUNT/PRODUCT`, the members of the one you named for a member, its organization's members who aren't on a product yet for `invite`, and your own invitations and memberships for `invitation accept`/`reject` and `member leave`.
+
+Roles, most powerful first, are `owners`, `maintainers`, `write_data` and `read_data`. Only owners can make someone an owner, or change or revoke an owner's membership; owners and maintainers handle the other roles. A product's members list holds only that product's own members: the organization's members reach its products as well, and are listed with the organization.
+
+`invite` takes any number of account IDs, and `--accounts-file PATH` (`-A`, `-` for stdin) adds one per line, skipping blank lines and lines starting with `#`. Each is sent as its own invitation: one the API refuses is reported and the rest are still sent, and the command fails at the end if any did. In a terminal, missing accounts and role are asked for (the role defaulting to `read_data`, and `owners` offered only if you can grant it), then shown for you to confirm; ← goes back a question. If some invitations fail, the ones not sent are saved as a draft that the next `invite` to the same place offers back. A product owner's service account is added at once rather than invited, with `read_data` or `write_data` only.
+
+`edit` with no `--role` asks for one, starting from the current role. `revoke` asks you to confirm, and to type the organization or product back when it's your own membership; `leave` always asks you to type it back, since only an owner or maintainer can let you back in. Without a terminal both need `--yes`. An invitation's role can't be changed: revoke it and invite again.
+
+With `-i`, `member list` answers to the same keys as `product list -i`. On a member, `e` changes the role and `d` revokes the membership (on an invitation, only `d`, which withdraws it); `b` opens their profile. `--json` on any of these prints the memberships as the API returns them (`membership_id`, `account_id`, `membership_account_id`, `repository_id` for a product, `role`, `state`, `state_changed`); `invite --json` prints an array of the memberships it created. `create` and `delete` also work as names for `invite` and `revoke`.
+
 ## Credential storage
 
 The CLI caches the login session (the Ory refresh, ID and access tokens) and the temporary STS credentials for each role, so that `creds` and API commands work without re-authenticating. The refresh token is kept in the session only: it rotates on use, so every role and every API call refreshes through it, one at a time.
