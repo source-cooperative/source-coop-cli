@@ -1994,6 +1994,16 @@ fn reach_label(role: Option<&str>) -> &str {
     role.map_or("No access", role_label)
 }
 
+/// What a grant was before the form changed it, after "was:".
+fn was_label(role: Option<&String>) -> &str {
+    role.map_or("no access", |r| role_label(r))
+}
+
+/// The edit form's label column: as wide as "Can reach".
+const FORM_LABEL: usize = 9;
+/// Its role column, as wide as "Read and write", so "(was: …)" lines up.
+const ROLE: usize = 14;
+
 /// The edit form, as `product edit` has one: the name and each product the
 /// account reaches, as they are now, then "Grant a product…" and "Save
 /// changes". Enter changes the highlighted row, `s` or Save shows what will
@@ -2039,22 +2049,30 @@ async fn edit_form(
             .collect();
         let count = changed.len() + usize::from(name != was_name);
         let products: Vec<String> = reach.keys().cloned().collect();
-        let width = products.iter().map(String::len).max().unwrap_or(0).max(12);
+        // A label column, as `view` has: "Name" for the field, "Can reach"
+        // over the grants, each a product, then its role, then what it was.
+        let width = products.iter().map(String::len).max().unwrap_or(0);
+        let mark = |changed: bool| if changed { "●" } else { " " };
         let mut rows = vec![if name != was_name {
-            format!("{:<width$} ● {name}   (was: {was_name})", "Name")
+            format!("{:<FORM_LABEL$} ● {name}   (was: {was_name})", "Name")
         } else {
-            format!("{:<width$}   {name}", "Name")
+            format!("{:<FORM_LABEL$}   {name}", "Name")
         }];
-        for p in &products {
+        for (i, p) in products.iter().enumerate() {
+            let label = if i == 0 { "Can reach" } else { "" };
             let now = reach_label(reach[p].as_deref());
-            rows.push(if changed.contains(p) {
-                let before = reach_label(was.get(p).map(String::as_str));
-                format!("{p:<width$} ● {now}   (was: {before})")
-            } else {
-                format!("{p:<width$}   {now}")
-            });
+            let changed = changed.contains(p);
+            let was = match changed {
+                true => format!("{now:<ROLE$}  (was: {})", was_label(was.get(p))),
+                false => now.to_string(),
+            };
+            rows.push(format!(
+                "{label:<FORM_LABEL$}   {p:<width$}  {} {was}",
+                mark(changed)
+            ));
         }
-        rows.push("Grant a product…".into());
+        let label = if products.is_empty() { "Can reach" } else { "" };
+        rows.push(format!("{label:<FORM_LABEL$}   + Grant a product…"));
         rows.push(match count {
             0 => "Save changes (nothing changed yet)".into(),
             1 => "Save changes (1 change)".into(),
@@ -2142,14 +2160,19 @@ async fn edit_form(
             }
             _ if count == 0 => return Ok(()),
             _ => {
+                // The form's columns, with only what changed.
                 let mut review = vec![];
                 if name != was_name {
-                    review.push(format!("{:<width$}  {was_name}  →  {name}", "Name"));
+                    review.push(format!("{:<FORM_LABEL$}   {was_name}  →  {name}", "Name"));
                 }
-                for p in &changed {
+                let width = changed.iter().map(String::len).max().unwrap_or(0);
+                for (i, p) in changed.iter().enumerate() {
+                    let label = if i == 0 { "Can reach" } else { "" };
                     let before = reach_label(was.get(p).map(String::as_str));
                     let now = reach_label(reach[p].as_deref());
-                    review.push(format!("{p:<width$}  {before}  →  {now}"));
+                    review.push(format!(
+                        "{label:<FORM_LABEL$}   {p:<width$}  {before}  →  {now}"
+                    ));
                 }
                 ask.clear();
                 match ask.confirm_or_back(&format!("Save these changes to {id}?"), &review)? {
@@ -3191,15 +3214,15 @@ mod tests {
         assert_eq!(
             ask.asked,
             [
-                "Edit org--sa [Name           Nightly sync] of Name           Nightly sync | org/data       Read | Grant a product… | Save changes (nothing changed yet) (keys s)",
+                "Edit org--sa [Name        Nightly sync] of Name        Nightly sync | Can reach   org/data    Read |             + Grant a product… | Save changes (nothing changed yet) (keys s)",
                 "Name [Nightly sync]",
-                "Edit org--sa [Name         ● Renamed   (was: Nightly sync)] of Name         ● Renamed   (was: Nightly sync) | org/data       Read | Grant a product… | Save changes (1 change) (keys s)",
+                "Edit org--sa [Name      ● Renamed   (was: Nightly sync)] of Name      ● Renamed   (was: Nightly sync) | Can reach   org/data    Read |             + Grant a product… | Save changes (1 change) (keys s)",
                 "Access to org/data [Read] of Read | Read and write | No access",
-                "Edit org--sa [org/data     ● No access   (was: Read)] of Name         ● Renamed   (was: Nightly sync) | org/data     ● No access   (was: Read) | Grant a product… | Save changes (2 changes) (keys s)",
+                "Edit org--sa [Can reach   org/data  ● No access       (was: Read)] of Name      ● Renamed   (was: Nightly sync) | Can reach   org/data  ● No access       (was: Read) |             + Grant a product… | Save changes (2 changes) (keys s)",
                 "Grant which product? [org/other] of org/other",
                 "Access [Read] of Read | Read and write",
-                "Edit org--sa [org/other    ● Read and write   (was: No access)] of Name         ● Renamed   (was: Nightly sync) | org/data     ● No access   (was: Read) | org/other    ● Read and write   (was: No access) | Grant a product… | Save changes (3 changes) (keys s)",
-                "Save these changes to org--sa? {Name          Nightly sync  →  Renamed | org/data      Read  →  No access | org/other     No access  →  Read and write} [true]",
+                "Edit org--sa [            org/other  ● Read and write  (was: no access)] of Name      ● Renamed   (was: Nightly sync) | Can reach   org/data   ● No access       (was: Read) |             org/other  ● Read and write  (was: no access) |             + Grant a product… | Save changes (3 changes) (keys s)",
+                "Save these changes to org--sa? {Name        Nightly sync  →  Renamed | Can reach   org/data   Read  →  No access |             org/other  No access  →  Read and write} [true]",
             ]
         );
     }
