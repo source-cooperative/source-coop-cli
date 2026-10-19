@@ -362,6 +362,8 @@ source-coop invitation accept my-org/my-data
 source-coop invitation reject my-org
 ```
 
+With [shell completion](#shell-completion), TAB offers the organizations you belong to and their products for `ACCOUNT` or `ACCOUNT/PRODUCT`, the members of the one you named for a member, its organization's members who aren't on a product yet for `invite`, and your own invitations and memberships for `invitation accept`/`reject` and `member leave`.
+
 Roles, most powerful first, are `owners`, `maintainers`, `write_data` and `read_data`. Only owners can make someone an owner, or change or revoke an owner's membership; owners and maintainers handle the other roles. A product's members list holds only that product's own members: the organization's members reach its products as well, and are listed with the organization.
 
 `invite` takes any number of account IDs, and `--accounts-file PATH` (`-A`, `-` for stdin) adds one per line, skipping blank lines and lines starting with `#`. Each is sent as its own invitation: one the API refuses is reported and the rest are still sent, and the command fails at the end if any did. In a terminal, missing accounts and role are asked for (the role defaulting to `read_data`, and `owners` offered only if you can grant it), then shown for you to confirm; ← goes back a question. If some invitations fail, the ones not sent are saved as a draft that the next `invite` to the same place offers back. A product owner's service account is added at once rather than invited, with `read_data` or `write_data` only.

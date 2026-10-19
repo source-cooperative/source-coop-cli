@@ -11,6 +11,7 @@ use crate::draft::Draft;
 use crate::product::{read_fields, str_field, Pager, NEEDS_TERMINAL};
 use crate::prompt::{Action, Place, Prompter};
 use clap::{Args, Subcommand};
+use clap_complete::engine::ArgValueCompleter;
 use reqwest::{Method, StatusCode};
 use serde_json::{json, Map, Value};
 use std::io::IsTerminal;
@@ -91,6 +92,7 @@ impl InvitationCommand {
 #[derive(Args)]
 pub struct ListArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT
+    #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
     /// Only members in this state: member or invited
@@ -114,10 +116,14 @@ pub struct ListArgs {
 #[derive(Args)]
 pub struct ViewArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT
+    #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
     /// The member's account ID (with -i, picked from the members when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::member)
+    )]
     member: Option<String>,
 
     /// Show the member with shortcuts: b browser, e edit, d revoke, ← back
@@ -132,9 +138,11 @@ pub struct ViewArgs {
 #[derive(Args)]
 pub struct InviteArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT
+    #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
     /// The account IDs to invite (prompted for when none are given)
+    #[arg(add = ArgValueCompleter::new(crate::complete::invitee))]
     accounts: Vec<String>,
 
     /// Also invite the account IDs in this file, one per line (`-` for
@@ -159,10 +167,14 @@ pub struct InviteArgs {
 #[derive(Args)]
 pub struct EditArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT
+    #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
     /// The member's account ID (with -i, picked from the members when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::member)
+    )]
     member: Option<String>,
 
     /// Pick the member when it isn't named
@@ -185,10 +197,14 @@ pub struct EditArgs {
 #[derive(Args)]
 pub struct RevokeArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT
+    #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
     /// The member's account ID (with -i, picked from the members when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::member)
+    )]
     member: Option<String>,
 
     /// Pick the member when it isn't named
@@ -208,7 +224,10 @@ pub struct RevokeArgs {
 pub struct LeaveArgs {
     /// The organization, as ACCOUNT, or the product, as ACCOUNT/PRODUCT (with
     /// -i, picked from your memberships when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::membership)
+    )]
     scope: Option<Scope>,
 
     /// Pick the membership when it isn't named
@@ -239,7 +258,10 @@ pub struct InvitationListArgs {
 pub struct AnswerArgs {
     /// Where you're invited: ACCOUNT, or ACCOUNT/PRODUCT (with -i, picked
     /// from your invitations when omitted)
-    #[arg(required_unless_present = "interactive")]
+    #[arg(
+        required_unless_present = "interactive",
+        add = ArgValueCompleter::new(crate::complete::invitation)
+    )]
     scope: Option<Scope>,
 
     /// Pick the invitation when it isn't named
@@ -289,7 +311,7 @@ impl std::fmt::Display for Scope {
 
 impl Scope {
     /// Where a membership `m` belongs.
-    fn of(m: &Value) -> Scope {
+    pub(crate) fn of(m: &Value) -> Scope {
         Scope {
             account_id: str_field(m, "membership_account_id").to_string(),
             product_id: product_of(m).map(String::from),
@@ -329,7 +351,7 @@ pub async fn run_member(
     match cmd {
         MemberCommand::List(args) if args.interactive => {
             let ask = prompter.ok_or(NEEDS_TERMINAL)?;
-            browse_members(&args.scope, client, site, ask, false)
+            browse_members(&args.scope, args.state.as_deref(), client, site, ask, false)
                 .await
                 .map(drop)
         }
@@ -337,7 +359,7 @@ pub async fn run_member(
         MemberCommand::View(args) if args.interactive => {
             let ask = prompter.ok_or(NEEDS_TERMINAL)?;
             let chosen = match &args.member {
-                None => browse_members(&args.scope, client, site, &mut *ask, true).await?,
+                None => browse_members(&args.scope, None, client, site, &mut *ask, true).await?,
                 Some(member) => Some(find(client, &args.scope, member).await?),
             };
             let Some(mut m) = chosen else { return Ok(()) };
@@ -360,10 +382,10 @@ pub async fn run_member(
             let mut prompter = prompter;
             if args.member.is_none() {
                 let ask = prompter.as_deref_mut().ok_or(NEEDS_TERMINAL)?;
-                let Some(m) = browse_members(&args.scope, client, site, ask, true).await? else {
+                let Some(member) = pick_member(&args.scope, client, site, ask).await? else {
                     return Ok(());
                 };
-                args.member = Some(str_field(&m, "account_id").to_string());
+                args.member = Some(member);
             }
             let json = args.json;
             if let Some(m) = edit(args, client, prompter).await? {
@@ -377,10 +399,10 @@ pub async fn run_member(
             let mut prompter = prompter;
             if args.member.is_none() {
                 let ask = prompter.as_deref_mut().ok_or(NEEDS_TERMINAL)?;
-                let Some(m) = browse_members(&args.scope, client, site, ask, true).await? else {
+                let Some(member) = pick_member(&args.scope, client, site, ask).await? else {
                     return Ok(());
                 };
-                args.member = Some(str_field(&m, "account_id").to_string());
+                args.member = Some(member);
             }
             let json = args.json;
             let m = revoke(args, client, prompter).await?;
@@ -454,6 +476,18 @@ pub async fn run_invitation(
     Ok(())
 }
 
+/// For `edit -i` and `revoke -i` without a member: one picked from
+/// `scope`'s members, by account ID. None when they backed out.
+async fn pick_member(
+    scope: &Scope,
+    client: &Client,
+    site: &str,
+    ask: &mut dyn Prompter,
+) -> Result<Option<String>, String> {
+    let picked = browse_members(scope, None, client, site, ask, true).await?;
+    Ok(picked.map(|m| str_field(&m, "account_id").to_string()))
+}
+
 /// The member a command was given; `run_member` fills it in for `-i`.
 fn named(member: &Option<String>) -> Result<String, String> {
     member
@@ -475,7 +509,7 @@ fn not_found(message: String) -> String {
 /// `scope`'s memberships the caller may see, invitations first, then members
 /// by role. An organization's listing also carries its products' members,
 /// which belong to those products, so they're left out.
-async fn members(client: &Client, scope: &Scope) -> Result<Vec<Value>, String> {
+pub(crate) async fn members(client: &Client, scope: &Scope) -> Result<Vec<Value>, String> {
     let all: Vec<Value> = client.get(scope.members_url(client)).await?;
     let mut ms: Vec<Value> = all.into_iter().filter(|m| Scope::of(m) == *scope).collect();
     ms.sort_by_key(|m| {
@@ -504,7 +538,7 @@ async fn find(client: &Client, scope: &Scope, member: &str) -> Result<Value, Str
 }
 
 /// The caller's own memberships in `state` (`member` or `invited`).
-async fn my_memberships(client: &Client, state: &str) -> Result<Vec<Value>, String> {
+pub(crate) async fn my_memberships(client: &Client, state: &str) -> Result<Vec<Value>, String> {
     let mut url = client.url(&["memberships"]);
     url.query_pairs_mut().append_pair("state", state);
     Ok(client.get(url).await?)
@@ -720,13 +754,15 @@ enum Next {
 
 /// Ask for whatever an invitation still needs: who (unless `accounts` has
 /// them) and the role (unless `body` has one, from a flag, file or draft),
-/// then show it all before sending. ↑ or ← goes back a question.
+/// then show it all before sending: answers resumed from a draft are shown
+/// too, though nothing else was asked. ↑ or ← goes back a question.
 fn ask_invite(
     ask: &mut dyn Prompter,
     me: &Value,
     scope: &Scope,
     accounts: &mut Vec<String>,
     body: &mut Map<String, Value>,
+    resumed: bool,
 ) -> Result<(), String> {
     let roles = grantable_roles(me, scope);
     let given_accounts = !accounts.is_empty();
@@ -763,7 +799,7 @@ fn ask_invite(
                     }
                 }
             }
-            Step::Review if asked.is_empty() => Next::Skipped(None),
+            Step::Review if asked.is_empty() && !resumed => Next::Skipped(None),
             Step::Review => {
                 let lines = [
                     format!("{:<6}  {}", "Invite", accounts.join(", ")),
@@ -810,9 +846,14 @@ async fn invite(
         accounts.extend(read_accounts(path)?);
     }
     // A file's account_id is one more, unless accounts were named.
-    if let Some(Value::String(a)) = body.remove("account_id") {
-        if accounts.is_empty() {
-            accounts.push(a);
+    match body.remove("account_id") {
+        Some(Value::String(a)) if accounts.is_empty() => accounts.push(a),
+        Some(Value::String(_)) | None => {}
+        Some(other) => {
+            let file = args.from_file.as_deref().unwrap_or_default();
+            return Err(format!(
+                "account_id in {file} must be a string, not {other}"
+            ));
         }
     }
     if let Some(role) = args.role {
@@ -820,15 +861,15 @@ async fn invite(
     }
 
     // Drafts keep the accounts not yet invited, so a rerun sends only those.
-    let mut draft = None;
+    let (mut draft, mut me) = (None, None);
     if let Some(ask) = prompter.as_deref_mut() {
         if accounts.is_empty() || !body.contains_key("role") {
-            let me = client.check_signed_in().await?;
+            let signed_in = me.insert(client.check_signed_in().await?);
             let saved = Draft::for_key(&format!("member-invite/{}", args.scope))?;
             if !accounts.is_empty() {
                 body.insert("account_ids".into(), json!(accounts));
             }
-            saved.resume(ask, &mut body)?;
+            let resumed = saved.resume(ask, &mut body)?;
             if let Some(Value::Array(ids)) = body.remove("account_ids") {
                 accounts = ids
                     .iter()
@@ -836,7 +877,8 @@ async fn invite(
                     .map(String::from)
                     .collect();
             }
-            ask_invite(ask, &me, &args.scope, &mut accounts, &mut body)?;
+            let scope = &args.scope;
+            ask_invite(ask, signed_in, scope, &mut accounts, &mut body, resumed)?;
             draft = Some(saved);
         }
     }
@@ -847,39 +889,47 @@ async fn invite(
     let url = args.scope.members_url(client);
     let total = accounts.len();
     let (mut sent, mut failed, mut last) = (vec![], vec![], String::new());
-    let mut queue: std::collections::VecDeque<String> = accounts.into();
-    while let Some(account) = queue.pop_front() {
-        let mut one = body.clone();
-        one.insert("account_id".into(), json!(account));
-        match client
-            .request::<Value>(Method::POST, url.clone(), Some(&one))
-            .await
-        {
-            Ok(m) => {
-                if !args.json {
-                    // A product owner's service account is added at once.
-                    let verb = match str_field(&m, "state") {
-                        "member" => "Added",
-                        _ => "Invited",
-                    };
-                    let role = str_field(&m, "role");
-                    eprintln!("{verb} {account} to {} ({role})", args.scope);
+    for mut account in accounts {
+        // Until it's sent or refused; a rejected role or account is asked
+        // for again and retried.
+        loop {
+            let mut one = body.clone();
+            one.insert("account_id".into(), json!(account));
+            match client
+                .request::<Value>(Method::POST, url.clone(), Some(&one))
+                .await
+            {
+                Ok(m) => {
+                    if !args.json {
+                        // A product owner's service account is added at once.
+                        let verb = match str_field(&m, "state") {
+                            "member" => "Added",
+                            _ => "Invited",
+                        };
+                        let role = str_field(&m, "role");
+                        eprintln!("{verb} {account} to {} ({role})", args.scope);
+                    }
+                    sent.push(m);
+                    break;
                 }
-                sent.push(m);
+                Err(e) => match prompter.as_deref_mut() {
+                    Some(ask) if reaskable(&e) => {
+                        eprintln!("{e}");
+                        let signed_in = match &me {
+                            Some(me) => me,
+                            None => me.insert(client.check_signed_in().await?),
+                        };
+                        let roles = grantable_roles(signed_in, &args.scope);
+                        account = reask(ask, &e, &account, &mut body, &roles)?;
+                    }
+                    _ => {
+                        last = String::from(e);
+                        eprintln!("{}", crate::prompt::describe(&format!("{account}: {last}")));
+                        failed.push(account);
+                        break;
+                    }
+                },
             }
-            Err(e) => match prompter.as_deref_mut() {
-                // A role or account the API names can be answered again.
-                Some(ask) if reaskable(&e) => {
-                    eprintln!("{e}");
-                    let account = reask(ask, &e, &account, &mut body)?;
-                    queue.push_front(account);
-                }
-                _ => {
-                    last = String::from(e);
-                    eprintln!("{}", crate::prompt::describe(&format!("{account}: {last}")));
-                    failed.push(account);
-                }
-            },
         }
     }
     if args.json && !sent.is_empty() {
@@ -909,22 +959,23 @@ fn reaskable(e: &ApiError) -> bool {
             .all(|f| f == "account_id" || f == "role")
 }
 
-/// Ask again for the fields the API rejected; returns the account to retry.
+/// Ask again for the fields the API rejected, offering `roles`; returns the
+/// account to retry.
 fn reask(
     ask: &mut dyn Prompter,
     e: &ApiError,
     account: &str,
     body: &mut Map<String, Value>,
+    roles: &[String],
 ) -> Result<String, String> {
     let mut account = account.to_string();
     if e.field_errors.contains_key("account_id") {
         account = ask.input("Account ID", &account, false)?.trim().to_string();
     }
     if e.field_errors.contains_key("role") {
-        let roles: Vec<String> = ROLES.iter().map(|r| r.to_string()).collect();
         let was = str_field(&Value::Object(body.clone()), "role").to_string();
         let at = roles.iter().position(|r| *r == was).unwrap_or(0);
-        body.insert("role".into(), json!(roles[ask.select("Role", &roles, at)?]));
+        body.insert("role".into(), json!(roles[ask.select("Role", roles, at)?]));
     }
     Ok(account)
 }
@@ -1071,6 +1122,7 @@ fn member_label(m: &Value) -> String {
 /// (`view|edit|revoke -i` without a member), opening one returns it.
 async fn browse_members(
     scope: &Scope,
+    state: Option<&str>,
     client: &Client,
     site: &str,
     ask: &mut dyn Prompter,
@@ -1082,6 +1134,9 @@ async fn browse_members(
         (LIST_KEYS, LIST_HINT)
     };
     let mut items = members(client, scope).await?;
+    if let Some(state) = state {
+        items.retain(|m| str_field(m, "state") == state);
+    }
     let mut place = Place::default();
     let _screen = ask.fullscreen();
     while !items.is_empty() {
@@ -1720,6 +1775,7 @@ mod tests {
         ]);
         browse_members(
             &"org".parse().unwrap(),
+            None,
             &client(&server),
             SITE,
             &mut ask,
@@ -1740,6 +1796,117 @@ mod tests {
         assert_eq!(
             ask.asked[7],
             "Members of org [bob  write_data  member] of bob  write_data  member !Revoked cy. (keys b)"
+        );
+    }
+
+    #[tokio::test]
+    async fn answers_resumed_from_a_draft_are_shown_before_sending() {
+        let server = api_server().await;
+        expect_post(
+            &server,
+            "/api/v1/accounts/org/members",
+            ms("1", "alice", "org", "read_data", "invited"),
+            1,
+        )
+        .await;
+        let saved = Draft::for_key("member-invite/org").unwrap();
+        let body = json!({"account_ids": ["alice"], "role": "read_data"});
+        let _ = saved.finish::<()>(Err("lost".into()), body.as_object().unwrap());
+
+        let mut ask = Script::new([Yes(true), Yes(true)]);
+        invite(invite_args(&[]), &client(&server), Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "Use the answers saved from your last try? [true]",
+                "Send these invitations? {Invite  alice | To      org | Role    read_data} [true]",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn an_account_id_that_isn_t_text_is_refused_not_dropped() {
+        let server = api_server().await;
+        let file = std::env::temp_dir().join(format!("invite-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"account_id": 42, "role": "read_data"}"#).unwrap();
+        let mut args = invite_args(&[]);
+        args.from_file = Some(file.to_str().unwrap().into());
+        let err = invite(args, &client(&server), None).await.unwrap_err();
+        std::fs::remove_file(&file).unwrap();
+        assert!(
+            err.contains("account_id in") && err.ends_with("must be a string, not 42"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_rejected_role_is_asked_again_from_the_roles_you_can_grant() {
+        let server = api_server().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts/org/members"))
+            .and(body_json(json!({"account_id": "bob", "role": "owners"})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
+                "code": "validation_error", "message": "Invalid request",
+                "field_errors": {"role": ["You can't grant owners"]}}})))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts/org/members"))
+            .and(body_json(
+                json!({"account_id": "bob", "role": "maintainers"}),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(ms(
+                "1",
+                "bob",
+                "org",
+                "maintainers",
+                "invited",
+            )))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut args = invite_args(&["bob"]);
+        args.role = Some("owners".into());
+        let mut ask = Script::new([Pick(0)]);
+        invite(args, &client(&server), Some(&mut ask))
+            .await
+            .unwrap();
+        // `acct` maintains `org`, so owners isn't offered again.
+        assert_eq!(
+            ask.asked,
+            ["Role [maintainers] of maintainers | write_data | read_data"]
+        );
+    }
+
+    #[tokio::test]
+    async fn list_i_shows_only_the_state_asked_for() {
+        let server = api_server().await;
+        org_members(
+            &server,
+            json!([
+                ms("m1", "bob", "org", "read_data", "member"),
+                ms("m2", "cy", "org", "read_data", "invited"),
+            ]),
+        )
+        .await;
+        let mut ask = Script::new([Browse(0, Action::Back)]);
+        let scope = "org".parse().unwrap();
+        browse_members(
+            &scope,
+            Some("invited"),
+            &client(&server),
+            SITE,
+            &mut ask,
+            false,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            ask.asked,
+            ["Members of org [cy  read_data  invited] of cy  read_data  invited (keys b)"]
         );
     }
 }

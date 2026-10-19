@@ -8,6 +8,7 @@
 //! reading the login from the keyring raises a password dialog (`complete`).
 
 use crate::api::Client;
+use crate::member::{self, Scope};
 use crate::{cache, defaults, product, session};
 use clap::ValueEnum;
 use clap_complete::engine::CompletionCandidate;
@@ -87,6 +88,44 @@ pub fn new_product(current: &OsStr) -> Vec<CompletionCandidate> {
 pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
     complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
         accounts(&c, &s).await
+    })
+}
+
+/// An organization you belong to (`ACCOUNT`), or one of its products
+/// (`ACCOUNT/PRODUCT`).
+pub fn scope(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        scopes(&c, &s).await
+    })
+}
+
+/// A member of the organization or product named before it.
+pub fn member(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        members_of_named(&c, &s, false).await
+    })
+}
+
+/// Someone to invite to the product named before it: its organization's
+/// members who aren't on it yet. Nothing for an organization, since there's
+/// no listing of accounts to offer.
+pub fn invitee(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        members_of_named(&c, &s, true).await
+    })
+}
+
+/// Where you're invited.
+pub fn invitation(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        mine(&c, &s, "invited").await
+    })
+}
+
+/// Where you're a member.
+pub fn membership(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        mine(&c, &s, "member").await
     })
 }
 
@@ -211,6 +250,88 @@ async fn accounts(client: &Client, current: &str) -> Result<Vec<String>, String>
     Ok(starting_with(all, current))
 }
 
+/// Before a `/`, your accounts both as they are (an organization) and as
+/// the start of a product; after it, that account's products.
+async fn scopes(client: &Client, current: &str) -> Result<Vec<String>, String> {
+    if current.contains('/') {
+        return products(client, current).await;
+    }
+    let accounts = accounts(client, current).await?;
+    Ok(accounts
+        .into_iter()
+        .flat_map(|a| [format!("{a}/"), a])
+        .collect())
+}
+
+/// The members of the scope named earlier on the command line or, for
+/// `invitees`, the members of a product's organization not on the product.
+async fn members_of_named(
+    client: &Client,
+    current: &str,
+    invitees: bool,
+) -> Result<Vec<String>, String> {
+    let args: Vec<String> = std::env::args().collect();
+    let Some(scope) = scope_on_line(&args) else {
+        return Ok(vec![]);
+    };
+    let ids = |ms: Vec<Value>| -> Vec<String> {
+        ms.iter()
+            .filter_map(|m| m.get("account_id")?.as_str().map(String::from))
+            .collect()
+    };
+    let on_scope = ids(member::members(client, &scope).await?);
+    let names = match (invitees, &scope.product_id) {
+        (false, _) => on_scope,
+        (true, None) => vec![],
+        (true, Some(_)) => {
+            let org = Scope {
+                account_id: scope.account_id.clone(),
+                product_id: None,
+            };
+            let mut org_members = ids(member::members(client, &org).await?);
+            org_members.retain(|a| !on_scope.contains(a));
+            org_members
+        }
+    };
+    Ok(starting_with(names, current))
+}
+
+/// Where your memberships in `state` are, as `ACCOUNT` or `ACCOUNT/PRODUCT`.
+async fn mine(client: &Client, current: &str, state: &str) -> Result<Vec<String>, String> {
+    let ms = member::my_memberships(client, state).await?;
+    let names = ms.iter().map(|m| Scope::of(m).to_string()).collect();
+    Ok(starting_with(names, current))
+}
+
+/// The SCOPE in `member SUBCOMMAND … SCOPE …`: the first word after the
+/// subcommand that is neither a flag nor a flag's value. Completers see only
+/// the word being completed, but the shell passes the whole line as our
+/// arguments.
+fn scope_on_line(args: &[String]) -> Option<Scope> {
+    const TAKE_VALUES: [&str; 10] = [
+        "--api-url",
+        "--proxy-url",
+        "-r",
+        "--role",
+        "-F",
+        "--from-file",
+        "-A",
+        "--accounts-file",
+        "--state",
+        "-L",
+    ];
+    let at = args.iter().position(|a| a == "member")?;
+    let mut words = args.get(at + 2..)?.iter();
+    while let Some(w) = words.next() {
+        if TAKE_VALUES.contains(&w.as_str()) {
+            words.next();
+        } else if !w.starts_with('-') {
+            return w.parse().ok();
+        }
+    }
+    None
+}
+
 fn starting_with(names: Vec<String>, prefix: &str) -> Vec<String> {
     names
         .into_iter()
@@ -311,6 +432,60 @@ mod tests {
             .mount(&server)
             .await;
         assert_eq!(products(&client, "org/z").await.unwrap(), ["org/zebra"]);
+    }
+
+    #[tokio::test]
+    async fn a_scope_is_an_account_or_one_of_its_products() {
+        let (server, client) = server().await;
+        assert_eq!(
+            scopes(&client, "o").await.unwrap(),
+            ["org/", "org", "other/", "other"]
+        );
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/org"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items": [{"account_id": "org", "product_id": "data"}], "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+        assert_eq!(scopes(&client, "org/").await.unwrap(), ["org/data"]);
+    }
+
+    #[test]
+    fn a_member_completes_from_the_scope_named_before_it() {
+        let line = |s: &str| -> Vec<String> { s.split(' ').map(String::from).collect() };
+        let scope = |s: &str| scope_on_line(&line(s)).map(|s| s.to_string());
+        // As the shell calls us: the binary, `--`, then the line.
+        assert_eq!(
+            scope("source-coop -- source-coop member edit org/data al"),
+            Some("org/data".into())
+        );
+        // Flags and their values before it are passed over.
+        assert_eq!(
+            scope("source-coop -- source-coop member edit --role owners -F x.json org al"),
+            Some("org".into())
+        );
+        assert_eq!(scope("source-coop -- source-coop member edit"), None);
+        assert_eq!(scope("source-coop -- source-coop product view"), None);
+    }
+
+    #[tokio::test]
+    async fn your_invitations_and_memberships_complete_by_where_they_are() {
+        let (server, client) = server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/memberships"))
+            .and(query_param("state", "invited"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"membership_account_id": "geo", "repository_id": "elevation"},
+                {"membership_account_id": "river"}
+            ])))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            mine(&client, "", "invited").await.unwrap(),
+            ["geo/elevation", "river"]
+        );
+        assert_eq!(mine(&client, "r", "invited").await.unwrap(), ["river"]);
     }
 
     #[tokio::test]
