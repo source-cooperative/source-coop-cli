@@ -1435,7 +1435,13 @@ fn prompt_edits(
                     Ok(Some(now)) => now,
                     Ok(None) => continue,
                     Err(e) if e == crate::prompt::CANCELLED => continue,
-                    Err(e) => return Err(e),
+                    Err(e) if e == crate::prompt::INTERRUPTED => return Err(e),
+                    // Anything else (an editor that won't open) is told on
+                    // the form, keeping the changes made so far.
+                    Err(e) => {
+                        place.notice = Some(crate::prompt::describe(&e));
+                        continue;
+                    }
                 };
                 if now == str_field(current, key) {
                     edited.remove(key);
@@ -2704,24 +2710,47 @@ mod tests {
 
         // Esc on an unchanged form; Esc on a changed one, which asks before
         // discarding (No and Esc there return to the form); "No" at the review.
-        for script in [
-            Script::new([Browse(0, Action::Back)]),
-            Script::new([
-                Browse(0, Action::Open),
-                Text("New title"),
-                Browse(0, Action::Back),
-                Yes(false),
-                Browse(0, Action::Back),
-                Cancel,
-                Browse(0, Action::Back),
-                Yes(true),
-            ]),
-            Script::new([
-                Browse(0, Action::Open),
-                Text("New title"),
-                Browse(3, Action::Open),
-                Yes(false),
-            ]),
+        let form = "Edit acct/prod [Title          prod title] of Title          prod title | Description    (none) | Visibility     public | Save changes (nothing changed yet) (keys s)";
+        let changed = "Edit acct/prod [Title        ● New title   (was: prod title)] of Title        ● New title   (was: prod title) | Description    (none) | Visibility     public | Save changes (1 field) (keys s)";
+        let discard = "Discard your changes to acct/prod? [false]";
+        for (script, asked) in [
+            (Script::new([Browse(0, Action::Back)]), vec![form]),
+            (
+                Script::new([
+                    Browse(0, Action::Open),
+                    Text("New title"),
+                    Browse(0, Action::Back),
+                    Yes(false),
+                    Browse(0, Action::Back),
+                    Cancel,
+                    Browse(0, Action::Back),
+                    Yes(true),
+                ]),
+                vec![
+                    form,
+                    "Title [prod title]",
+                    changed,
+                    discard,
+                    changed,
+                    discard,
+                    changed,
+                    discard,
+                ],
+            ),
+            (
+                Script::new([
+                    Browse(0, Action::Open),
+                    Text("New title"),
+                    Browse(3, Action::Open),
+                    Yes(false),
+                ]),
+                vec![
+                    form,
+                    "Title [prod title]",
+                    changed,
+                    "Save these changes to acct/prod? {Title         prod title  →  New title} [true]",
+                ],
+            ),
         ] {
             let mut ask = script;
             let err = edit(edit_args(), &client, SITE, Some(&mut ask))
@@ -2729,7 +2758,52 @@ mod tests {
                 .unwrap_err();
             assert_eq!(err, crate::prompt::CANCELLED);
             assert!(ask.answers.is_empty(), "unused: {:?}", ask.answers);
+            assert_eq!(ask.asked, asked);
         }
+    }
+
+    #[tokio::test]
+    async fn an_editor_that_fails_is_told_on_the_form_keeping_the_changes() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/products/acct/prod"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
+            .mount(&server)
+            .await;
+        Mock::given(method("PATCH"))
+            .and(path("/api/v1/products/acct/prod"))
+            .and(body_json(json!({"title": "New title"})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(product("acct", "prod")))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
+        let mut ask = Script::new([
+            Browse(0, Action::Open),
+            Text("New title"),
+            Browse(1, Action::Open),
+            Fail("Couldn't open your editor"),
+            Browse(1, Action::Key('s')),
+            Default,
+        ]);
+        edit(edit_args(), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
+        let changed = |at: &str, notice: &str| {
+            format!("Edit acct/prod [{at}] of Title        ● New title   (was: prod title) | Description    (none) | Visibility     public | Save changes (1 field){notice} (keys s)")
+        };
+        assert_eq!(
+            ask.asked,
+            [
+                "Edit acct/prod [Title          prod title] of Title          prod title | Description    (none) | Visibility     public | Save changes (nothing changed yet) (keys s)".into(),
+                "Title [prod title]".into(),
+                changed("Title        ● New title   (was: prod title)", ""),
+                "Description (long) []".into(),
+                changed("Description    (none)", " !Error: Couldn't open your editor"),
+                "Save these changes to acct/prod? {Title         prod title  →  New title} [true]".into(),
+            ]
+        );
     }
 
     #[tokio::test]
@@ -2759,6 +2833,19 @@ mod tests {
         edit(edit_args(), &client, SITE, Some(&mut ask))
             .await
             .unwrap();
+        let form = |at: &str| {
+            format!("Edit acct/prod [{at}] of Title          prod title | Description    (none) | Visibility     public | Save changes (nothing changed yet) (keys s)")
+        };
+        assert_eq!(
+            ask.asked,
+            [
+                form("Title          prod title"),
+                "Title [prod title]".into(),
+                form("Title          prod title"),
+                "Description (long) []".into(),
+                form("Description    (none)"),
+            ]
+        );
     }
 
     /// Answer a DELETE of acct/prod, but only with this `preserve_data`.
