@@ -95,8 +95,8 @@ pub struct ListArgs {
     #[arg(add = ArgValueCompleter::new(crate::complete::scope))]
     scope: Scope,
 
-    /// Only members in this state: member or invited
-    #[arg(long)]
+    /// Only members in this state
+    #[arg(long, value_parser = ["member", "invited"])]
     state: Option<String>,
 
     /// Print the members as JSON
@@ -785,7 +785,11 @@ fn ask_invite(
             Step::Role if given_role => Next::Skipped(Some(Step::Review)),
             Step::Role => {
                 // The web form's default: the least access.
-                let was = str_field(&Value::Object(body.clone()), "role").to_string();
+                let was = body
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string();
                 let at = roles
                     .iter()
                     .position(|r| *r == was)
@@ -807,7 +811,7 @@ fn ask_invite(
                     format!(
                         "{:<6}  {}",
                         "Role",
-                        str_field(&Value::Object(body.clone()), "role")
+                        body.get("role").and_then(Value::as_str).unwrap_or_default()
                     ),
                 ];
                 match ask.confirm_or_back("Send these invitations?", &lines)? {
@@ -973,7 +977,11 @@ fn reask(
         account = ask.input("Account ID", &account, false)?.trim().to_string();
     }
     if e.field_errors.contains_key("role") {
-        let was = str_field(&Value::Object(body.clone()), "role").to_string();
+        let was = body
+            .get("role")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
         let at = roles.iter().position(|r| *r == was).unwrap_or(0);
         body.insert("role".into(), json!(roles[ask.select("Role", roles, at)?]));
     }
