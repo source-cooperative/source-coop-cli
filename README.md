@@ -402,7 +402,7 @@ source-coop service-account sign-in remove my-org--nightly-sync -i   # pick whic
 
 `--github OWNER/REPO` with `--branch`, `--tag` or `--environment` builds the subject GitHub's tokens carry (`repo:OWNER/REPO:ref:refs/heads/main`); `--subject` takes one as it is. The CLI asks GitHub how the repository's tokens name it, as the web UI does, since a repository whose tokens name it by ID (`owner@123/repo@456`) would never match it typed as `owner/repo`. For a private repository, set `GH_TOKEN` (or `GITHUB_TOKEN`) so GitHub answers; otherwise the CLI says it couldn't check and how to find the name yourself. Without these flags, in a terminal, `sign-in add` asks for the repository and the runs to trust, and shows the condition it will trust before adding it.
 
-An API key is for environments without GitHub's tokens, such as a cron job on a cluster. Each key has a label saying where it lives, so you know which one to revoke. It expires after 30 days, 90 (the default), a year, never, or on a date you give:
+An API key is for environments without GitHub's tokens, such as a cron job on a cluster. Each key has a label saying where it lives, so you know which one to revoke. It expires after 30 days, 90 (the default), a year, never, or on a date you give, at midnight UTC:
 
 ```bash
 source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job" --expires 1y --out ~/.source-coop/nightly.key
@@ -411,7 +411,7 @@ source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expir
 source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3                    # revoke it; asks you to type key:a1B2c3 back
 ```
 
-A key is shown once, when it's issued, and never again. `--out PATH` writes it to a file only you can read, which is where the AWS tools want it anyway. Piped, the key alone goes to stdout. On a terminal, you're offered a file to save it to, or Enter shows it. `view` lists each key by its label and its last six characters, `key:a1B2c3`, which is how `sign-in edit` and `remove` name it, with when it was last used and when it expires. Revoked and expired keys are listed too, dimmed. A revoked key can't be restored. Without flags, in a terminal, `sign-in add` asks whether to add a workflow or a key, and `sign-in edit -i` and `sign-in remove -i` pick which.
+A key is shown once, when it's issued, and never again. `--out PATH` writes it to a new file only you can read, which is where the AWS tools want it anyway. A file already at that path is never overwritten: the key is shown instead, as it is whenever saving it fails. Piped, the key alone goes to stdout. On a terminal, you're offered a file to save it to, or Enter shows it. `view` lists each key by its label and its last six characters, `key:a1B2c3`, which is how `sign-in edit` and `remove` name it, with when it was last used and when it expires. Revoked and expired keys are listed too, dimmed. A revoked key can't be restored. Without flags, in a terminal, `sign-in add` asks whether to add a workflow or a key, and `sign-in edit -i` and `sign-in remove -i` pick which.
 
 If a key leaks, anyone holding it can revoke it, with no sign-in needed. The key is read from stdin so it stays out of your shell history:
 

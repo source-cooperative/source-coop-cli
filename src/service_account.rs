@@ -198,12 +198,12 @@ pub struct KeyArgs {
     key: Option<String>,
 
     /// With --key: when it stops working: 30d, 90d, 1y, never, or a date
-    /// (2027-01-31) [default: 90d]
+    /// (2027-01-31, at midnight UTC) [default: 90d]
     #[arg(long, requires = "key", value_parser = parse_expiry)]
     expires: Option<Value>,
 
-    /// With --key: write the key to this file, readable only by you, instead
-    /// of showing it
+    /// With --key: write the key to this new file, readable only by you,
+    /// instead of showing it (an existing file isn't overwritten)
     #[arg(long, requires = "key", value_name = "PATH")]
     out: Option<String>,
 }
@@ -335,7 +335,7 @@ pub struct SignInEditArgs {
     interactive: bool,
 
     /// When it stops working, counted from now: 30d, 90d, 1y, never, or a
-    /// date (2027-01-31) (asked for when omitted)
+    /// date (2027-01-31, at midnight UTC) (asked for when omitted)
     #[arg(long, value_parser = parse_expiry)]
     expires: Option<Value>,
 
@@ -699,8 +699,14 @@ fn ask_expiry(ask: &mut dyn Prompter, label: &str) -> Result<Option<Value>, Stri
 /// When a key's `expires_at` ends it, for a review: `expires in 3 months`,
 /// or never.
 fn expiry_label(expires_at: &Value) -> String {
-    match time(&json!({"expires_at": expires_at}), "expires_at") {
-        Some(at) => format!("expires {}", crate::style::relative(at, chrono::Utc::now())),
+    let at = expires_at
+        .as_str()
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok());
+    match at {
+        Some(at) => format!(
+            "expires {}",
+            crate::style::relative(at.with_timezone(&chrono::Utc), chrono::Utc::now())
+        ),
         None => "never expires".into(),
     }
 }
@@ -731,7 +737,7 @@ fn deliver_key(
     if let Some(p) = &path {
         // The key exists nowhere else, so a failed save shows it instead of
         // losing it.
-        match crate::cache::write_file(std::path::Path::new(p), &format!("{key}\n")) {
+        match crate::cache::write_new_file(std::path::Path::new(p), &format!("{key}\n")) {
             Ok(written) => {
                 eprintln!(
                     "Saved the API key to {written}, readable only by you. It won't be shown again."
@@ -1237,7 +1243,9 @@ async fn token_repository(github_api: &str, repository: &str) -> String {
         .get(&url)
         .header("User-Agent", "source-coop-cli")
         .header("Accept", "application/vnd.github+json");
-    if let Ok(token) = std::env::var("GH_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN")) {
+    // A GitHub token goes to GitHub only, whatever `github_api` names.
+    let token = std::env::var("GH_TOKEN").or_else(|_| std::env::var("GITHUB_TOKEN"));
+    if let (Ok(token), true) = (token, github_api == GITHUB_API) {
         req = req.bearer_auth(token);
     }
     let hint = format!(
@@ -2378,7 +2386,7 @@ async fn sign_in_add(
 fn key_record(mut issued: Value, key: &str, out: Option<&str>) -> Value {
     if let (Some(out), Some(record)) = (out, issued.as_object_mut()) {
         // The key exists nowhere else: if it can't be saved, the record keeps it.
-        match crate::cache::write_file(std::path::Path::new(out), &format!("{key}\n")) {
+        match crate::cache::write_new_file(std::path::Path::new(out), &format!("{key}\n")) {
             Ok(written) => {
                 record.remove("key");
                 record.insert("key_file".into(), json!(written));
@@ -3307,6 +3315,17 @@ mod tests {
             deliver_key("sck_secret", Some(&at), None, false).unwrap(),
             None
         );
+        // Nor over a file that's there: it's left as it was.
+        let there = dir.join("config");
+        std::fs::write(&there, "keep me").unwrap();
+        let at = there.display().to_string();
+        assert_eq!(
+            deliver_key("sck_secret", Some(&at), None, false).unwrap(),
+            None
+        );
+        let record = key_record(json!({"key": "sck_secret"}), "sck_secret", Some(&at));
+        assert_eq!(record["key"], json!("sck_secret"));
+        assert_eq!(std::fs::read_to_string(&there).unwrap(), "keep me");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -3337,6 +3356,8 @@ mod tests {
             .await;
         let client = Client::new(&server.uri(), Some("tkn".into()), false).unwrap();
         let dir = std::env::temp_dir().join(format!("sa-key-{}", std::process::id()));
+        // Keys get no directories made for them.
+        std::fs::create_dir_all(&dir).unwrap();
         let out = dir.join("sa.key");
         let args = SignInAddArgs {
             account: "org--sa".into(),
@@ -3358,9 +3379,11 @@ mod tests {
             let mode = std::fs::metadata(&out).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o600);
         }
-        let record = key_record(issued, "sck_secret", Some(&out.display().to_string()));
+        // A file of its own: `out` is there now, and isn't overwritten.
+        let fresh = dir.join("record.key").display().to_string();
+        let record = key_record(issued, "sck_secret", Some(&fresh));
         assert!(record.get("key").is_none(), "{record}");
-        assert_eq!(record["key_file"], json!(out.display().to_string()));
+        assert_eq!(record["key_file"], json!(fresh));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
