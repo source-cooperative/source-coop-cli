@@ -129,6 +129,22 @@ pub fn membership(current: &OsStr) -> Vec<CompletionCandidate> {
     })
 }
 
+/// An existing service account, as `OWNER--NAME`.
+pub fn service_account(current: &OsStr) -> Vec<CompletionCandidate> {
+    complete(client, ANSWER, TIMEOUT, current, |c, s| async move {
+        service_accounts(&c, &s).await
+    })
+}
+
+/// A service account to create, whose ID is new: nothing to offer.
+/// ponytail: `OWNER--` would be the useful start, but bash and zsh add a
+/// space after any candidate not ending in `=`, `/` or `:`, so it would have
+/// to be deleted before typing the name. Offer it if clap ever lets a
+/// candidate say "no space".
+pub fn new_service_account(_: &OsStr) -> Vec<CompletionCandidate> {
+    vec![]
+}
+
 /// Make the client with `client`, run `find` with `current`, and offer what
 /// it returns, or nothing once `timeout` passes. `client` is passed in so
 /// tests never reach `client()`, which reads the login session from the OS
@@ -219,6 +235,40 @@ async fn products(client: &Client, current: &str) -> Result<Vec<String>, String>
             None => return Ok(found),
         }
     }
+}
+
+/// Whole `OWNER--NAME` IDs starting with `current`, from the service
+/// accounts of each of your accounts that could own one, since a partial
+/// `OWNER--` would get a space after it (see `new_service_account`). Only an
+/// owner's managers may list them, so the other owners are skipped.
+async fn service_accounts(client: &Client, current: &str) -> Result<Vec<String>, String> {
+    let owners: Vec<String> = accounts(client, "")
+        .await?
+        .into_iter()
+        .filter(|o| o.starts_with(current) || current.starts_with(&format!("{o}--")))
+        .collect();
+    let mut found = vec![];
+    for owner in owners {
+        let url = client.url(&["accounts", &owner, "service-accounts"]);
+        let mut cursor = None;
+        loop {
+            let Ok(page) = product::fetch_page(client, &url, 100, cursor.as_deref()).await else {
+                break;
+            };
+            found.extend(
+                page.items
+                    .iter()
+                    .filter_map(|a| a.get("account_id")?.as_str())
+                    .filter(|id| id.starts_with(current))
+                    .map(String::from),
+            );
+            match page.next_cursor {
+                Some(next) => cursor = Some(next),
+                None => break,
+            }
+        }
+    }
+    Ok(found)
 }
 
 async fn new_products(client: &Client, current: &str) -> Result<Vec<String>, String> {
@@ -486,6 +536,35 @@ mod tests {
             ["geo/elevation", "river"]
         );
         assert_eq!(mine(&client, "r", "invited").await.unwrap(), ["river"]);
+    }
+
+    #[tokio::test]
+    async fn service_accounts_complete_whole_from_the_owners_you_can_list() {
+        let (server, client) = server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/org/service-accounts"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+                "items": [{"account_id": "org--nightly"}, {"account_id": "org--indexer"}],
+                "next_cursor": null
+            })))
+            .mount(&server)
+            .await;
+        // Not one of other's managers.
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/other/service-accounts"))
+            .respond_with(ResponseTemplate::new(403))
+            .mount(&server)
+            .await;
+        assert_eq!(
+            service_accounts(&client, "o").await.unwrap(),
+            ["org--nightly", "org--indexer"]
+        );
+        assert_eq!(
+            service_accounts(&client, "org--n").await.unwrap(),
+            ["org--nightly"]
+        );
+        // acct lists none: its listing isn't mocked, so it fails and is skipped.
+        assert!(service_accounts(&client, "acct").await.unwrap().is_empty());
     }
 
     #[tokio::test]
