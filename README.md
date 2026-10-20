@@ -370,7 +370,7 @@ Roles, most powerful first, are `owners`, `maintainers`, `write_data` and `read_
 
 `edit` with no `--role` asks for one, starting from the current role. `revoke` asks you to confirm, and to type the organization or product back when it's your own membership; `leave` always asks you to type it back, since only an owner or maintainer can let you back in. Without a terminal both need `--yes`. An invitation's role can't be changed: revoke it and invite again.
 
-With `-i`, `member list` answers to the same keys as `product list -i`. On a member, `e` changes the role and `d` revokes the membership (on an invitation, only `d`, which withdraws it); `b` opens their profile. `--json` on any of these prints the memberships as the API returns them (`membership_id`, `account_id`, `membership_account_id`, `repository_id` for a product, `role`, `state`, `state_changed`); `invite --json` prints an array of the memberships it created. `create` and `delete` also work as names for `invite` and `revoke`.
+With `-i`, `member list` answers to the same keys as `product list -i`. On a member, `e` changes the role and `d` revokes the membership (on an invitation, only `d`, which withdraws it); `b` opens their profile. `--json` on any of these prints the memberships as the API returns them (`membership_id`, `account_id`, `membership_account_id`, `product_id` for a product, `role`, `state`, `state_changed`); `invite --json` prints an array of the memberships it created. `create` and `delete` also work as names for `invite` and `revoke`.
 
 ## Credential storage
 

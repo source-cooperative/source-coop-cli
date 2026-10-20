@@ -1,12 +1,11 @@
 //! `source-coop member` and `source-coop invitation`: who belongs to an
-//! organization or a product, through `/api/v1/accounts/{account}/members`,
-//! `/api/v1/products/{account}/{product}/members` and `/api/v1/memberships`.
+//! organization or a product, through `/api/v1/memberships`.
 //!
 //! Members are named by where they belong (`ACCOUNT` or `ACCOUNT/PRODUCT`)
 //! and their account ID, never by membership ID: the CLI finds the membership
 //! by listing, as the API has no GET for a single one.
 
-use crate::api::{ApiError, Client};
+use crate::api::{ApiError, Client, Page};
 use crate::draft::Draft;
 use crate::product::{read_fields, str_field, Pager, NEEDS_TERMINAL};
 use crate::prompt::{Action, Place, Prompter};
@@ -318,11 +317,18 @@ impl Scope {
         }
     }
 
-    fn members_url(&self, client: &Client) -> url::Url {
-        match &self.product_id {
-            Some(p) => client.url(&["products", &self.account_id, p, "members"]),
-            None => client.url(&["accounts", &self.account_id, "members"]),
+    /// `GET /memberships` of this organization or product. The API leaves
+    /// an organization's products out unless one is named.
+    fn list_url(&self, client: &Client) -> url::Url {
+        let mut url = client.url(&["memberships"]);
+        {
+            let mut q = url.query_pairs_mut();
+            q.append_pair("membership_account_id", &self.account_id);
+            if let Some(p) = &self.product_id {
+                q.append_pair("product_id", p);
+            }
         }
+        url
     }
 
     fn web_url(&self, site: &str) -> String {
@@ -330,8 +336,8 @@ impl Scope {
     }
 }
 
-/// A product-scoped membership's product: `repository_id`, or `product_id`
-/// on servers that have renamed it.
+/// A product-scoped membership's product: `product_id`, or `repository_id`
+/// on servers from before the rename.
 fn product_of(m: &Value) -> Option<&str> {
     ["product_id", "repository_id"]
         .iter()
@@ -506,11 +512,29 @@ fn not_found(message: String) -> String {
     .into()
 }
 
+/// Every membership `url` lists, page after page.
+async fn every_page(client: &Client, url: url::Url) -> Result<Vec<Value>, String> {
+    let (mut items, mut cursor) = (vec![], None::<String>);
+    loop {
+        let mut page_url = url.clone();
+        if let Some(c) = &cursor {
+            page_url.query_pairs_mut().append_pair("cursor", c);
+        }
+        let page: Page<Value> = client.get(page_url).await?;
+        items.extend(page.items);
+        match page.next_cursor {
+            Some(next) => cursor = Some(next),
+            None => return Ok(items),
+        }
+    }
+}
+
 /// `scope`'s memberships the caller may see, invitations first, then members
-/// by role. An organization's listing also carries its products' members,
-/// which belong to those products, so they're left out.
+/// by role.
 pub(crate) async fn members(client: &Client, scope: &Scope) -> Result<Vec<Value>, String> {
-    let all: Vec<Value> = client.get(scope.members_url(client)).await?;
+    let all = every_page(client, scope.list_url(client)).await?;
+    // ponytail: the API already filters to `scope`; this keeps an
+    // organization's list free of its products' members if it ever doesn't.
     let mut ms: Vec<Value> = all.into_iter().filter(|m| Scope::of(m) == *scope).collect();
     ms.sort_by_key(|m| {
         let state = match str_field(m, "state") {
@@ -539,15 +563,29 @@ async fn find(client: &Client, scope: &Scope, member: &str) -> Result<Value, Str
 
 /// The caller's own memberships in `state` (`member` or `invited`).
 pub(crate) async fn my_memberships(client: &Client, state: &str) -> Result<Vec<Value>, String> {
+    let me: Value = client.get(client.url(&["whoami"])).await?;
+    let account = me
+        .pointer("/account/account_id")
+        .and_then(Value::as_str)
+        .ok_or("Couldn't tell which account you're signed in as.")?;
     let mut url = client.url(&["memberships"]);
-    url.query_pairs_mut().append_pair("state", state);
-    Ok(client.get(url).await?)
+    url.query_pairs_mut()
+        .append_pair("account_id", account)
+        .append_pair("state", state);
+    every_page(client, url).await
 }
 
-/// `POST /memberships/{id}/{verb}`: accept, reject or revoke.
+/// `verb` a membership: `accept` an invitation (its state becomes
+/// `member`), or `reject` one or `revoke` either (`revoked`).
 async fn act_on(client: &Client, m: &Value, verb: &str) -> Result<Value, String> {
-    let url = client.url(&["memberships", str_field(m, "membership_id"), verb]);
-    Ok(client.request(Method::POST, url, None::<&()>).await?)
+    let state = if verb == "accept" {
+        "member"
+    } else {
+        "revoked"
+    };
+    let url = client.url(&["memberships", str_field(m, "membership_id")]);
+    let body = json!({ "state": state });
+    Ok(client.request(Method::PATCH, url, Some(&body)).await?)
 }
 
 async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
@@ -890,7 +928,7 @@ async fn invite(
         return Err("Name the account IDs to invite, or pass --accounts-file.".into());
     }
 
-    let url = args.scope.members_url(client);
+    let url = client.url(&["memberships"]);
     let total = accounts.len();
     let (mut sent, mut failed, mut last) = (vec![], vec![], String::new());
     for mut account in accounts {
@@ -899,6 +937,10 @@ async fn invite(
         loop {
             let mut one = body.clone();
             one.insert("account_id".into(), json!(account));
+            one.insert("membership_account_id".into(), json!(args.scope.account_id));
+            if let Some(p) = &args.scope.product_id {
+                one.insert("product_id".into(), json!(p));
+            }
             match client
                 .request::<Value>(Method::POST, url.clone(), Some(&one))
                 .await
@@ -1402,7 +1444,7 @@ mod tests {
                            "membership_account_id": scope.account_id,
                            "role": role, "state": state, "state_changed": ""});
         if let Some(p) = scope.product_id {
-            m["repository_id"] = json!(p);
+            m["product_id"] = json!(p);
         }
         m
     }
@@ -1421,10 +1463,27 @@ mod tests {
         server
     }
 
+    /// A listing as the API pages it, all on one page.
+    fn page(items: Value) -> Value {
+        json!({"items": items, "next_cursor": null})
+    }
+
     async fn org_members(server: &MockServer, members: Value) {
         Mock::given(method("GET"))
-            .and(path("/api/v1/accounts/org/members"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(members))
+            .and(path("/api/v1/memberships"))
+            .and(query_param("membership_account_id", "org"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(page(members)))
+            .mount(server)
+            .await;
+    }
+
+    /// Expect `times` changes of membership `id` to `state`.
+    async fn expect_state(server: &MockServer, id: &str, state: &str, times: u64) {
+        Mock::given(method("PATCH"))
+            .and(path(format!("/api/v1/memberships/{id}")))
+            .and(body_json(json!({ "state": state })))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+            .expect(times)
             .mount(server)
             .await;
     }
@@ -1522,9 +1581,9 @@ mod tests {
     async fn invite_sends_each_account_and_carries_on_past_a_refusal() {
         let server = api_server().await;
         Mock::given(method("POST"))
-            .and(path("/api/v1/accounts/org/members"))
+            .and(path("/api/v1/memberships"))
             .and(body_json(
-                json!({"account_id": "alice", "role": "read_data"}),
+                json!({"account_id": "alice", "role": "read_data", "membership_account_id": "org"}),
             ))
             .respond_with(ResponseTemplate::new(201).set_body_json(ms(
                 "1",
@@ -1537,8 +1596,10 @@ mod tests {
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(path("/api/v1/accounts/org/members"))
-            .and(body_json(json!({"account_id": "bob", "role": "read_data"})))
+            .and(path("/api/v1/memberships"))
+            .and(body_json(
+                json!({"account_id": "bob", "role": "read_data", "membership_account_id": "org"}),
+            ))
             .respond_with(ResponseTemplate::new(409).set_body_json(
                 json!({"error": {"code": "conflict", "message": "bob is already a member"}}),
             ))
@@ -1567,7 +1628,7 @@ mod tests {
         let server = api_server().await;
         expect_post(
             &server,
-            "/api/v1/accounts/org/members",
+            "/api/v1/memberships",
             ms("1", "x", "org", "read_data", "invited"),
             2,
         )
@@ -1672,7 +1733,7 @@ mod tests {
             json!([ms("m1", "bob", "org", "read_data", "invited")]),
         )
         .await;
-        expect_post(&server, "/api/v1/memberships/m1/revoke", json!({}), 1).await;
+        expect_state(&server, "m1", "revoked", 1).await;
         revoke(revoke_args("bob", true), &client(&server), None)
             .await
             .unwrap();
@@ -1686,7 +1747,7 @@ mod tests {
             json!([ms("m0", "acct", "org", "maintainers", "member")]),
         )
         .await;
-        expect_post(&server, "/api/v1/memberships/m0/revoke", json!({}), 0).await;
+        expect_state(&server, "m0", "revoked", 0).await;
         let mut ask = Script::new([Text("not-org")]);
         let err = revoke(revoke_args("acct", false), &client(&server), Some(&mut ask))
             .await
@@ -1700,14 +1761,15 @@ mod tests {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/memberships"))
+            .and(query_param("account_id", "acct"))
             .and(query_param("state", "member"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            .respond_with(ResponseTemplate::new(200).set_body_json(page(json!([
                 ms("m9", "acct", "org/data", "read_data", "member"),
                 ms("m0", "acct", "org", "maintainers", "member"),
-            ])))
+            ]))))
             .mount(&server)
             .await;
-        expect_post(&server, "/api/v1/memberships/m0/revoke", json!({}), 1).await;
+        expect_state(&server, "m0", "revoked", 1).await;
         let args = LeaveArgs {
             scope: Some("org".parse().unwrap()),
             interactive: false,
@@ -1723,17 +1785,18 @@ mod tests {
         let server = api_server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/memberships"))
+            .and(query_param("account_id", "acct"))
             .and(query_param("state", "invited"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([ms(
+            .respond_with(ResponseTemplate::new(200).set_body_json(page(json!([ms(
                 "i1",
                 "acct",
                 "org/data",
                 "write_data",
                 "invited"
-            )])))
+            )]))))
             .mount(&server)
             .await;
-        expect_post(&server, "/api/v1/memberships/i1/accept", json!({}), 1).await;
+        expect_state(&server, "i1", "member", 1).await;
         let c = client(&server);
         answer(&c, &"org/data".parse().unwrap(), "accept")
             .await
@@ -1770,7 +1833,7 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        expect_post(&server, "/api/v1/memberships/m2/revoke", json!({}), 1).await;
+        expect_state(&server, "m2", "revoked", 1).await;
         let mut ask = Script::new([
             Browse(1, Action::Open), // bob: invitations come first
             Press(Action::Key('e')),
@@ -1812,7 +1875,7 @@ mod tests {
         let server = api_server().await;
         expect_post(
             &server,
-            "/api/v1/accounts/org/members",
+            "/api/v1/memberships",
             ms("1", "alice", "org", "read_data", "invited"),
             1,
         )
@@ -1853,8 +1916,10 @@ mod tests {
     async fn a_rejected_role_is_asked_again_from_the_roles_you_can_grant() {
         let server = api_server().await;
         Mock::given(method("POST"))
-            .and(path("/api/v1/accounts/org/members"))
-            .and(body_json(json!({"account_id": "bob", "role": "owners"})))
+            .and(path("/api/v1/memberships"))
+            .and(body_json(
+                json!({"account_id": "bob", "role": "owners", "membership_account_id": "org"}),
+            ))
             .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
                 "code": "validation_error", "message": "Invalid request",
                 "field_errors": {"role": ["You can't grant owners"]}}})))
@@ -1862,9 +1927,9 @@ mod tests {
             .mount(&server)
             .await;
         Mock::given(method("POST"))
-            .and(path("/api/v1/accounts/org/members"))
+            .and(path("/api/v1/memberships"))
             .and(body_json(
-                json!({"account_id": "bob", "role": "maintainers"}),
+                json!({"account_id": "bob", "role": "maintainers", "membership_account_id": "org"}),
             ))
             .respond_with(ResponseTemplate::new(201).set_body_json(ms(
                 "1",

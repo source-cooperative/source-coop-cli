@@ -474,11 +474,12 @@ mod tests {
         let (server, client) = server().await;
         Mock::given(method("GET"))
             .and(path("/api/v1/memberships"))
+            .and(query_param("account_id", "acct"))
             .and(query_param("state", "invited"))
-            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
-                {"membership_account_id": "geo", "repository_id": "elevation"},
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!({"items": [
+                {"membership_account_id": "geo", "product_id": "elevation"},
                 {"membership_account_id": "river"}
-            ])))
+            ], "next_cursor": null})))
             .mount(&server)
             .await;
         assert_eq!(
