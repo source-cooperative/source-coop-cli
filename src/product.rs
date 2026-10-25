@@ -1889,7 +1889,8 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/api/v1/whoami"))
             .respond_with(ResponseTemplate::new(401).set_body_json(
-                json!({"error": {"code": "unauthenticated", "message": "Authentication required"}}),
+                json!({"type": "https://source.coop/api/problems/unauthenticated", "title": "T", "status": 401,
+                "detail": "Authentication required", "code": "unauthenticated"}),
             ))
             .mount(&server)
             .await;
@@ -2555,9 +2556,9 @@ mod tests {
         let server = api_server().await;
         Mock::given(method("POST"))
             .and(path("/api/v1/products/acct"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
-                "code": "invalid", "message": "The request is invalid.",
-                "field_errors": {"data_connection_id": ["A data connection is required"]}}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"type": "https://source.coop/api/problems/invalid", "title": "T", "status": 400,
+                "detail": "A data connection is required", "code": "invalid",
+                "errors": [{"detail": "A data connection is required", "pointer": "#/data_connection_id"}]})))
             .mount(&server)
             .await;
 
@@ -3113,9 +3114,9 @@ mod tests {
             .and(path("/api/v1/products/acct"))
             .and(body_json(json!({"product_id": "Bad--ID", "title": "T", "description": "D",
                                   "data_connection_id": "dc", "visibility": "public"})))
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
-                "code": "invalid", "message": "The request is invalid.",
-                "field_errors": {"product_id": ["Product ID may not contain consecutive hyphens"]}}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"type": "https://source.coop/api/problems/invalid", "title": "T", "status": 400,
+                "detail": "Product ID may not contain consecutive hyphens", "code": "invalid",
+                "errors": [{"detail": "Product ID may not contain consecutive hyphens", "pointer": "#/product_id"}]})))
             .expect(1)
             .mount(&server)
             .await;
@@ -3142,9 +3143,9 @@ mod tests {
     async fn a_rejection_naming_other_fields_is_just_an_error() {
         let server = api_server().await;
         Mock::given(method("POST"))
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
-                "code": "invalid", "message": "The request is invalid.",
-                "field_errors": {"metadata": ["Not allowed"]}}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"type": "https://source.coop/api/problems/invalid", "title": "T", "status": 400,
+                "detail": "Not allowed", "code": "invalid",
+                "errors": [{"detail": "Not allowed", "pointer": "#/metadata"}]})))
             .expect(1)
             .mount(&server)
             .await;

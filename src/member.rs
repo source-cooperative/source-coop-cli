@@ -502,6 +502,8 @@ fn not_found(message: String) -> String {
         code: Some("not_found".into()),
         message,
         field_errors: Default::default(),
+        type_url: None,
+        request_id: None,
     }
     .into()
 }
@@ -1540,7 +1542,8 @@ mod tests {
             .and(path("/api/v1/accounts/org/members"))
             .and(body_json(json!({"account_id": "bob", "role": "read_data"})))
             .respond_with(ResponseTemplate::new(409).set_body_json(
-                json!({"error": {"code": "conflict", "message": "bob is already a member"}}),
+                json!({"type": "https://source.coop/api/problems/conflict", "title": "T", "status": 409,
+                "detail": "bob is already a member", "code": "conflict"}),
             ))
             .expect(1)
             .mount(&server)
@@ -1855,9 +1858,9 @@ mod tests {
         Mock::given(method("POST"))
             .and(path("/api/v1/accounts/org/members"))
             .and(body_json(json!({"account_id": "bob", "role": "owners"})))
-            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"error": {
-                "code": "validation_error", "message": "Invalid request",
-                "field_errors": {"role": ["You can't grant owners"]}}})))
+            .respond_with(ResponseTemplate::new(400).set_body_json(json!({"type": "https://source.coop/api/problems/invalid", "title": "T", "status": 400,
+                "detail": "You can't grant owners", "code": "invalid",
+                "errors": [{"detail": "You can't grant owners", "pointer": "#/role"}]})))
             .expect(1)
             .mount(&server)
             .await;

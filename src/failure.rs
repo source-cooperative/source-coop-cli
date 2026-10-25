@@ -12,7 +12,9 @@ use crate::api::ApiError;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
-/// A failure as scripts see it, serialized as the API's error body.
+/// A failure as scripts see it. The API answers RFC 9457 problems; this is
+/// the CLI's own, flatter shape, which keeps the problem's `code`, `status`,
+/// `type` and `request_id`, and names rejected fields by dotted path.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct Failure {
     /// The API's error code, or a local one: `cancelled`, `interrupted`,
@@ -24,6 +26,12 @@ pub struct Failure {
     pub status: Option<u16>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub field_errors: BTreeMap<String, Vec<String>>,
+    /// The API problem's `type`: a URL whose page explains the failure.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub type_url: Option<String>,
+    /// The API's ID for the request, to quote when reporting a failure.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_id: Option<String>,
 }
 
 thread_local! {
@@ -43,6 +51,8 @@ pub fn classify(e: &str) -> Failure {
         message: e.to_string(),
         status,
         field_errors: BTreeMap::new(),
+        type_url: None,
+        request_id: None,
     };
     if e == crate::prompt::CANCELLED {
         return local("cancelled", None);
@@ -63,6 +73,8 @@ pub fn classify(e: &str) -> Failure {
             message: e.replace(&text, &api.message),
             status: api.status.map(|s| s.as_u16()),
             field_errors: api.field_errors,
+            type_url: api.type_url,
+            request_id: api.request_id,
         },
         None => local("error", None),
     }
@@ -80,8 +92,8 @@ impl Failure {
         }
     }
 
-    /// `{"error": {"code", "message", "status"?, "field_errors"?}}`, the API's
-    /// own error shape.
+    /// `{"error": {"code", "message", "status"?, "field_errors"?, "type"?,
+    /// "request_id"?}}`.
     pub fn to_json(&self) -> serde_json::Value {
         serde_json::json!({ "error": self })
     }
@@ -93,10 +105,12 @@ mod tests {
     use reqwest::StatusCode;
 
     fn api_error(status: u16, code: &str, fields: &[(&str, &str)]) -> String {
-        let body = serde_json::json!({"error": {
-            "code": code, "message": "Rejected",
-            "field_errors": fields.iter().map(|(f, m)| (f.to_string(), vec![m.to_string()])).collect::<BTreeMap<_, _>>(),
-        }});
+        let body = serde_json::json!({
+            "type": format!("https://source.coop/api/problems/{code}"),
+            "title": "Some title", "status": status, "detail": "Rejected", "code": code,
+            "errors": fields.iter().map(|(f, m)| serde_json::json!({"detail": m, "pointer": format!("#/{f}")})).collect::<Vec<_>>(),
+            "request_id": "iad1::abc",
+        });
         ApiError::from_response(StatusCode::from_u16(status).unwrap(), &body.to_string()).into()
     }
 
@@ -117,7 +131,9 @@ mod tests {
         assert_eq!(
             f.to_json(),
             serde_json::json!({"error": {"code": "invalid_input", "message": f.message,
-                "status": 400, "field_errors": {"title": ["must not be empty"]}}})
+                "status": 400, "field_errors": {"title": ["must not be empty"]},
+                "type": "https://source.coop/api/problems/invalid_input",
+                "request_id": "iad1::abc"}})
         );
     }
 

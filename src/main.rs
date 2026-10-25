@@ -63,7 +63,8 @@ fn parse_duration(s: &str) -> Result<u64, String> {
 const FOR_SCRIPTS: &str = "\
 For scripts and agents:
   --json          On reads and writes: one JSON document on stdout, notes on stderr.
-                  Failures are JSON on stderr: {\"error\": {\"code\", \"message\", \"status\", \"field_errors\"}}
+                  Failures are JSON on stderr: {\"error\": {\"code\", \"message\", \"status\", \"field_errors\",
+                  \"type\", \"request_id\"}}; \"type\" is a URL that explains the API's error.
   No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
                   give fields as flags or -F FILE (- for stdin), and --yes to delete.
   SOURCE_TOKEN    A bearer token for the API, used instead of the login session.

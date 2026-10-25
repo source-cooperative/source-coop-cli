@@ -79,7 +79,8 @@ Scripts and AI agents use the CLI through `--json`, so it is a contract, not a s
 - **Field names are the API's** (`account_id`, `created_at` in RFC 3339), plus derived fields only where they spare scripts work (`"expired": true`). Never human renderings like "3 years ago".
 - **Adding fields is fine. Renaming or removing one is a breaking change.** Human output may change freely.
 - **Print through `output::json`.** Don't hand-roll `serde_json` printing in a command.
-- **Errors under `--json` are JSON too**, on stderr: `{"error": {"code", "message", "status"?, "field_errors"?}}`, the API's error shape. `fail(e, json)` in `main.rs` does it, using `failure::classify`. A command passes whether `--json` was asked for.
+- **Errors under `--json` are JSON too**, on stderr: `{"error": {"code", "message", "status"?, "field_errors"?, "type"?, "request_id"?}}`. `fail(e, json)` in `main.rs` does it, using `failure::classify`. A command passes whether `--json` was asked for.
+- **The API answers errors as RFC 9457 problems** (`application/problem+json`). `ApiError::from_response` in `src/api.rs` is the one place that reads them: it keeps `code`, `status`, `type` and `request_id`, and turns `errors` (JSON Pointers into the body, or query parameters) into dotted `field_errors`, which the prompts and `--json` use. Read problems only through it. The `--json` error shape is the CLI's own contract and stays as it is; don't replace it with the API's problem.
 - **Exit codes mean the same everywhere** (`failure::Failure::exit_code`):
 
   | Code | Meaning |
