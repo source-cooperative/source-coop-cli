@@ -78,10 +78,12 @@ pub struct ApiError {
     pub code: Option<String>,
     pub message: String,
     pub field_errors: BTreeMap<String, Vec<String>>,
+    // Boxed, so every `Result<_, ApiError>` stays small (clippy's
+    // `result_large_err`).
     /// The problem's `type`: a URL whose page explains it.
-    pub type_url: Option<String>,
+    pub type_url: Option<Box<str>>,
     /// The API's ID for the request, which finds it in source.coop's logs.
-    pub request_id: Option<String>,
+    pub request_id: Option<Box<str>>,
 }
 
 impl fmt::Display for ApiError {
@@ -204,8 +206,8 @@ impl ApiError {
             code,
             message: p.detail.or(p.title).unwrap_or(fallback.message),
             field_errors,
-            type_url: p.type_url,
-            request_id: p.request_id,
+            type_url: p.type_url.map(Into::into),
+            request_id: p.request_id.map(Into::into),
             ..fallback
         }
     }

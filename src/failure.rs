@@ -73,8 +73,8 @@ pub fn classify(e: &str) -> Failure {
             message: e.replace(&text, &api.message),
             status: api.status.map(|s| s.as_u16()),
             field_errors: api.field_errors,
-            type_url: api.type_url,
-            request_id: api.request_id,
+            type_url: api.type_url.map(Into::into),
+            request_id: api.request_id.map(Into::into),
         },
         None => local("error", None),
     }
