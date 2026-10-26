@@ -67,8 +67,9 @@ struct LegacyErrorDetail {
     field_errors: BTreeMap<String, Vec<String>>,
 }
 
-/// Where the API's problem types live. A `type` under it ends in its code.
-const PROBLEM_TYPE_BASE: &str = "https://source.coop/api/problems/";
+/// Where the API's problem types live, on whichever host answered. A `type`
+/// under it ends in its code.
+const PROBLEM_TYPE_PATH: &str = "/api/problems/";
 
 /// A failed API call, with whatever the API said about why.
 #[derive(Debug, Clone)]
@@ -195,8 +196,8 @@ impl ApiError {
         let code = p.code.or_else(|| {
             p.type_url
                 .as_deref()
-                .and_then(|t| t.strip_prefix(PROBLEM_TYPE_BASE))
-                .map(str::to_string)
+                .and_then(|t| t.split_once(PROBLEM_TYPE_PATH))
+                .map(|(_, code)| code.to_string())
         });
         let fallback = unknown();
         ApiError {
@@ -408,7 +409,7 @@ mod tests {
 
     #[test]
     fn takes_the_code_from_the_type_when_the_problem_has_none() {
-        let body = r#"{"type":"https://source.coop/api/problems/conflict","title":"Conflict","status":409}"#;
+        let body = r#"{"type":"https://preview.example/api/problems/conflict","title":"Conflict","status":409}"#;
         let e = ApiError::from_response(StatusCode::CONFLICT, body);
         assert_eq!(e.code.as_deref(), Some("conflict"));
         assert_eq!(e.message, "Conflict");
