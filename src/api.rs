@@ -19,8 +19,9 @@ struct Problem {
     title: Option<String>,
     detail: Option<String>,
     code: Option<String>,
+    // An Option, so `"errors": null` doesn't make the whole problem unreadable.
     #[serde(default)]
-    errors: Vec<FieldProblem>,
+    errors: Option<Vec<FieldProblem>>,
     request_id: Option<String>,
 }
 
@@ -28,8 +29,8 @@ struct Problem {
 /// parameter.
 #[derive(Debug, Deserialize)]
 struct FieldProblem {
-    #[serde(default)]
-    detail: String,
+    // An Option, so a missing or null `detail` still reads.
+    detail: Option<String>,
     pointer: Option<String>,
     parameter: Option<String>,
 }
@@ -43,7 +44,11 @@ impl FieldProblem {
         }
         let pointer = self.pointer.as_deref()?;
         let path = pointer.strip_prefix('#').unwrap_or(pointer);
-        let path = path.strip_prefix('/')?;
+        // `/title`, or a bare `title`; the whole body (`#`, ``) is no field.
+        let path = path.strip_prefix('/').unwrap_or(path);
+        if path.is_empty() {
+            return None;
+        }
         Some(
             path.split('/')
                 .map(|s| s.replace("~1", "/").replace("~0", "~"))
@@ -98,7 +103,10 @@ impl fmt::Display for ApiError {
         }
         for (field, problems) in &self.field_errors {
             for problem in problems {
-                write!(f, "\n  {field}: {problem}")?;
+                match problem.as_str() {
+                    "" => write!(f, "\n  {field}")?,
+                    _ => write!(f, "\n  {field}: {problem}")?,
+                }
             }
         }
         if let (Some(id), Some(true)) = (&self.request_id, self.status.map(|s| s.is_server_error()))
@@ -138,7 +146,7 @@ impl ApiError {
         Self::other(format!("API request failed: {e}{causes}"))
     }
 
-    fn other(message: String) -> Self {
+    pub(crate) fn other(message: String) -> Self {
         ApiError {
             status: None,
             code: None,
@@ -155,14 +163,12 @@ impl ApiError {
     pub fn from_response(status: StatusCode, body: &str) -> Self {
         let unknown = || ApiError {
             status: Some(status),
-            code: None,
-            message: status
-                .canonical_reason()
-                .unwrap_or("Unexpected response")
-                .to_string(),
-            field_errors: BTreeMap::new(),
-            type_url: None,
-            request_id: None,
+            ..Self::other(
+                status
+                    .canonical_reason()
+                    .unwrap_or("Unexpected response")
+                    .to_string(),
+            )
         };
         // Legacy first: a problem's members are all optional, so it would
         // match a legacy body too.
@@ -188,19 +194,18 @@ impl ApiError {
             return unknown();
         }
         let mut field_errors = BTreeMap::<String, Vec<String>>::new();
-        for e in &p.errors {
+        for e in p.errors.into_iter().flatten() {
             if let Some(field) = e.field() {
                 field_errors
                     .entry(field)
                     .or_default()
-                    .push(e.detail.clone());
+                    .push(e.detail.unwrap_or_default());
             }
         }
         let code = p.code.or_else(|| {
-            p.type_url
-                .as_deref()
-                .and_then(|t| t.split_once(PROBLEM_TYPE_PATH))
-                .map(|(_, code)| code.to_string())
+            let (_, rest) = p.type_url.as_deref()?.split_once(PROBLEM_TYPE_PATH)?;
+            let code = rest.split(['?', '#']).next()?.trim_end_matches('/');
+            (!code.is_empty()).then(|| code.to_string())
         });
         let fallback = unknown();
         ApiError {
@@ -421,9 +426,41 @@ mod tests {
     #[test]
     fn keeps_the_message_when_a_field_problem_has_no_detail() {
         let body = r##"{"title":"Bad Request","status":400,"detail":"Check the title.",
-            "errors":[{"pointer":"#/title"}]}"##;
+            "errors":[{"pointer":"#/title"},{"pointer":"#/description","detail":null}]}"##;
         let e = ApiError::from_response(StatusCode::BAD_REQUEST, body);
         assert_eq!(e.message, "Check the title.");
+        assert_eq!(
+            e.to_string(),
+            "Check the title. (HTTP 400)\n  description\n  title"
+        );
+    }
+
+    #[test]
+    fn reads_a_problem_with_null_errors() {
+        let body = r#"{"title":"Bad Request","status":400,"detail":"Nope.","errors":null}"#;
+        let e = ApiError::from_response(StatusCode::BAD_REQUEST, body);
+        assert_eq!(e.message, "Nope.");
+    }
+
+    #[test]
+    fn takes_only_the_code_from_a_type_with_a_query_or_trailing_slash() {
+        for t in [
+            "https://source.coop/api/problems/conflict/",
+            "https://source.coop/api/problems/conflict?x=1",
+            "https://source.coop/api/problems/conflict#y",
+        ] {
+            let body = serde_json::json!({"type": t, "title": "Conflict"}).to_string();
+            let e = ApiError::from_response(StatusCode::CONFLICT, &body);
+            assert_eq!(e.code.as_deref(), Some("conflict"), "{t}");
+        }
+    }
+
+    #[test]
+    fn reads_a_bare_pointer_and_skips_the_root() {
+        let body = r##"{"title":"Bad Request","errors":[{"detail":"x","pointer":"title"},
+            {"detail":"y","pointer":"#"}]}"##;
+        let e = ApiError::from_response(StatusCode::BAD_REQUEST, body);
+        assert_eq!(e.field_errors.keys().collect::<Vec<_>>(), ["title"]);
     }
 
     #[test]

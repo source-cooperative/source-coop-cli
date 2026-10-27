@@ -506,10 +506,7 @@ fn not_found(message: String) -> String {
     ApiError {
         status: Some(StatusCode::NOT_FOUND),
         code: Some("not_found".into()),
-        message,
-        field_errors: Default::default(),
-        type_url: None,
-        request_id: None,
+        ..ApiError::other(message)
     }
     .into()
 }
