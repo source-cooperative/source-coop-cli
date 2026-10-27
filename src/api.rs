@@ -28,6 +28,7 @@ struct Problem {
 /// parameter.
 #[derive(Debug, Deserialize)]
 struct FieldProblem {
+    #[serde(default)]
     detail: String,
     pointer: Option<String>,
     parameter: Option<String>,
@@ -163,25 +164,25 @@ impl ApiError {
             type_url: None,
             request_id: None,
         };
-        let Ok(json) = serde_json::from_str::<serde_json::Value>(body) else {
-            return unknown();
-        };
-        if !json.is_object() {
-            return unknown();
+        // Legacy first: a problem's members are all optional, so it would
+        // match a legacy body too.
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum Body {
+            Legacy(LegacyErrorBody),
+            Problem(Problem),
         }
-        if json.get("error").is_some_and(|e| e.is_object()) {
-            return match serde_json::from_value::<LegacyErrorBody>(json) {
-                Ok(LegacyErrorBody { error }) => ApiError {
+        let p = match serde_json::from_str::<Body>(body) {
+            Ok(Body::Legacy(LegacyErrorBody { error })) => {
+                return ApiError {
                     code: Some(error.code),
                     message: error.message,
                     field_errors: error.field_errors,
                     ..unknown()
-                },
-                Err(_) => unknown(),
-            };
-        }
-        let Ok(p) = serde_json::from_value::<Problem>(json) else {
-            return unknown();
+                }
+            }
+            Ok(Body::Problem(p)) => p,
+            Err(_) => return unknown(),
         };
         if p.type_url.is_none() && p.title.is_none() && p.detail.is_none() {
             return unknown();
@@ -415,6 +416,14 @@ mod tests {
         let e = ApiError::from_response(StatusCode::CONFLICT, body);
         assert_eq!(e.code.as_deref(), Some("conflict"));
         assert_eq!(e.message, "Conflict");
+    }
+
+    #[test]
+    fn keeps_the_message_when_a_field_problem_has_no_detail() {
+        let body = r##"{"title":"Bad Request","status":400,"detail":"Check the title.",
+            "errors":[{"pointer":"#/title"}]}"##;
+        let e = ApiError::from_response(StatusCode::BAD_REQUEST, body);
+        assert_eq!(e.message, "Check the title.");
     }
 
     #[test]
