@@ -721,16 +721,24 @@ fn deliver_key(
     prompter: Option<&mut (dyn Prompter + '_)>,
     stdout: bool,
 ) -> Result<Option<String>, String> {
+    // Backing out of the question shows the key rather than losing it; an
+    // interrupt is passed on once it has been shown.
+    let mut interrupted = None;
     let path = match (out, prompter) {
         (Some(p), _) => Some(p.to_string()),
         // Piped, the key goes to stdout for the script reading it.
         (None, Some(ask)) if std::io::stdout().is_terminal() => {
-            let p = ask.input(
+            match ask.input(
                 "Save the key to a file (Enter to show it here instead)",
                 "",
                 true,
-            )?;
-            Some(p.trim().to_string()).filter(|p| !p.is_empty())
+            ) {
+                Ok(p) => Some(p.trim().to_string()).filter(|p| !p.is_empty()),
+                Err(e) => {
+                    interrupted = Some(e).filter(|e| e == crate::prompt::INTERRUPTED);
+                    None
+                }
+            }
         }
         _ => None,
     };
@@ -753,7 +761,7 @@ fn deliver_key(
     } else {
         eprintln!("{key}");
     }
-    Ok(None)
+    interrupted.map_or(Ok(None), Err)
 }
 
 async fn list(args: ListArgs, ctx: &Ctx<'_>) -> Result<(), String> {
@@ -1241,6 +1249,8 @@ async fn token_repository(github_api: &str, repository: &str) -> String {
     let url = format!("{github_api}/repos/{repository}/actions/oidc/customization/sub");
     let mut req = reqwest::Client::new()
         .get(&url)
+        // GitHub not answering is "couldn't check", not a hang.
+        .timeout(std::time::Duration::from_secs(10))
         .header("User-Agent", "source-coop-cli")
         .header("Accept", "application/vnd.github+json");
     // A GitHub token goes to GitHub only, whatever `github_api` names.
@@ -1511,6 +1521,11 @@ async fn ask_create(
     let mut local = named
         .as_ref()
         .and_then(|id| id.split_once("--").map(|(_, l)| l.to_string()))
+        .or_else(|| {
+            body.get("local_id")
+                .and_then(Value::as_str)
+                .map(String::from)
+        })
         .unwrap_or_default();
     let mut given: Vec<String> = body.keys().cloned().collect();
     let mut draft: Option<(String, Draft)> = None;
@@ -1549,7 +1564,7 @@ async fn ask_create(
                 }
             },
             Step::Id => {
-                let next = if named.is_some() {
+                let next = if named.is_some() || given.iter().any(|k| k == "local_id") {
                     Next::Skipped(Some(Step::SignIns))
                 } else {
                     let was = match &local {
@@ -1573,9 +1588,12 @@ async fn ask_create(
                     );
                     if draft.as_ref().map(|(k, _)| k) != Some(&key) {
                         let saved = Draft::for_key(&key)?;
+                        // Only what the draft fills in is skipped from here on:
+                        // answers already given here stay askable going back.
+                        let before: Vec<String> = body.keys().cloned().collect();
                         saved.resume(ask, body)?;
                         for k in body.keys() {
-                            if !given.contains(k) {
+                            if !before.contains(k) && !given.contains(k) {
                                 given.push(k.clone());
                             }
                         }
@@ -1908,10 +1926,27 @@ async fn edit(
             let url = ctx.client.url(&["accounts", &id]);
             send_until_accepted(ctx.client, Method::PATCH, url, &mut fields, prompter).await?;
         }
-        for (product, role) in reach.iter().flat_map(|r| r.as_object()).flatten() {
+        let changes = reach.iter().flat_map(|r| r.as_object()).flatten();
+        let mut existing = None;
+        for (product, role) in changes {
             let product: ProductRef = product.parse()?;
-            let role = role.as_str().and_then(Role::from_api);
-            said.push(set_access(ctx.client, &id, &product, role).await?);
+            // Only null takes access away: anything else not a role is an error,
+            // never read as "none".
+            let role = match role {
+                Value::Null => None,
+                r => Some(
+                    r.as_str()
+                        .and_then(|s| Role::from_api(s).or_else(|| Role::from_str(s, true).ok()))
+                        .ok_or_else(|| {
+                            format!("expected {product}'s access to be read_data, write_data or null, got {r}")
+                        })?,
+                ),
+            };
+            if existing.is_none() {
+                existing = Some(memberships(ctx.client, &id).await?);
+            }
+            let existing = existing.as_deref().unwrap_or_default();
+            said.push(set_access(ctx.client, &id, existing, &product, role).await?);
         }
         Ok(())
     }
@@ -1952,10 +1987,11 @@ async fn edit(
 async fn set_access(
     client: &Client,
     id: &str,
+    existing: &[Value],
     product: &ProductRef,
     role: Option<Role>,
 ) -> Result<String, String> {
-    let membership = membership(client, id, product).await?;
+    let membership = membership(existing, product);
     let id_role = |m: &Value| str_field(m, "role").to_string();
     match (membership, role) {
         (None, None) => Ok(format!("{id} already can't reach {product}")),
@@ -2154,16 +2190,24 @@ async fn edit_form(
                     place.notice = Some(format!("It already lists every product of {owner}."));
                     continue;
                 }
-                let Ok(Some(i)) = ask.select_or_back("Grant which product?", &options, 0) else {
-                    continue;
+                let i = match ask.select_or_back("Grant which product?", &options, 0) {
+                    Ok(Some(i)) => i,
+                    Ok(None) => continue,
+                    Err(e) if kept(&e) => continue,
+                    Err(e) => return Err(e),
                 };
                 let roles = ACCESS_CHOICES[..2]
                     .iter()
                     .map(|r| r.to_string())
                     .collect::<Vec<_>>();
-                if let Ok(Some(r)) = ask.select_or_back("Access", &roles, 0) {
-                    let role = [Role::Read, Role::Write][r];
-                    reach.insert(options[i].clone(), Some(role.api().into()));
+                match ask.select_or_back("Access", &roles, 0) {
+                    Ok(Some(r)) => {
+                        let role = [Role::Read, Role::Write][r];
+                        reach.insert(options[i].clone(), Some(role.api().into()));
+                    }
+                    Ok(None) => {}
+                    Err(e) if kept(&e) => {}
+                    Err(e) => return Err(e),
                 }
             }
             _ if count == 0 => return Ok(()),
@@ -2505,6 +2549,7 @@ async fn sign_in_remove(
         Some(s) => Removing::Trust(GITHUB_ISSUER.to_string(), s.clone()),
         None => {
             let ask = prompter.as_deref_mut().ok_or(NEEDS_TERMINAL)?;
+            ctx.client.check_signed_in().await?;
             let now = chrono::Utc::now();
             let (t, k) = tokio::join!(trusts(ctx.client, id), keys(ctx.client, id));
             let mut options: Vec<(String, Removing)> = t?
@@ -2622,16 +2667,15 @@ async fn revoke_key(client: &Client) -> Result<(), String> {
     Ok(())
 }
 
-/// The service account's live membership of `product`, if it has one.
-async fn membership(
-    client: &Client,
-    id: &str,
-    product: &ProductRef,
-) -> Result<Option<Value>, String> {
-    Ok(memberships(client, id).await?.into_iter().find(|m| {
-        str_field(m, "membership_account_id") == product.account_id
-            && str_field(m, "product_id") == product.product_id
-    }))
+/// The live membership of `product` among `existing`, if there is one.
+fn membership(existing: &[Value], product: &ProductRef) -> Option<Value> {
+    existing
+        .iter()
+        .find(|m| {
+            str_field(m, "membership_account_id") == product.account_id
+                && str_field(m, "product_id") == product.product_id
+        })
+        .cloned()
 }
 
 async fn usage(
