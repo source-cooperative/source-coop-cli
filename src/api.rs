@@ -210,7 +210,11 @@ impl ApiError {
         let fallback = unknown();
         ApiError {
             code,
-            message: p.detail.or(p.title).unwrap_or(fallback.message),
+            message: p
+                .detail
+                .filter(|d| !d.is_empty())
+                .or(p.title)
+                .unwrap_or(fallback.message),
             field_errors,
             type_url: p.type_url.map(Into::into),
             request_id: p.request_id.map(Into::into),
@@ -461,6 +465,13 @@ mod tests {
             {"detail":"y","pointer":"#"}]}"##;
         let e = ApiError::from_response(StatusCode::BAD_REQUEST, body);
         assert_eq!(e.field_errors.keys().collect::<Vec<_>>(), ["title"]);
+    }
+
+    #[test]
+    fn an_empty_detail_falls_back_to_the_title() {
+        let body = r#"{"title":"Conflict","status":409,"detail":""}"#;
+        let e = ApiError::from_response(StatusCode::CONFLICT, body);
+        assert_eq!(e.message, "Conflict");
     }
 
     #[test]
