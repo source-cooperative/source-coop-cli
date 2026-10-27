@@ -207,7 +207,8 @@ mod tests {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
             .respond_with(ResponseTemplate::new(404).set_body_json(
-                json!({"error": {"code": "not_found", "message": "No such product."}}),
+                json!({"type": "https://source.coop/api/problems/not_found", "title": "T", "status": 404,
+                "detail": "No such product.", "code": "not_found"}),
             ))
             .mount(&server)
             .await;

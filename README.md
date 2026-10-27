@@ -276,11 +276,13 @@ Reading public data needs no credentials. Anything else acts as whoever ran `sou
 
 Every command that reports information takes `--json`: `auth status`, and `product list`, `view`, `create`, `edit` and `delete` (which print the resulting record). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
 
-A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
+A failure under `--json` is JSON too, on stderr. When the failure came from the API, it carries what the API's [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem said: its `code` and `status`, its `type` (a URL whose page explains the failure and what to do about it), and its `request_id`, to quote if you report it. `field_errors` names what to fix when the API rejected the input, by field path (`metadata.title`):
 
 ```json
-{"error": {"code": "invalid_input", "message": "…", "status": 400, "field_errors": {"title": ["…"]}}}
+{"error": {"code": "invalid", "message": "…", "status": 400, "field_errors": {"title": ["…"]}, "type": "https://source.coop/api/problems/invalid", "request_id": "…"}}
 ```
+
+`api` prints the API's problem itself to stdout, as it does any response.
 
 Exit codes are the same for every command:
 
