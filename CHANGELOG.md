@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.0.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.3.0...v1.0.0) (2026-10-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* existing cached logins are no longer found; run `source-coop login` once after upgrading.
+
+### Features
+
+* **api:** -q for query parameters, one typed -f, and -F for a body file ([#56](https://github.com/source-cooperative/source-coop-cli/issues/56)) ([b4a8274](https://github.com/source-cooperative/source-coop-cli/commit/b4a82742983132742230d81af2afd0a8fff8cde2))
+* auth commands: login, status, logout and token under auth ([#46](https://github.com/source-cooperative/source-coop-cli/issues/46)) ([f31ae44](https://github.com/source-cooperative/source-coop-cli/commit/f31ae440c0b86080368844018eb7e3049a26c317))
+* cache non-production credentials per proxy host so staging and prod coexist ([#22](https://github.com/source-cooperative/source-coop-cli/issues/22)) ([8673032](https://github.com/source-cooperative/source-coop-cli/commit/8673032fcac898c059f59526df4f4145265cb662))
+* dates show as RFC 3339 plus a relative time everywhere ([#55](https://github.com/source-cooperative/source-coop-cli/issues/55)) ([8bc6e2d](https://github.com/source-cooperative/source-coop-cli/commit/8bc6e2d546aa4b6e1c62b4528598ff32dae7f8bc))
+* manage members and invitations (member, invitation) ([#57](https://github.com/source-cooperative/source-coop-cli/issues/57)) ([fc59ce9](https://github.com/source-cooperative/source-coop-cli/commit/fc59ce99d8f41cfc583584c722c37d7a253a9ed7))
+* one login session for STS and the source.coop API ([#23](https://github.com/source-cooperative/source-coop-cli/issues/23)) ([d55e4b7](https://github.com/source-cooperative/source-coop-cli/commit/d55e4b7d0597436876530eddab1abf70090c6808))
+* **picker:** show that / filters what's loaded and Enter searches the server ([#61](https://github.com/source-cooperative/source-coop-cli/issues/61)) ([909f771](https://github.com/source-cooperative/source-coop-cli/commit/909f7714438f9a993bd948b694a61aea8cd2079b))
+* product commands: list, view, create, edit and delete, with -i ([#47](https://github.com/source-cooperative/source-coop-cli/issues/47)) ([528d627](https://github.com/source-cooperative/source-coop-cli/commit/528d627ecd90ea460d29a25ba9a125f175ff2ebb))
+* product edit offers the visibilities its data connection allows ([#54](https://github.com/source-cooperative/source-coop-cli/issues/54)) ([032dd90](https://github.com/source-cooperative/source-coop-cli/commit/032dd90845b6a17bb185670694e5dd4838b90ff0))
+* **product:** edit opens a form of current values instead of asking which fields to change ([#62](https://github.com/source-cooperative/source-coop-cli/issues/62)) ([84e4aea](https://github.com/source-cooperative/source-coop-cli/commit/84e4aeab920e833f5d2cec96d4156a243cd0ee07))
+* read the API's RFC 9457 problems ([#67](https://github.com/source-cooperative/source-coop-cli/issues/67)) ([504c486](https://github.com/source-cooperative/source-coop-cli/commit/504c48626b7bbd0170e5d56653ddead13af347b7))
+* shared foundation for API-backed commands, and the api command ([#45](https://github.com/source-cooperative/source-coop-cli/issues/45)) ([a0db3e6](https://github.com/source-cooperative/source-coop-cli/commit/a0db3e675faf3b20564e0e67477485094c288e80))
+* shell completion for commands, flags and ACCOUNT/PRODUCT names ([#63](https://github.com/source-cooperative/source-coop-cli/issues/63)) ([476b1b0](https://github.com/source-cooperative/source-coop-cli/commit/476b1b033eee007796c6bedf9a23840f28441834))
+
+
+### Bug Fixes
+
+* **complete:** wait for the keychain password dialog instead of exiting mid-dialog ([#65](https://github.com/source-cooperative/source-coop-cli/issues/65)) ([f2e265e](https://github.com/source-cooperative/source-coop-cli/commit/f2e265ea0d1973dbf228ea518fc71e9f91d29125))
+* **member:** use the /memberships resource that replaced the member endpoints ([#66](https://github.com/source-cooperative/source-coop-cli/issues/66)) ([5e44cc6](https://github.com/source-cooperative/source-coop-cli/commit/5e44cc6c1686a03d2515e9b90965a3ce968ff6a8))
+* **product:** an editor that won't open no longer ends the edit form ([#64](https://github.com/source-cooperative/source-coop-cli/issues/64)) ([5ee6c37](https://github.com/source-cooperative/source-coop-cli/commit/5ee6c3787b49bdd861e2e5ac80482dc15f7dff51))
+* **product:** offer the data connections the API says an account may use ([#53](https://github.com/source-cooperative/source-coop-cli/issues/53)) ([fd8ea66](https://github.com/source-cooperative/source-coop-cli/commit/fd8ea66a7a4e6f21e1130dbb38a94d59f942695b))
+* **product:** recognise a product membership by product_id ([#52](https://github.com/source-cooperative/source-coop-cli/issues/52)) ([abb444a](https://github.com/source-cooperative/source-coop-cli/commit/abb444aed95f4bdcd90099d31883b0ee08395720))
+
 ## [0.3.0](https://github.com/source-cooperative/source-coop-cli/compare/v0.2.0...v0.3.0) (2026-09-24)
 
 
