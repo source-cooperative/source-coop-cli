@@ -10,6 +10,7 @@ mod output;
 mod picker;
 mod product;
 mod prompt;
+mod service_account;
 mod session;
 mod sts;
 mod style;
@@ -115,6 +116,9 @@ enum Commands {
     Member(MemberArgs),
     /// List, accept and reject the invitations waiting for you
     Invitation(InvitationArgs),
+    /// Manage service accounts: the accounts software signs in as, how it
+    /// signs in, and the products it can reach
+    ServiceAccount(ServiceAccountArgs),
     /// Send any request to the source.coop API as you, for what the other
     /// commands don't cover
     #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
@@ -345,6 +349,17 @@ struct InvitationArgs {
     command: member::InvitationCommand,
 }
 
+/// `service-account`, which calls the API as `product` does; its snippets
+/// sign in to the proxy `site` names.
+#[derive(Parser)]
+struct ServiceAccountArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: service_account::ServiceAccountCommand,
+}
+
 #[derive(Clone, ValueEnum)]
 enum OutputFormat {
     /// AWS credential_process JSON format
@@ -455,6 +470,21 @@ async fn run() {
         Commands::Completions(args) => {
             if let Err(e) = complete::registration(args.shell, &mut std::io::stdout()) {
                 fail(e, false);
+            }
+        }
+        Commands::ServiceAccount(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    let site = &args.site;
+                    let ctx = service_account::Ctx::new(&client, &site.api_url, &site.proxy_url);
+                    service_account::run(args.command, &ctx, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
             }
         }
         Commands::Api(args) => {
@@ -1490,7 +1520,12 @@ mod tests {
         fn check(cmd: &clap::Command, resources: &mut usize, problems: &mut Vec<String>) {
             if cmd.find_subcommand("list").is_some() {
                 *resources += 1;
-                for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                // A group (`service-account sign-in`) is checked as its own
+                // commands, below.
+                for sub in cmd
+                    .get_subcommands()
+                    .filter(|s| s.get_name() != "help" && !s.has_subcommands())
+                {
                     let name = format!("{} {}", cmd.get_name(), sub.get_name());
                     let has = |short: Option<char>, long: &str| {
                         sub.get_arguments().any(|a| {
