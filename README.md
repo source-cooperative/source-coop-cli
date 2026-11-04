@@ -33,6 +33,22 @@ brew install source-cooperative/tap/source-coop
 cargo install --git https://github.com/source-cooperative/source-coop-cli
 ```
 
+### Shell completion
+
+TAB completes commands, flags and their values, and the names of records: `source-coop product view my-org/<TAB>` offers my-org's products, and before the `/` it offers the accounts you belong to. `source-coop service-account view my<TAB>` offers whole service account IDs (`my-org--nightly-sync`) from the accounts whose service accounts you can list; a new one's ID, for `create`, isn't completed. Load it from your shell's startup file:
+
+```bash
+eval "$(source-coop completions bash)"          # ~/.bashrc
+eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
+source-coop completions fish | source           # ~/.config/fish/config.fish
+```
+
+```powershell
+source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
+```
+
+`elvish` works too. The script asks `source-coop` itself on every TAB (running it with `SOURCE_COOP_COMPLETE` set), so completion always matches the installed version. Names come from the API, as you: the completer uses your cached login while its access token is unexpired (or `SOURCE_TOKEN`), and never refreshes it, so after a long break only public products complete until the next command renews the login. It reads `SOURCE_API_URL` and `SOURCE_PROXY_URL` from the environment, but not `--api-url` or `--proxy-url` typed on the line. If the API doesn't answer within 2 seconds, it offers no names (bash then falls back to file names). If macOS asks for your password to read the login from the keychain, the TAB waits up to a minute for your answer; choose **Always Allow** so it doesn't ask again (until you install a new build).
+
 ## Usage
 
 ### Using with AWS credential_process
@@ -107,9 +123,9 @@ Login          logged in
 Account        Anthony Lukach (alukach)
 Profile        https://source.coop/alukach
 Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12 (in 29 days)
-ID token       expires 2026-10-13T18:00:00Z
-Access token   for https://source.coop, expires 2026-10-13T18:00:00Z
-Credentials    _default: expire 2026-10-13T18:30:00Z
+ID token       expires 2026-10-13T18:00:00Z (in 1 hour)
+Access token   for https://source.coop, expires 2026-10-13T18:00:00Z (in 1 hour)
+Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)
 ```
 
 **How long until you must log in again** is set by the refresh token, which `creds` and API commands use to renew everything else, so the expiries of the ID token, access token and credentials don't force a login. source.coop's login (Ory) issues opaque refresh tokens, and its token response doesn't say how long they last: that's an Ory project setting, and each renewal starts the clock again. So `auth status` shows when the refresh token was last renewed, and when it expires if left unused: an estimate, to the day, assuming a 30-day lifetime (Ory's default). Set `SOURCE_REFRESH_TOKEN_LIFETIME` (e.g. `720h`, `14d`) if the server uses another; it only changes this estimate, since a login can't ask for a lifetime, and a value it can't read is ignored with a warning. Where a provider does give an expiry, that's shown instead. Once that expiry has passed, the login shows as expired; once only the estimate has, as likely expired (yellow), since the server's lifetime may be longer. A login from before renewals were recorded shows just `yes` until its next renewal or `auth login`. The profile link is on the site the login was for (`https://staging.source.coop` for a staging login).
@@ -245,25 +261,28 @@ Use `--profile` to change the section name.
 `source-coop api` sends any request to `/api/v1`, signed in as you, and prints the response:
 
 ```bash
-source-coop api products/my-org -X GET -F limit=5
+source-coop api products/my-org -q limit=5
 source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
   -f visibility=public -f data_connection_id=my-connection
-source-coop api products/my-org/new -X PATCH --input changes.json
+source-coop api products/my-org/new -X PATCH -F changes.json -f title="Renamed"
+echo '{"title": "Renamed", "tags": ["a"]}' | source-coop api products/my-org/new -X PATCH -F -
 ```
 
-`-f key=value` sends a string, and `-F key=value` sends `true`, `false`, `null` and numbers as JSON. Fields go in the query string for `GET` and in a JSON body otherwise, and the method is `POST` when fields or `--input` are given; a `GET` takes no `--input`. Paths stay under `/api/v1`. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
+`-q key=value` adds a query parameter. `-f key=value` sets a field in the JSON body: a value that parses as JSON (`5`, `true`, `null`, `["a","b"]`) is sent as that, and anything else as a string. To send something that looks like JSON as a string, quote it: `-f product_id='"2024"'`. `-F file.json` (`-` for stdin) reads the body from a file, and `-f` fields override its keys. The method is `GET`, or `POST` when there's a body; `-X` picks another, and a `GET` takes no body. Paths stay under `/api/v1`, and a query string in the path is kept. The paths and their fields are listed in the API's OpenAPI spec, at [`https://source.coop/api/openapi`](https://source.coop/api/openapi). The response body is printed to stdout as the API sent it, so `api` takes no `--json`. A status other than success exits non-zero, with the exit code for its kind (see "JSON output and exit codes").
 
 Reading public data needs no credentials. Anything else acts as whoever ran `source-coop auth login`, which asks Ory for an access token meant for the API (`--audience`, default `https://source.coop`) and refreshes it as needed. `SOURCE_TOKEN`, if set, is sent instead. `--api-url` (or `SOURCE_API_URL`) points the CLI at another deployment, such as a local `http://localhost:3000`.
 
 ### JSON output and exit codes
 
-Every command that reports information takes `--json`: `auth status`, and `product list`, `view`, `create`, `edit` and `delete` (which print the resulting record). Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
+Every command that reports information takes `--json`: `auth status`; `product list`, `view`, `create`, `edit` and `delete`; the `member` and `invitation` commands; and `service-account list`, `view`, `create`, `edit`, `delete`, `sign-in add`, `edit` and `remove` (the writes print the resulting record; `service-account edit --json` prints the account as `view --json` does). `api` prints the API's own JSON response and takes no `--json`. Under `--json`, stdout holds one JSON document and nothing else, with the API's field names and RFC 3339 times; notes and progress go to stderr. Fields may be added over time, but not renamed or removed.
 
-A failure under `--json` is JSON too, on stderr, in the API's error shape. `field_errors` names what to fix when the API rejected the input:
+A failure under `--json` is JSON too, on stderr. When the failure came from the API, it carries what the API's [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem said: its `code` and `status`, its `type` (a URL whose page explains the failure and what to do about it), and its `request_id`, to quote if you report it. `field_errors` names what to fix when the API rejected the input, by field path (`metadata.title`):
 
 ```json
-{"error": {"code": "invalid_input", "message": "…", "status": 400, "field_errors": {"title": ["…"]}}}
+{"error": {"code": "invalid", "message": "…", "status": 400, "field_errors": {"title": ["…"]}, "type": "https://source.coop/api/problems/invalid", "request_id": "…"}}
 ```
+
+`api` prints the API's problem itself to stdout, as it does any response.
 
 Exit codes are the same for every command:
 
@@ -277,7 +296,9 @@ Exit codes are the same for every command:
 | 5 | Not found (HTTP 404) |
 | 130 | Interrupted (Ctrl+C) |
 
-`creds` (`--format`), `auth token` (a bare token) and `api` (the API's response) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
+`source-coop --help` ends with a summary of this section, and each command's `--help` lists its flags with examples, so an AI agent can work out how to use the CLI from the CLI itself.
+
+`creds` (`--format`), `auth token` (a bare token), `api` (the API's response), `completions` (a shell script) and `service-account usage` (a workflow or shell exports) already print output for machines, so they don't take `--json`. Neither does `auth login`, which signs in through the browser: `auth status --json` reports the result.
 
 ## Managing products
 
@@ -304,20 +325,121 @@ With `-i`, lists and products answer to keys:
 | ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
 | → Enter (`l`) | open the product | |
 | ← Esc (`h` `q`) | quit (from search results: back to the whole list) | back to the list |
-| `/` | filter by typed text (Esc clears it); among all public products, Enter searches them on the server | |
+| `/` | filter the loaded entries by typed text, with a count of how many match (Esc clears it); among all public products, Enter searches them all on the server, and ← leaves the results | |
 | `b` | open in the browser | open in the browser |
 | `e` | | edit |
 | `d` | | delete |
 
 Editing or deleting takes opening the product first, so a stray key on a long list changes nothing. Edit and delete run exactly as `product edit` and `product delete` do, prompts included. Lists load more as you scroll, and `-i` takes the whole terminal while it runs, putting it back as it was when you leave.
 
-`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) with Ctrl+E. While `create` asks, ↑ (or ← at the start of a line, or in a list) goes back to the question before, starting from your answer there; once it has asked anything, it shows what it is about to create and asks you to confirm before sending, and ← from there goes back too. `edit` with no flags asks which fields to change and starts each from its current value. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
+`create` and `edit` take each field as a flag (`--title`, `--description`, `--visibility`, `--data-connection`), from a JSON object with `--from-file PATH` (`-` for stdin), or both, with flags winning. In a terminal, whatever is still missing is asked for, with defaults: a title made from the product ID, the data connections the account can use, and the visibilities the chosen connection allows. A description can be typed on one line, or written in your editor (`$VISUAL` or `$EDITOR`) with Ctrl+E. One that's already a single line starts in the line to edit, and emptying the line clears it; a longer one leaves the line empty, and Enter on it keeps the text. While `create` asks, ↑ (or ← at the start of a line, or in a list) goes back to the question before, starting from your answer there; once it has asked anything, it shows what it is about to create and asks you to confirm before sending, and ← from there goes back too. `edit` with no flags opens a form, taking the whole terminal until you leave it, of the product's title, description and visibility as they are now: ↑/↓ moves between them, Enter changes the highlighted one starting from its current value (Esc leaves it as it was), and only the visibilities its data connection allows are offered. Changed fields are marked with what they were. `s`, or Enter on *Save changes*, shows what will change and asks you to confirm, with ← back to the form; Esc or ← on the form cancels, asking first if you've changed anything. `--disable` and `--enable` are flags only. When the API rejects a field, you see why and are asked for just that field again. Without a terminal, or with `SOURCE_PROMPT_DISABLED` set, nothing is asked: the request is sent as given, and `delete` needs `--yes`.
 
 To back out of any prompt, press Esc (or `q`) on a choice; on a text prompt that guards something irreversible, like typing a product's name to delete it, press Enter on nothing. The command stops with "Cancelled; nothing was changed."
 
 Before asking anything, `create`, `edit` and `delete` check that you're signed in, so you don't fill in a form only to be refused. If sending your answers fails anyway (a lost connection, an expired login, a server error), they're saved as a draft: run the same command again and you're offered them back, with any flags you pass taking precedence, or pass the saved file with `--from-file`. Drafts live where your OS keeps app state, not its cache: `~/.local/state/source-coop/drafts` on Linux (`$XDG_STATE_HOME`), `~/Library/Application Support/source-coop/drafts` on macOS, and `%LocalAppData%\source-coop\drafts` on Windows. A successful send removes the draft.
 
 Output is for people on a terminal and for scripts when piped: `list` shows each product's fields (`--format table` prints an aligned table with a header on a terminal, and tab-separated rows without one when piped); `create` and `edit` print the product's URL on stdout and their message on stderr, so `url=$(source-coop product create ...)` works.
+
+## Managing members
+
+`source-coop member` manages who belongs to an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`), and `source-coop invitation` answers the invitations sent to you. Members are named by their account ID; there's no inviting by email.
+
+```bash
+source-coop member list my-org                    # members and pending invitations
+source-coop member list my-org/my-data --json     # a product's own members, as JSON
+source-coop member list my-org --state invited    # only invitations not yet answered
+source-coop member list my-org -i                 # move through the members and act on them
+source-coop member view my-org alice              # one member; -i for its screen
+source-coop member invite my-org alice bob --role maintainers
+source-coop member invite my-org/my-data -A people.txt --role read_data
+source-coop member invite my-org                  # prompts for who and which role
+source-coop member edit my-org alice --role owners
+source-coop member edit my-org -i                 # pick a member, then a role
+source-coop member revoke my-org alice            # also withdraws a pending invitation
+source-coop member leave my-org                   # give up your own membership
+
+source-coop invitation list                       # invitations waiting for you
+source-coop invitation list -i                    # open one to accept (a) or reject (r) it
+source-coop invitation accept my-org/my-data
+source-coop invitation reject my-org
+```
+
+With [shell completion](#shell-completion), TAB offers the organizations you belong to and their products for `ACCOUNT` or `ACCOUNT/PRODUCT`, the members of the one you named for a member, its organization's members who aren't on a product yet for `invite`, and your own invitations and memberships for `invitation accept`/`reject` and `member leave`.
+
+Roles, most powerful first, are `owners`, `maintainers`, `write_data` and `read_data`. Only owners can make someone an owner, or change or revoke an owner's membership; owners and maintainers handle the other roles. A product's members list holds only that product's own members: the organization's members reach its products as well, and are listed with the organization.
+
+`invite` takes any number of account IDs, and `--accounts-file PATH` (`-A`, `-` for stdin) adds one per line, skipping blank lines and lines starting with `#`. Each is sent as its own invitation: one the API refuses is reported and the rest are still sent, and the command fails at the end if any did. In a terminal, missing accounts and role are asked for (the role defaulting to `read_data`, and `owners` offered only if you can grant it), then shown for you to confirm; ← goes back a question. If some invitations fail, the ones not sent are saved as a draft that the next `invite` to the same place offers back. A product owner's service account is added at once rather than invited, with `read_data` or `write_data` only.
+
+`edit` with no `--role` asks for one, starting from the current role. `revoke` asks you to confirm, and to type the organization or product back when it's your own membership; `leave` always asks you to type it back, since only an owner or maintainer can let you back in. Without a terminal both need `--yes`. An invitation's role can't be changed: revoke it and invite again.
+
+With `-i`, `member list` answers to the same keys as `product list -i`. On a member, `e` changes the role and `d` revokes the membership (on an invitation, only `d`, which withdraws it); `b` opens their profile. `--json` on any of these prints the memberships as the API returns them (`membership_id`, `account_id`, `membership_account_id`, `product_id` for a product, `role`, `state`, `state_changed`); `invite --json` prints an array of the memberships it created. `create` and `delete` also work as names for `invite` and `revoke`.
+
+## Managing service accounts
+
+A service account is an account software signs in as: a GitHub Actions workflow, or a script with an API key. It belongs to an owner (you, or an organization you own or maintain, once source.coop has let that account own service accounts), and its ID is the owner's followed by its own: `my-org--nightly-sync`. `source-coop service-account` manages them through the API, laid out as the web UI's service account page is: who it is, how it signs in, and what it can reach.
+
+```bash
+source-coop service-account list my-org             # my-org's service accounts (yours without an owner)
+source-coop service-account list my-org --no-pager  # printed straight out, not through the pager
+source-coop service-account list my-org -i          # move through them and act on them (keys as for products)
+source-coop service-account view my-org--nightly-sync          # --json adds its `trusts`, `keys` and `memberships`
+source-coop service-account create                  # prompts for everything, as the web form asks it
+source-coop service-account create my-org--nightly-sync --name "Nightly sync" \
+    --github my-org/data --branch main --access my-org/my-data=write
+source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
+source-coop service-account edit my-org--nightly-sync            # a form of its name and the products it reaches
+source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+source-coop service-account delete my-org--nightly-sync           # asks you to type its ID back
+```
+
+**Signing in.** A service account signs in with a GitHub Actions workflow it trusts: one repository, pinned to one branch, tag or environment. GitHub vouches for every run, so there's no secret to store. Where there's no GitHub, an API key does instead.
+
+```bash
+source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --branch main
+source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --environment production
+source-coop service-account sign-in add my-org--nightly-sync --subject repo:my-org/data:ref:refs/tags/v1
+source-coop service-account sign-in remove my-org--nightly-sync repo:my-org/data:ref:refs/heads/main
+source-coop service-account sign-in remove my-org--nightly-sync -i   # pick which
+```
+
+`--github OWNER/REPO` with `--branch`, `--tag` or `--environment` builds the subject GitHub's tokens carry (`repo:OWNER/REPO:ref:refs/heads/main`); `--subject` takes one as it is. The CLI asks GitHub how the repository's tokens name it, as the web UI does, since a repository whose tokens name it by ID (`owner@123/repo@456`) would never match it typed as `owner/repo`. For a private repository, set `GH_TOKEN` (or `GITHUB_TOKEN`) so GitHub answers; otherwise the CLI says it couldn't check and how to find the name yourself. Without these flags, in a terminal, `sign-in add` asks for the repository and the runs to trust, and shows the condition it will trust before adding it.
+
+An API key is for environments without GitHub's tokens, such as a cron job on a cluster. Each key has a label saying where it lives, so you know which one to revoke. It expires after 30 days, 90 (the default), a year, never, or on a date you give, at midnight UTC:
+
+```bash
+source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job" --expires 1y --out ~/.source-coop/nightly.key
+key=$(source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job")   # piped: the key alone on stdout
+source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never      # a new expiry, counted from now
+source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3                    # revoke it; asks you to type key:a1B2c3 back
+```
+
+A key is shown once, when it's issued, and never again. `--out PATH` writes it to a new file only you can read, which is where the AWS tools want it anyway. A file already at that path is never overwritten: the key is shown instead, as it is whenever saving it fails. Piped, the key alone goes to stdout. On a terminal, you're offered a file to save it to, or Enter shows it. `view` lists each key by its label and its last six characters, `key:a1B2c3`, which is how `sign-in edit` and `remove` name it, with when it was last used and when it expires. Revoked and expired keys are listed too, dimmed. A revoked key can't be restored. Without flags, in a terminal, `sign-in add` asks whether to add a workflow or a key, and `sign-in edit -i` and `sign-in remove -i` pick which.
+
+If a key leaks, anyone holding it can revoke it, with no sign-in needed. The key is read from stdin so it stays out of your shell history:
+
+```bash
+source-coop service-account sign-in revoke-key < leaked-key-file
+```
+
+**Reaching products.** A service account can read, or read and write, its owner's products. Each grant is an ordinary membership of the product. `create --access` grants them at the start, and `edit --access` grants one, changes its role, or takes it away (`=none`):
+
+```bash
+source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old-data=none
+```
+
+`edit` with no flags opens a form, taking the whole terminal until you leave it, of the account's **Name**, then the products it reaches under **Can reach**, each with its role. ↑/↓ moves, and Enter changes the highlighted row: the name from its current value, or a product's access to Read, Read and write or No access. *Grant a product…* adds one of the owner's other products. Changed rows are marked with what they were. `s`, or Enter on *Save changes*, shows what will change and asks you to confirm, with ← back to the form. Esc or ← on the form cancels, asking first if you've changed anything. Asking for a role a product already has, or taking away access it doesn't have, changes nothing, so running an edit twice is safe. `--disable` and `--enable` are flags only.
+
+**Using it.** Workflows and scripts sign in with stock AWS tools, not this CLI. `usage` prints what they need, the same snippets the web UI shows:
+
+```bash
+source-coop service-account usage my-org--nightly-sync --subject repo:my-org/data:ref:refs/heads/main \
+    > .github/workflows/source-coop.yml   # a workflow that signs in with aws-actions/configure-aws-credentials
+source-coop service-account usage my-org--nightly-sync --key   # the AWS_* variables for a key saved to a file
+```
+
+Without `--subject` or `--key`, in a terminal, `usage` asks which sign-in to show.
+
+`create` takes its fields as flags (`--name`, one `--github` workflow, a `--key` with `--expires` and `--out`, `--access` repeated), from a JSON object in the API's shape with `--from-file` (`name`, `local_id`, `github_subjects`, `key`, `grants`), or both. In a terminal it asks for whatever is missing: the owner, the name, the ID (made from the name), workflows to trust and an API key, products to grant. Then it shows everything, including the condition each workflow must match, before creating it. A key issued with the account is handed over as `sign-in add` does, except that stdout keeps the account's ID: to capture the key, use `--out` or `--json`. Going back, drafts, sign-in checks and `--yes` work as they do for products. `create` and `edit` print the service account's ID on stdout, so `id=$(source-coop service-account create …)` works. `list` goes through your pager on a terminal (`$SOURCE_PAGER`, `$PAGER`, then `less -FRX`). `--no-pager` prints straight to the terminal, and so does `SOURCE_PAGER=cat`; piped output never goes through it. Its ID is what the AWS tools name it by: `role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess`.
 
 ## Credential storage
 

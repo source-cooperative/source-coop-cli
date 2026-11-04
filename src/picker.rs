@@ -56,11 +56,24 @@ pub fn say_interrupted() {
 }
 
 impl FullScreen {
-    pub fn enter() -> FullScreen {
+    /// None when it's already up (an edit form opened from `-i`): the screen
+    /// that's up stays, and the outer guard puts the terminal back.
+    pub fn enter() -> Option<FullScreen> {
+        if IN_FULLSCREEN.load(Ordering::SeqCst) {
+            return None;
+        }
         handle_interrupts();
         IN_FULLSCREEN.store(true, Ordering::SeqCst);
         eprint!("\x1b[?1049h\x1b[H");
-        FullScreen
+        Some(FullScreen)
+    }
+
+    /// Back onto the alternate screen if it's up: a full-screen editor run
+    /// meanwhile (Ctrl+E) leaves it as it exits.
+    pub fn reenter() {
+        if IN_FULLSCREEN.load(Ordering::SeqCst) {
+            eprint!("\x1b[?1049h\x1b[H");
+        }
     }
 }
 
@@ -123,8 +136,11 @@ pub fn browse(
     let mut drawn = place.drawn;
     let mut notice = place.notice.take();
     loop {
+        // While a filter is typed on a list the server can search, a last row
+        // says what Enter does.
+        let search_row = filtering && place.server_search && !filter.trim().is_empty();
         let height = (rows as usize)
-            .saturating_sub(3 + usize::from(notice.is_some()))
+            .saturating_sub(3 + usize::from(notice.is_some()) + usize::from(search_row))
             .max(3);
         let needle = filter.to_lowercase();
         let shown: Vec<usize> = (0..items.len())
@@ -142,13 +158,21 @@ pub fn browse(
             .saturating_sub(height - 1)
             .min(shown.len().saturating_sub(height));
 
+        // A filter only sees what's loaded so far, and the count says so.
+        let count = style(if more {
+            format!("{} of {} loaded", shown.len(), items.len())
+        } else {
+            format!("{} of {}", shown.len(), items.len())
+        })
+        .dim();
         let mut lines = vec![match (filtering, filter.is_empty()) {
-            (true, _) => format!("{} /{filter}▏", style(label).bold()),
-            (false, false) => format!("{} /{filter}", style(label).bold()),
+            (true, true) => format!("{} /▏", style(label).bold()),
+            (true, false) => format!("{} /{filter}▏  {count}", style(label).bold()),
+            (false, false) => format!("{} /{filter}  {count}", style(label).bold()),
             (false, true) => style(label).bold().to_string(),
         }];
         if shown.is_empty() {
-            lines.push(style("  (nothing matches)").dim().to_string());
+            lines.push(style("  (nothing loaded matches)").dim().to_string());
         }
         for (row, &i) in shown.iter().enumerate().skip(top).take(height) {
             lines.push(if row == sel {
@@ -158,6 +182,10 @@ pub fn browse(
                 format!("  {}", fit(&items[i], cols.saturating_sub(2)))
             });
         }
+        if search_row {
+            let row = format!("  ↵ Search the server for \"{}\"", filter.trim());
+            lines.push(style(row).dim().to_string());
+        }
         if let Some(n) = &notice {
             lines.push(style(n).yellow().to_string());
         }
@@ -165,7 +193,7 @@ pub fn browse(
             style(if near_end {
                 "Loading more…"
             } else if filtering && place.server_search {
-                "type to filter · Enter search all · ↓ done · Esc clear"
+                "type to filter · ↓ pick · Esc clear"
             } else if filtering {
                 "type to filter · Enter/↓ done · Esc clear"
             } else {
@@ -320,8 +348,9 @@ pub enum Line {
     Text(String),
     /// Esc.
     Cancelled,
-    /// Ctrl+E, when `editor` was offered: open the person's editor instead.
-    Editor,
+    /// Ctrl+E, when `editor` was offered, with what was in the line: open the
+    /// person's editor instead.
+    Editor(String),
     /// ↑, or ← at the start of the line, when `back` was offered: return to
     /// the question before.
     Back,
@@ -383,7 +412,7 @@ pub fn line(
             // elsewhere it moves there first.
             Key::End | Key::Char('\u{5}') if editor && at == text.len() => {
                 done(style("✎").cyan().to_string(), "(in your editor)")?;
-                return Ok(Line::Editor);
+                return Ok(Line::Editor(text.iter().collect()));
             }
             Key::CtrlC => {
                 term.write_line("").map_err(failed)?;
@@ -400,8 +429,9 @@ pub fn line(
                     continue;
                 }
                 // Long text (the one with an editor) keeps what was there on
-                // an empty Enter, so say that rather than show nothing.
-                let shown = if editor && value.trim().is_empty() {
+                // an empty Enter, so say that rather than show nothing. A
+                // line that started with the text and was emptied clears it.
+                let shown = if editor && value.trim().is_empty() && initial.is_empty() {
                     style("(no change)").dim().to_string()
                 } else {
                     value.clone()

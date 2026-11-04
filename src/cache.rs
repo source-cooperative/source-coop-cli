@@ -366,6 +366,26 @@ pub(crate) fn write_file(path: &Path, json: &str) -> Result<String, String> {
     Ok(path.display().to_string())
 }
 
+/// Write a new file readable only by its owner, for a secret written where
+/// someone asked (`--out`): it refuses a file that's already there, and makes
+/// no directories, so a mistyped path can't overwrite or scatter anything.
+/// Returns the file path.
+pub(crate) fn write_new_file(path: &Path, text: &str) -> Result<String, String> {
+    let mut options = fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let mut file = options.open(path).map_err(|e| match e.kind() {
+        io::ErrorKind::AlreadyExists => {
+            format!("{} already exists, and isn't overwritten", path.display())
+        }
+        _ => format!("Couldn't write {}: {e}", path.display()),
+    })?;
+    io::Write::write_all(&mut file, text.as_bytes())
+        .map_err(|e| format!("Couldn't write {}: {e}", path.display()))?;
+    Ok(path.display().to_string())
+}
+
 /// Check if credentials are expired or will expire within a 60-second buffer.
 pub fn is_expired(creds: &Credentials) -> Result<bool, String> {
     let expiration = chrono::DateTime::parse_from_rfc3339(&creds.expiration).map_err(|e| {

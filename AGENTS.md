@@ -12,9 +12,19 @@ How this CLI behaves, so every command behaves the same way. Each rule names the
 
 Before committing, read the README sections your change touches and fix anything now untrue, including text written before your change. The README isn't a changelog: describe how the CLI works now, not what changed. `every_command_is_in_the_readme` in `src/main.rs` fails if a command is missing from it, but it can't tell whether the description is right. That part is on you.
 
+## Help is the agents' documentation
+
+Agents learn the CLI from `--help`, which always matches the installed version, so it has to stand on its own:
+
+- **Every command and argument has a help line.** `every_command_and_argument_has_help` checks this.
+- **Commands that change things show an example** in `after_help`, using `--json` and, where it applies, `-F -`. `help_examples_parse` checks that every example still parses.
+- **Extra help text goes through `style::help`** (`style::examples` for examples), so its headings look like clap's. `help_headings_are_styled_like_clap_s` checks this.
+- **`FOR_SCRIPTS` in `src/main.rs`** (the end of `source-coop --help`) sums up `--json`, prompts and exit codes. Keep it in step with the README and the JSON rules below.
+- **No separate agent guide.** Help is the reference and the README is the guide. A skill or `llms.txt` should say when to use the CLI and point to `--help`, not copy flags. This file is for contributors: agents that only use the CLI never see it.
+
 ## Commands
 
-- **One shape per resource.** A resource (`product`, and later accounts or members) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`.
+- **One shape per resource.** A resource (`product`, `member`, and later accounts) has `list`, `view`, `create`, `edit` and `delete` under one noun. Name records as `ACCOUNT/PRODUCT`. Where another verb is what people say, use it and keep the standard one as a hidden alias: `member invite` (`create`) and `member revoke` (`delete`).
 - **Signing in lives under `auth`:** `auth login | status | logout | token`. `creds` stays top-level because people's AWS configs run `credential_process = source-coop creds`.
 - **Renaming a command keeps the old name working** as a hidden command that runs the same code (`#[command(hide = true)]`, like top-level `login`). Scripts, docs and habits use the old name. The README shows only the new one, with a note that the old still works.
 - **`-i` wherever a record is named or listed** (everything but `create`, which prompts anyway). It opens the picker, or the record's screen when the record is named. With a name omitted, it picks one first. The test checks this.
@@ -64,12 +74,13 @@ Everything goes through the `Prompter` trait (`src/prompt.rs`), so tests can scr
 
 Scripts and AI agents use the CLI through `--json`, so it is a contract, not a second layout.
 
-- **Every command that reports information takes `--json`:** reads, writes (the resulting record), `auth status`. Exceptions, which already print machine output or none of their own: `creds` (`--format`), `exec` (its command's output), `auth token` (a bare token), `auth login` (a browser sign-in; `auth status --json` reports the result), `api` (the API's response) and `-i` modes (interactive; `list --json` is their counterpart).
+- **Every command that reports information takes `--json`:** reads, writes (the resulting record), `auth status`. Exceptions, which already print machine output or none of their own: `creds` (`--format`), `exec` (its command's output), `auth token` (a bare token), `auth login` (a browser sign-in; `auth status --json` reports the result), `api` (the API's response), `completions` (a shell script) and `-i` modes (interactive; `list --json` is their counterpart).
 - **One JSON document on stdout and nothing else there.** Progress and notes go to stderr. No color, no padding, no pager.
 - **Field names are the API's** (`account_id`, `created_at` in RFC 3339), plus derived fields only where they spare scripts work (`"expired": true`). Never human renderings like "3 years ago".
 - **Adding fields is fine. Renaming or removing one is a breaking change.** Human output may change freely.
 - **Print through `output::json`.** Don't hand-roll `serde_json` printing in a command.
-- **Errors under `--json` are JSON too**, on stderr: `{"error": {"code", "message", "status"?, "field_errors"?}}`, the API's error shape. `fail(e, json)` in `main.rs` does it, using `failure::classify`. A command passes whether `--json` was asked for.
+- **Errors under `--json` are JSON too**, on stderr: `{"error": {"code", "message", "status"?, "field_errors"?, "type"?, "request_id"?}}`. `fail(e, json)` in `main.rs` does it, using `failure::classify`. A command passes whether `--json` was asked for.
+- **The API answers errors as RFC 9457 problems** (`application/problem+json`). `ApiError::from_response` in `src/api.rs` is the one place that reads them: it keeps `code`, `status`, `type` and `request_id`, and turns `errors` (JSON Pointers into the body, or query parameters) into dotted `field_errors`, which the prompts and `--json` use. Read problems only through it. The `--json` error shape is the CLI's own contract and stays as it is; don't replace it with the API's problem.
 - **Exit codes mean the same everywhere** (`failure::Failure::exit_code`):
 
   | Code | Meaning |

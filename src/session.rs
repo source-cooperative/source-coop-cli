@@ -219,6 +219,14 @@ pub async fn token(env: Option<&str>, want: Want, verbose: bool) -> Result<Optio
     .await
 }
 
+/// The wanted token from `env`'s cached session while it hasn't expired, or
+/// `None`. Never refreshes, locks or fails: for shell completion, which must
+/// stay quick and quiet.
+pub fn cached(env: Option<&str>, want: Want) -> Option<String> {
+    let session = cache::read_session(env).ok()??;
+    session.current(want, now()).ok()?.map(String::from)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

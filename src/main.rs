@@ -1,18 +1,21 @@
 mod api;
 mod api_cmd;
 mod cache;
+mod complete;
 mod draft;
 mod failure;
+mod member;
 mod oidc;
 mod output;
 mod picker;
 mod product;
 mod prompt;
+mod service_account;
 mod session;
 mod sts;
 mod style;
 
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[cfg(feature = "staging")]
 mod defaults {
@@ -57,8 +60,31 @@ fn parse_duration(s: &str) -> Result<u64, String> {
         .ok_or_else(err)
 }
 
+/// How to drive the CLI from a script or an AI agent, shown by `--help`.
+const FOR_SCRIPTS: &str = "\
+For scripts and agents:
+  --json          On reads and writes: one JSON document on stdout, notes on stderr.
+                  Failures are JSON on stderr: {\"error\": {\"code\", \"message\", \"status\", \"field_errors\",
+                  \"type\", \"request_id\"}}; \"type\" is a URL that explains the API's error.
+  No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
+                  give fields as flags or -F FILE (- for stdin), and --yes to delete.
+  SOURCE_TOKEN    A bearer token for the API, used instead of the login session.
+  api             Any API request; prints the API's JSON as is, without --json. Paths and
+                  fields are in the OpenAPI spec at {api}/api/openapi.
+
+Exit codes:
+  0 success  1 other failure  2 bad usage  3 input rejected (fix field_errors)
+  4 not signed in or not allowed  5 not found  130 interrupted
+
+Run `source-coop <command> --help` for each command's flags and examples.";
+
 #[derive(Parser)]
-#[command(name = "source-coop", about = "Source Cooperative CLI", version)]
+#[command(
+    name = "source-coop",
+    about = "Source Cooperative CLI",
+    version,
+    after_long_help = style::help(&FOR_SCRIPTS.replace("{api}", defaults::API_URL))
+)]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
     #[arg(short, long, global = true)]
@@ -76,13 +102,61 @@ enum Commands {
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile, refreshing them first if expired
     Creds(CredsArgs),
+    /// Print the script that sets up TAB completion of commands, flags and
+    /// product names in your shell
+    #[command(after_help = style::help(COMPLETIONS_HELP))]
+    Completions(CompletionsArgs),
     /// Log in through the browser (now `auth login`; this name still works)
     #[command(hide = true)]
     Login(LoginArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
-    /// Make any request to the source.coop API, signed in as you
+    /// List, view, invite, edit and revoke the members of an organization or
+    /// product, or leave one yourself
+    Member(MemberArgs),
+    /// List, accept and reject the invitations waiting for you
+    Invitation(InvitationArgs),
+    /// Manage service accounts: the accounts software signs in as, how it
+    /// signs in, and the products it can reach
+    ServiceAccount(ServiceAccountArgs),
+    /// Send any request to the source.coop API as you, for what the other
+    /// commands don't cover
+    #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
     Api(ApiCommandArgs),
+}
+
+/// `source-coop api --help` after the flags: examples, then where to find
+/// paths and what comes back.
+const API_HELP: &str = "\
+Examples:
+  source-coop api products/my-org -q limit=5
+  source-coop api products/my-org -f product_id=new -f title=New -f visibility=public -f data_connection_id=my-connection
+  source-coop api products/my-org/new -X PATCH -F changes.json -f title=Renamed
+  echo '{\"title\": \"Renamed\"}' | source-coop api products/my-org/new -X PATCH -F -
+
+Paths, fields and responses:
+  The OpenAPI spec lists every path (under /api/v1) and its fields:
+  {api}/api/openapi
+  The response body is printed to stdout as the API sent it, JSON without --json.
+  A status other than success still prints it, and exits 3 when the input was
+  rejected, 4 when not signed in or not allowed, 5 when not found, 1 otherwise.";
+
+/// `source-coop completions --help` after the flags.
+const COMPLETIONS_HELP: &str = "\
+Examples:
+  source-coop completions zsh
+
+Set up, in your shell's startup file:
+  ~/.bashrc                     eval \"$(source-coop completions bash)\"
+  ~/.zshrc, after compinit      eval \"$(source-coop completions zsh)\"
+  ~/.config/fish/config.fish    source-coop completions fish | source
+  $PROFILE (PowerShell)         source-coop completions powershell | Out-String | Invoke-Expression";
+
+#[derive(Parser)]
+struct CompletionsArgs {
+    /// The shell to write the script for
+    #[arg(value_enum)]
+    shell: complete::Shell,
 }
 
 #[derive(Parser)]
@@ -229,10 +303,10 @@ struct OutputArgs {
     profile: String,
 }
 
-/// A command that calls the source.coop API, as whoever ran `login` (see
-/// `api_token`).
-#[derive(Parser)]
-struct ProductArgs {
+/// Where a command that calls the source.coop API sends it, as whoever ran
+/// `login` (see `api_token`).
+#[derive(Args)]
+struct Site {
     /// source.coop site URL; the API is served under its `/api/v1`
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
@@ -240,9 +314,58 @@ struct ProductArgs {
     /// S3 proxy URL of the environment whose login session to use
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
+}
+
+impl Site {
+    /// A client signed in as whoever ran `login`, and a prompter when someone
+    /// is there to answer.
+    async fn connect(&self, verbose: bool) -> Result<(api::Client, Option<prompt::Tty>), String> {
+        let token = api_token(&self.proxy_url, verbose).await;
+        let client = api::Client::new(&self.api_url, token, verbose)?;
+        let tty = prompt::tty();
+        if tty.is_some() {
+            picker::handle_interrupts();
+        }
+        Ok((client, tty))
+    }
+}
+
+#[derive(Parser)]
+struct ProductArgs {
+    #[command(flatten)]
+    site: Site,
 
     #[command(subcommand)]
     command: product::ProductCommand,
+}
+
+#[derive(Parser)]
+struct MemberArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: member::MemberCommand,
+}
+
+#[derive(Parser)]
+struct InvitationArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: member::InvitationCommand,
+}
+
+/// `service-account`, which calls the API as `product` does; its snippets
+/// sign in to the proxy `site` names.
+#[derive(Parser)]
+struct ServiceAccountArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: service_account::ServiceAccountCommand,
 }
 
 #[derive(Clone, ValueEnum)]
@@ -268,8 +391,18 @@ fn fail(e: String, json: bool) -> ! {
     std::process::exit(failure.exit_code());
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
+    // Answers the shell's TAB when run as `COMPLETE=<shell> source-coop ...`,
+    // before the runtime starts: completers run their own (`complete`).
+    clap_complete::CompleteEnv::with_factory(Cli::command)
+        .var(complete::VAR)
+        .complete();
+    tokio::runtime::Runtime::new()
+        .expect("failed to start the async runtime")
+        .block_on(run());
+}
+
+async fn run() {
     let cli = Cli::parse();
 
     let verbose = cli.verbose;
@@ -304,15 +437,57 @@ async fn main() {
         }
         Commands::Product(args) => {
             let json = args.command.wants_json();
-            let token = api_token(&args.proxy_url, verbose).await;
-            let result = match api::Client::new(&args.api_url, token, verbose) {
-                Ok(client) => {
-                    let mut tty = prompt::tty();
-                    if tty.is_some() {
-                        picker::handle_interrupts();
-                    }
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
-                    product::run(args.command, &client, &args.api_url, prompter).await
+                    product::run(args.command, &client, &args.site.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::Member(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    member::run_member(args.command, &client, &args.site.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::Invitation(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    member::run_invitation(args.command, &client, &args.site.api_url, prompter)
+                        .await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
+            }
+        }
+        Commands::Completions(args) => {
+            if let Err(e) = complete::registration(args.shell, &mut std::io::stdout()) {
+                fail(e, false);
+            }
+        }
+        Commands::ServiceAccount(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    let site = &args.site;
+                    let ctx = service_account::Ctx::new(&client, &site.api_url, &site.proxy_url);
+                    service_account::run(args.command, &ctx, prompter).await
                 }
                 Err(e) => Err(e),
             };
@@ -422,21 +597,10 @@ fn site(s: &session::Session) -> &str {
         .trim_end_matches('/')
 }
 
-/// `at` relative to `now`, in the largest whole unit: "3 hours ago", or
-/// "in 29 days" while still ahead.
-fn relative(at: i64, now: i64) -> String {
-    let Some((at_t, now_t)) =
-        chrono::DateTime::from_timestamp(at, 0).zip(chrono::DateTime::from_timestamp(now, 0))
-    else {
-        return String::new();
-    };
-    if at <= now {
-        return style::ago(at_t, now_t);
-    }
-    match style::ago(now_t, at_t).as_str() {
-        "just now" => "in under a minute".into(),
-        ahead => format!("in {}", ahead.trim_end_matches(" ago")),
-    }
+/// A Unix timestamp as `style::when` shows it, as of `now`.
+fn when(color: bool, at: i64, now: i64, day: bool) -> String {
+    let t = |s| chrono::DateTime::from_timestamp(s, 0).unwrap_or_default();
+    style::when(color, t(at), t(now), day)
 }
 
 /// A Unix timestamp as RFC 3339, the API's date format.
@@ -549,16 +713,14 @@ fn status_json(
 /// `<expires> <time>` for a Unix timestamp, or `expired <time>` (yellow)
 /// once it's past, as of `now`.
 fn expiry(exp: Option<i64>, now: i64, expires: &str, color: bool) -> String {
-    match exp.and_then(|t| chrono::DateTime::from_timestamp(t, 0)) {
+    match exp {
         None => "expiry unknown".into(),
-        Some(t) => {
-            let when = t.to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
-            if t.timestamp() > now {
-                format!("{expires} {when}")
-            } else {
-                style::paint(color, "33", &format!("expired {when}"))
-            }
-        }
+        Some(t) if t > now => format!("{expires} {}", when(color, t, now, false)),
+        Some(t) => style::paint(
+            color,
+            "33",
+            &format!("expired {}", when(color, t, now, false)),
+        ),
     }
 }
 
@@ -610,31 +772,18 @@ fn status_report(
             let refresh = match (&s.refresh_token, s.refresh_token_issued_at) {
                 (None, _) => "none: log in again when the ID token expires".into(),
                 (Some(_), None) => "yes".into(),
-                (Some(_), Some(issued)) => format!(
-                    "renewed {} ({})",
-                    rfc3339(issued).unwrap_or_default(),
-                    relative(issued, now)
-                ),
+                (Some(_), Some(issued)) => format!("renewed {}", when(color, issued, now, false)),
             };
-            let expires = refresh_expiry(s, refresh_lifetime).map(|(at, estimated)| {
-                let when = match estimated {
-                    true => chrono::DateTime::from_timestamp(at, 0)
-                        .map(|d| d.format("%Y-%m-%d").to_string())
-                        .unwrap_or_default(),
-                    false => rfc3339(at).unwrap_or_default(),
-                };
-                (at, when)
-            });
-            let refresh = match expires {
-                Some((at, when)) if at > now => {
-                    format!("{refresh}; expires {when} ({})", relative(at, now))
+            let refresh = match refresh_expiry(s, refresh_lifetime) {
+                Some((at, day)) if at > now => {
+                    format!("{refresh}; expires {}", when(color, at, now, day))
                 }
-                Some((at, when)) => format!(
+                Some((at, day)) => format!(
                     "{refresh}; {}",
                     style::paint(
                         color,
                         "33",
-                        &format!("expired {when} ({})", relative(at, now))
+                        &format!("expired {}", when(color, at, now, day))
                     )
                 ),
                 None => refresh,
@@ -1090,9 +1239,9 @@ mod tests {
              Account        Anthony Lukach (alukach)\n\
              Profile        https://source.coop/alukach\n\
              Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
-             ID token       expires 2026-10-13T18:00:00Z\n\
-             Access token   for https://source.coop, expired 2026-10-13T16:59:00Z\n\
-             Credentials    _default: expire 2026-10-13T18:30:00Z\n"
+             ID token       expires 2026-10-13T18:00:00Z (in 1 hour)\n\
+             Access token   for https://source.coop, expired 2026-10-13T16:59:00Z (1 minute ago)\n\
+             Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)\n"
         );
     }
 
@@ -1161,15 +1310,6 @@ mod tests {
         let mut unknown = live_session(now, None);
         unknown.refresh_token_issued_at = None;
         assert_eq!(row(&unknown, (30 * 86_400, "30d")), "Refresh token  yes");
-    }
-
-    #[test]
-    fn relative_times_read_ahead_and_behind() {
-        let now = 1_791_910_800;
-        assert_eq!(relative(now + 29 * 86_400 + 5, now), "in 29 days");
-        assert_eq!(relative(now + 30, now), "in under a minute");
-        assert_eq!(relative(now - 3 * 3600, now), "3 hours ago");
-        assert_eq!(relative(now, now), "just now");
     }
 
     #[test]
@@ -1311,7 +1451,7 @@ mod tests {
         // The ID in gray, and a past expiry in yellow.
         assert!(report.contains("A (\x1b[90malukach\x1b[0m)"), "{report:?}");
         assert!(
-            report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z\x1b[0m"),
+            report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z \x1b[2m(1 minute ago)\x1b[0m"),
             "{report:?}"
         );
         let nobody = status_report(
@@ -1393,7 +1533,12 @@ mod tests {
         fn check(cmd: &clap::Command, resources: &mut usize, problems: &mut Vec<String>) {
             if cmd.find_subcommand("list").is_some() {
                 *resources += 1;
-                for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                // A group (`service-account sign-in`) is checked as its own
+                // commands, below.
+                for sub in cmd
+                    .get_subcommands()
+                    .filter(|s| s.get_name() != "help" && !s.has_subcommands())
+                {
                     let name = format!("{} {}", cmd.get_name(), sub.get_name());
                     let has = |short: Option<char>, long: &str| {
                         sub.get_arguments().any(|a| {
@@ -1401,11 +1546,20 @@ mod tests {
                                 && (short.is_none() || a.get_short() == short)
                         })
                     };
-                    if sub.get_name() != "create" && !has(Some('i'), "interactive") {
+                    // `invite` is how memberships are created.
+                    let creates = ["create", "invite"].contains(&sub.get_name());
+                    if !creates && !has(Some('i'), "interactive") {
                         problems.push(format!("{name}: no -i/--interactive"));
                     }
                     if ["list", "view"].contains(&sub.get_name()) && !has(None, "json") {
                         problems.push(format!("{name}: no --json"));
+                    }
+                    for a in sub.get_positionals() {
+                        if a.get::<clap_complete::engine::ArgValueCompleter>()
+                            .is_none()
+                        {
+                            problems.push(format!("{name}: {} doesn't complete", a.get_id()));
+                        }
                     }
                 }
             }
@@ -1417,6 +1571,81 @@ mod tests {
         check(&Cli::command(), &mut resources, &mut problems);
         assert!(resources > 0, "found no resource commands to check");
         assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    /// `--help` is what agents read, so nothing in it may be blank.
+    #[test]
+    fn every_command_and_argument_has_help() {
+        fn check(cmd: &clap::Command, path: &str, missing: &mut Vec<String>) {
+            if cmd.get_about().is_none() {
+                missing.push(path.to_string());
+            }
+            for a in cmd.get_arguments() {
+                if a.get_help().is_none() && !["help", "version"].contains(&a.get_id().as_str()) {
+                    missing.push(format!("{path} {}", a.get_id()));
+                }
+            }
+            for sub in cmd.get_subcommands().filter(|s| s.get_name() != "help") {
+                check(sub, &format!("{path} {}", sub.get_name()), missing);
+            }
+        }
+        let mut missing = vec![];
+        check(&Cli::command(), "source-coop", &mut missing);
+        assert!(missing.is_empty(), "no help text: {missing:#?}");
+    }
+
+    /// Headings in `after_help` look like clap's own, which they only do
+    /// when written through `style::help`, so unstyled text is a mistake.
+    #[test]
+    fn help_headings_are_styled_like_clap_s() {
+        fn check(cmd: &clap::Command, path: &str, plain: &mut Vec<String>) {
+            for text in [cmd.get_after_help(), cmd.get_after_long_help()]
+                .into_iter()
+                .flatten()
+            {
+                if text.ansi().to_string() == text.to_string() {
+                    plain.push(path.to_string());
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, &format!("{path} {}", sub.get_name()), plain);
+            }
+        }
+        let mut plain = vec![];
+        check(&Cli::command(), "source-coop", &mut plain);
+        assert!(
+            plain.is_empty(),
+            "write these through style::help: {plain:#?}"
+        );
+    }
+
+    /// Agents copy examples as they are, so each must still parse: a renamed
+    /// flag fails here rather than in someone's script.
+    #[test]
+    fn help_examples_parse() {
+        fn check(cmd: &clap::Command, examples: &mut usize, broken: &mut Vec<String>) {
+            let text = cmd
+                .get_after_help()
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            let lines = text.lines().skip_while(|l| *l != "Examples:").skip(1);
+            for line in lines.take_while(|l| l.starts_with("  ")) {
+                // The CLI's part of a pipeline, e.g. `echo '{…}' | source-coop …`.
+                let example = line.rsplit("| ").next().unwrap().trim();
+                let args = shlex::split(example).unwrap_or_default();
+                *examples += 1;
+                if let Err(e) = Cli::try_parse_from(&args) {
+                    broken.push(format!("{example}\n{e}"));
+                }
+            }
+            for sub in cmd.get_subcommands() {
+                check(sub, examples, broken);
+            }
+        }
+        let (mut examples, mut broken) = (0, vec![]);
+        check(&Cli::command(), &mut examples, &mut broken);
+        assert!(examples > 0, "found no examples to check");
+        assert!(broken.is_empty(), "{}", broken.join("\n\n"));
     }
 
     #[test]
