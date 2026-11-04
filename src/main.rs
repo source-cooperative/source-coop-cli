@@ -286,7 +286,7 @@ struct EnvArgs {
 /// `--role-arn`, for every command that works with a role's credentials.
 #[derive(Args)]
 struct RoleArgs {
-    /// Role ARN whose credentials to use
+    /// Role ARN: selects the role whose credentials to get, show or remove
     #[arg(long, env = "SOURCE_ROLE_ARN", default_value = defaults::ROLE_ARN)]
     role_arn: String,
 }
