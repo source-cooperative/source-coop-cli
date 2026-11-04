@@ -469,7 +469,7 @@ Each role's STS credentials are short-lived and re-created from the session, so 
 
 Other environments keep the same layout under `source-coop/env/<host>/`, or `source-coop/env/<host>/<port>/` for a non-default port (e.g. `source-coop/env/data.staging.source.coop/credentials/_default.json`).
 
-Credentials cached in the keyring by earlier versions are still read, so upgrading doesn't log you out; the next `login` replaces them with a file. An entry from v0.3.0 or earlier that carries its own refresh token stays in the keyring until then.
+Credentials cached in the keyring by earlier versions are still read when their role has no file, so upgrading doesn't log you out. The next `creds` that renews them writes a file, which is read from then on, and the next `login` removes the keyring entry. An entry from v0.3.0 or earlier that carries its own refresh token stays in the keyring until that `login`.
 
 ## OIDC provider setup
 

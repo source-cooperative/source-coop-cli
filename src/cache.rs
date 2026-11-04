@@ -302,17 +302,31 @@ fn remove_file(path: &Path) -> Result<bool, String> {
     }
 }
 
-fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
-    let json =
-        serde_json::to_string(value).map_err(|e| format!("Failed to serialize cache: {e}"))?;
+fn to_json<T: Serialize>(value: &T) -> Result<String, String> {
+    serde_json::to_string(value).map_err(|e| format!("Failed to serialize cache: {e}"))
+}
 
-    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
-        match entry.set_password(&json) {
-            Ok(()) => return Ok(format!("OS keyring (service: {KEYRING_SERVICE})")),
-            // Fall through to file-based caching
-            Err(ref e) if is_keyring_unavailable(e) => {}
-            Err(e) => return Err(format!("Failed to write to keyring: {e}")),
-        }
+/// Store `json` in the slot's keyring entry. `Ok(false)` if the keyring is
+/// unavailable, so the caller falls back to the file.
+fn write_keyring(slot: &Slot, json: &str) -> Result<bool, String> {
+    let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) else {
+        return Ok(false);
+    };
+    match entry.set_password(json) {
+        Ok(()) => Ok(true),
+        Err(ref e) if is_keyring_unavailable(e) => Ok(false),
+        Err(e) => Err(format!("Failed to write to keyring: {e}")),
+    }
+}
+
+fn keyring_location() -> String {
+    format!("OS keyring (service: {KEYRING_SERVICE})")
+}
+
+fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
+    let json = to_json(value)?;
+    if write_keyring(slot, &json)? {
+        return Ok(keyring_location());
     }
     write_file(&slot.path, &json)
 }
@@ -321,14 +335,27 @@ fn write_slot<T: Serialize>(slot: &Slot, value: &T) -> Result<String, String> {
 /// minted again from the session, so they don't need the keyring, and keeping
 /// them out of it spares the keychain prompt macOS shows for every entry after
 /// each upgrade. An entry from before the session was shared still carries its
-/// own refresh token, which stays in the keyring.
+/// own refresh token, which stays in the keyring. Its file, left from when the
+/// keyring was unavailable, is removed then: `read_role` reads the file first,
+/// and would otherwise replay the spent refresh token it holds.
 fn write_role(slot: &Slot, entry: &CacheEntry) -> Result<String, String> {
-    if entry.refresh.is_some() {
-        return write_slot(slot, entry);
+    let json = to_json(entry)?;
+    if entry.refresh.is_some() && write_keyring(slot, &json)? {
+        remove_file(&slot.path)?;
+        return Ok(keyring_location());
     }
-    let json =
-        serde_json::to_string(entry).map_err(|e| format!("Failed to serialize cache: {e}"))?;
     write_file(&slot.path, &json)
+}
+
+/// Remove a role's keyring entry, where versions before this one kept it, so
+/// it can't come back if its file is deleted. Best effort: an entry that
+/// can't be removed is only shadowed by the file.
+pub fn forget_keyring_credentials(env: Option<&str>, role_arn: &str) {
+    if let Ok(slot) = role_slot(env, role_arn) {
+        if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, &slot.account) {
+            let _ = entry.delete_credential();
+        }
+    }
 }
 
 /// Read a role's entry from its file, or from the keyring, where versions

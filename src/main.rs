@@ -940,7 +940,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     // overwrite this entry afterwards.
     let location = {
         let _lock = cache::lock(env.as_deref(), &args.role.role_arn)?;
-        cache::write_credentials(env.as_deref(), &args.role.role_arn, &entry)?
+        let location = cache::write_credentials(env.as_deref(), &args.role.role_arn, &entry)?;
+        cache::forget_keyring_credentials(env.as_deref(), &args.role.role_arn);
+        location
     };
     eprintln!("Credentials cached to {location}");
     eprintln!("Run 'source-coop creds' to print them.");
