@@ -15,6 +15,7 @@ It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fe
 
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys and memberships. Add what a new demo needs here.
+- `check_stub.py` makes a request to each of the stub's routes and validates the answers against the API's OpenAPI spec on staging. CI runs it on PRs that change `demo/`. Run it yourself after changing the stub or fixtures: `uv run --with jsonschema python demo/check_stub.py` (or `pip install jsonschema` first). When a demo needs a new route, add a request for it to `requests()`.
 - `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and each is rendered as an animated SVG beside its cast.
 - No demo scripts are kept. Each PR writes its own, for what it changes, in `demo/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
 

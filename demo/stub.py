@@ -53,10 +53,13 @@ def issue(account_id, body):
     return dict(k, key=key)
 
 
+PUBLIC = ("account_id", "type", "name", "disabled", "metadata_public", "profile_image")
+
+
 def with_account(p):
     """A product as the API returns it, with its owner's public view."""
     a = accounts.get(p["account_id"], {"account_id": p["account_id"]})
-    return dict(p, account={k: a[k] for k in ("account_id", "name", "type") if k in a})
+    return dict(p, account={k: a[k] for k in PUBLIC if k in a})
 
 
 def find_product(account, product):
@@ -74,8 +77,6 @@ def handle(method, path, q, body):
         if q.get("featured") == "true":
             found = [p for p in found if p["featured"]]
         return 200, page([with_account(p) for p in found])
-    if path == "/products/featured":
-        return 200, page([with_account(p) for p in products if p["featured"]])
     if r := re.fullmatch(r"/products/([^/]+)", path):
         if method == "POST":
             if find_product(r[1], body.get("product_id")):
@@ -171,10 +172,9 @@ def handle(method, path, q, body):
         m = next((m for m in memberships if m["membership_id"] == r[1]), None)
         if not m:
             return error(404, "not_found", "No such membership")
-        if method == "PATCH":
-            m.update(body, state_changed=now())
-        elif method != "GET":
+        if method != "PATCH":
             return error(404, "not_found", f"The demo stub has no {method} {path}")
+        m.update(body, state_changed=now())
         return 200, m
 
     if path == "/service-account-keys/revocations":
