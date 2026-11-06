@@ -8,9 +8,9 @@ person, and the recording keeps the real timing (idle time capped).
     python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [NAME ...]
 
 SCRIPT defines DEMOS = {name: (title, function)}; each function drives a
-`Session` (see demo/README.md). Each cast is also rendered as a GIF
-with agg, when it's installed, and markdown showing the GIFs is printed
-for a PR description: `gh pr create/edit --attach` uploads them.
+`Session` (see demo/README.md). Each cast is also rendered as an
+animated SVG, and markdown showing the SVGs is printed for a PR
+description: `gh pr create/edit --attach` uploads them.
 """
 
 import argparse, fcntl, json, os, pty, re, runpy, shutil, socket, struct
@@ -150,14 +150,56 @@ def record(name, title, fn, bin_dir, out):
         shutil.rmtree(home, ignore_errors=True)
 
 
-def gif(cast):
-    """The cast as an animated GIF beside it, or None without agg."""
-    if not shutil.which("agg"):
-        return None
-    out = cast.removesuffix(".cast") + ".gif"
-    subprocess.run(["agg", "--font-size", "14", "--idle-time-limit", "2.5", "--last-frame-duration", "4",
-                    cast, out], check=True, capture_output=True)
+def svg(cast):
+    """The cast as an animated SVG beside it, made with svg-term (via npx).
+
+    svg-term animates with CSS, which GitHub's CSP blocks when the SVG is
+    opened on its own, so the CSS is rewritten as SMIL and attributes."""
+    if not shutil.which("npx"):
+        raise SystemExit("rendering SVGs needs npx: install Node.js")
+    out = cast.removesuffix(".cast") + ".svg"
+    subprocess.run(["npx", "-y", "svg-term-cli@2.1.1", "--in", cast, "--out", out, "--window"],
+                   check=True, capture_output=True)
+    with open(out) as f:
+        text = without_css(f.read())
+    with open(out, "w") as f:
+        f.write(text)
     return out
+
+
+def without_css(s):
+    """svg-term's SVG with its <style> rewritten as SMIL and presentation
+    attributes. ponytail: matches svg-term 2.1.1's output only; the assert
+    says when a new version writes CSS this doesn't know."""
+    css = "".join(re.findall(r"<style>(.*?)</style>", s, re.S))
+    css = re.sub(r"\bfrom\{", "0%{", re.sub(r"\bto\{", "100%{", css))
+    s = re.sub(r"<style>.*?</style>", "", s, flags=re.S)
+    # The animation: a filmstrip of frames, slid left in steps.
+    kf = re.search(r"@keyframes \w+\{((?:[\d.]+%\{[^}]*\})+)\}", css)
+    stops = re.findall(r"([\d.]+)%\{transform:translateX\((-?[\d.]+)(?:px)?\)\}", kf[1])
+    css = css.replace(kf[0], "")
+    smil = ('<animateTransform attributeName="transform" type="translate" calcMode="discrete" '
+            'dur="{}" repeatCount="indefinite" keyTimes="{}" values="{}"/>').format(
+        "{}", ";".join(f"{float(p) / 100:g}" for p, _ in stops), ";".join(f"{x} 0" for _, x in stops))
+    s = re.sub(r'<g style="[^"]*animation-duration:([\d.]+s)[^"]*">',
+               lambda m: "<g>" + smil.format(m[1]), s, count=1)
+    # Class rules become attributes; white-space:pre becomes xml:space.
+    rules = {}
+    for selectors, decls in re.findall(r"([^{}]+)\{([^}]*)\}", css):
+        for sel in selectors.split(","):
+            for d in filter(None, decls.split(";")):
+                k, v = d.split(":", 1)
+                if k != "white-space":
+                    rules.setdefault(sel.strip().lstrip("."), {})[k] = v
+    def attributes(m):
+        merged = {}
+        for c in m[1].split():
+            merged.update(rules.get(c, {}))
+        return " ".join(f'{k}="{v}"' for k, v in merged.items())
+    s = re.sub(r'class="([^"]*)"', attributes, s).replace(' style="white-space:pre"', "")
+    s = s.replace("<svg ", '<svg xml:space="preserve" ', 1)
+    assert "style" not in s and "animateTransform" in s, "svg-term wrote CSS this can't rewrite"
+    return s
 
 
 def main():
@@ -177,14 +219,12 @@ def main():
         title, fn = demos[name]
         path = record(name, title, fn, bin_dir, args.out)
         print(f"recorded {path}", file=sys.stderr)
-        rendered = gif(path)
-        if rendered:
-            print(f"rendered {rendered}", file=sys.stderr)
-            # A local path: `gh pr create/edit --attach` uploads the file
-            # and rewrites this reference to point at the upload.
-            markdown += [f"**{title}**", "", f"![{title}]({rendered})", ""]
-    if markdown:
-        print("\n".join(markdown))
+        rendered = svg(path)
+        print(f"rendered {rendered}", file=sys.stderr)
+        # A local path: `gh pr create/edit --attach` uploads the file and
+        # rewrites this reference to point at the upload.
+        markdown += [f"**{title}**", "", f"![{title}]({rendered})", ""]
+    print("\n".join(markdown))
 
 
 if __name__ == "__main__":
