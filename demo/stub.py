@@ -31,8 +31,17 @@ def page(items):
     return {"items": items, "next_cursor": None}
 
 
-def error(status, code, message):
-    return status, {"error": {"code": code, "message": message}}
+TITLES = {400: "Invalid request", 404: "Not found", 409: "Conflict"}
+
+
+def error(status, code, message, fields=None):
+    """An RFC 9457 problem, as the API answers errors. `fields` maps a body
+    field to what's wrong with it, given as a JSON Pointer as the API does."""
+    problem = {"type": f"https://source.coop/api/problems/{code}", "title": TITLES.get(status, "Error"),
+               "status": status, "detail": message, "code": code}
+    if fields:
+        problem["errors"] = [{"pointer": f"#/{f}", "detail": d} for f, d in fields.items()]
+    return status, problem
 
 
 def issue(account_id, body):
@@ -70,8 +79,7 @@ def handle(method, path, q, body):
     if r := re.fullmatch(r"/products/([^/]+)", path):
         if method == "POST":
             if find_product(r[1], body.get("product_id")):
-                return 409, {"error": {"code": "conflict", "message": "A product with that ID exists",
-                                       "field_errors": {"product_id": ["is taken"]}}}
+                return error(409, "conflict", "A product with that ID exists", {"product_id": "is taken"})
             c = body.get("data_connection_id", "demo-s3")
             p = {"account_id": r[1], "product_id": body.get("product_id"), "title": body.get("title", ""),
                  "description": body.get("description", ""), "visibility": body.get("visibility", "public"),
@@ -99,8 +107,7 @@ def handle(method, path, q, body):
         if method == "POST":
             sid = f"{owner}--{body.get('local_id')}"
             if sid in accounts:
-                return 409, {"error": {"code": "conflict", "message": "That ID is taken",
-                                       "field_errors": {"local_id": ["is taken"]}}}
+                return error(409, "conflict", "That ID is taken", {"local_id": "is taken"})
             a = {"account_id": sid, "type": "service", "name": body.get("name", ""), "owner_account_id": owner,
                  "disabled": False, "flags": [], "metadata_public": {}, "created_at": now(), "updated_at": now()}
             accounts[sid] = a
@@ -154,7 +161,8 @@ def handle(method, path, q, body):
 
     if path == "/memberships":
         if method == "POST":
-            m = dict(body, membership_id=str(uuid.uuid4()), state="member", state_changed=now())
+            # An invitation, until the invited account accepts it.
+            m = dict(body, membership_id=str(uuid.uuid4()), state="invited", state_changed=now())
             memberships.append(m)
             return 201, m
         filters = ("account_id", "membership_account_id", "product_id", "state")
@@ -163,7 +171,10 @@ def handle(method, path, q, body):
         m = next((m for m in memberships if m["membership_id"] == r[1]), None)
         if not m:
             return error(404, "not_found", "No such membership")
-        m.update(body, state_changed=now())
+        if method == "PATCH":
+            m.update(body, state_changed=now())
+        elif method != "GET":
+            return error(404, "not_found", f"The demo stub has no {method} {path}")
         return 200, m
 
     if path == "/service-account-keys/revocations":
@@ -184,7 +195,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = b"" if out is None else json.dumps(copy.deepcopy(out)).encode()
         self.send_response(status)
         if out is not None:
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "application/problem+json" if status >= 400 else "application/json")
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
