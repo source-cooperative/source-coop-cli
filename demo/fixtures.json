@@ -8,7 +8,11 @@
       "flags": [
         "create_repositories"
       ],
-      "disabled": false
+      "disabled": false,
+      "created_at": "2025-01-02T09:00:00Z",
+      "updated_at": "2025-01-02T09:00:00Z",
+      "identity_id": "00000000-0000-0000-0000-000000000001",
+      "metadata_public": {}
     },
     "memberships": [
       {
@@ -23,13 +27,29 @@
   },
   "accounts": [
     {
+      "account_id": "demo-user",
+      "type": "individual",
+      "name": "Demo User",
+      "flags": [
+        "create_repositories"
+      ],
+      "disabled": false,
+      "created_at": "2025-01-02T09:00:00Z",
+      "updated_at": "2025-01-02T09:00:00Z",
+      "identity_id": "00000000-0000-0000-0000-000000000001",
+      "metadata_public": {}
+    },
+    {
       "account_id": "demo-org",
       "type": "organization",
       "name": "Demo Org",
       "disabled": false,
       "flags": [
         "create_service_accounts"
-      ]
+      ],
+      "created_at": "2025-01-02T09:00:00Z",
+      "updated_at": "2025-01-02T09:00:00Z",
+      "metadata_public": {}
     },
     {
       "account_id": "demo-org--nightly-sync",
@@ -112,7 +132,10 @@
         "restricted"
       ],
       "details": {
-        "provider": "s3"
+        "provider": "s3",
+        "bucket": "demo-bucket",
+        "base_prefix": "",
+        "region": "us-west-2"
       }
     },
     {
@@ -123,7 +146,10 @@
         "public"
       ],
       "details": {
-        "provider": "s3"
+        "provider": "s3",
+        "bucket": "demo-bucket",
+        "base_prefix": "",
+        "region": "us-west-2"
       }
     }
   ],

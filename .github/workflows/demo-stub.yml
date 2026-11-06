@@ -1,0 +1,21 @@
+name: Demo stub
+
+# Checks demo/stub.py's answers against the API's OpenAPI spec on staging, so
+# the stub can't drift from the API unnoticed. Only when demo/ changes: demos
+# are recorded in PRs that touch it, and that's when drift would show.
+on:
+  pull_request:
+    paths: ["demo/**", ".github/workflows/demo-stub.yml"]
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Stub matches the API
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install jsonschema
+      - run: python demo/check_stub.py
