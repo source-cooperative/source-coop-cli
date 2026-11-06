@@ -128,9 +128,9 @@ Record with `demo/`: `demo/README.md` says how to write a demo, record it and ge
 
 - **Write the demo script for your change:** one per PR, in `demo/scripts/` (git ignores it). None are kept and none are waiting to be updated: you know what your change does, so script that. Grow `demo/stub.py` and `demo/fixtures.json` with what your demos need, and commit those.
 - **One demo per command or flow,** each with a bold title. Show the interactive paths: prompts, ← back, the review, and `-i` screens with their keys. Show the failure paths too: a refusal, a typed confirmation typed wrong, and an exit code (`; echo "exit $?"`). Pipe `--json` through `jq -c` to keep it short.
-- **Show each as a GIF linked to its player.** Paste what `record.py --upload --gif-base …` prints: `[![name](…/raw/demo-assets/pr-N/name.gif)](https://asciinema.org/a/ID)`, and push the GIFs to the `demo-assets` branch under `pr-N/`. The GIF plays inline. The player is where a reviewer can pause, rewind and copy text. Don't embed asciinema.org's own SVG or PNG previews: GitHub's image proxy can't fetch them, so they show as broken images. GIFs live only on `demo-assets`, never on a branch that gets merged.
+- **Attach each as an SVG.** Paste what `record.py` prints into the description and create or edit the PR with `--attach` for each SVG: `gh` uploads them and points the markdown at the uploads. `demo/README.md` has the command. Use the SVGs `record.py` writes, not svg-term's own: GitHub's CSP stops those animating when opened directly. Don't commit them, and don't host them elsewhere.
 - **Say in the PR that the demos run against the stub,** so the `http://localhost:PORT` URLs in them aren't mistaken for real ones.
-- **Uploads are public to anyone with the link.** Record only the stub's made-up data, never a real account or token. Uploads belong to the machine's asciinema install ID, and asciinema.org may delete those not linked to an account. Run `asciinema auth` once to link yours.
+- **Attachments are public:** this repository is public, and so are its PRs. Record only the stub's made-up data, never a real account or token.
 - **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.
 
 ### The stub server

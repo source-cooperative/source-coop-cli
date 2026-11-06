@@ -9,13 +9,13 @@ python3 -I demo/record.py demo/scripts/pr-60.py                     # every demo
 python3 -I demo/record.py demo/scripts/pr-60.py product-create      # just one
 ```
 
-It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](https://github.com/asciinema/agg), and to upload, [asciinema](https://asciinema.org) (`brew install agg asciinema`). Demos that pipe through `jq` need it installed.
+It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fetches [svg-term-cli](https://github.com/marionebl/svg-term-cli) 2.1.1 to render the SVGs. Putting them in a PR needs [`gh`](https://cli.github.com) 2.103 or later. Demos that pipe through `jq` need it installed.
 
 ## What's here
 
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys and memberships. Add what a new demo needs here.
-- `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and with agg installed each is also rendered as a GIF beside its cast.
+- `record.py` runs bash in a pseudo-terminal at 120×34 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and each is rendered as an animated SVG beside its cast.
 - No demo scripts are kept. Each PR writes its own, for what it changes, in `demo/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
 
 ## Writing a demo
@@ -48,23 +48,23 @@ Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` pointing at the stub, an
 
 ## In a PR description
 
-GitHub fetches images in PR descriptions through its proxy, which can't load asciinema.org's previews. So a PR shows each demo as a GIF served from this repo's `demo-assets` branch, linking to its asciinema.org player. For PR 60:
+`record.py` prints markdown showing each SVG by its local path. `gh` uploads the files you `--attach` and rewrites those paths to point at the uploads, so the SVGs live on GitHub with the PR and nothing else hosts them:
 
 ```bash
-python3 -I demo/record.py demo/scripts/pr-60.py --upload \
-    --gif-base https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60 > demos.md
-
-git worktree add ../demo-assets demo-assets             # the branch holds only images
-mkdir -p ../demo-assets/pr-60 && cp demo/casts/*.gif ../demo-assets/pr-60/
-git -C ../demo-assets add pr-60 && git -C ../demo-assets commit -m "Demo GIFs for #60" && git -C ../demo-assets push
+python3 -I demo/record.py demo/scripts/pr-60.py > demos.md
+# write the description in body.md, pasting demos.md where the demos go, then:
+attach=(); for f in demo/casts/*.svg; do attach+=(--attach "$f"); done
+gh pr create -F body.md "${attach[@]}"                 # or: gh pr edit 60 -F body.md "${attach[@]}"
 ```
 
-Paste `demos.md` into the description. Each entry looks like this:
+Each entry looks like this before `gh` rewrites it:
 
 ```markdown
 **source-coop product create (prompted)**
 
-[![product-create](https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60/product-create.gif)](https://asciinema.org/a/ID)
+![source-coop product create (prompted)](demo/casts/product-create.svg)
 ```
 
-The GIF plays inline, and clicking it opens the player, where you can pause and copy text. Anyone with a link can watch the recording, so record only the stub's made-up data. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
+Run `gh` from the repository root, or keep `body.md` there: `gh` reads the paths relative to the body file, then to the working directory. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
+
+svg-term animates its SVGs with CSS, and GitHub serves attachments with a Content-Security-Policy that blocks CSS when an SVG is opened on its own (inside the PR it's an image, and animates either way). So `record.py` rewrites the CSS as an SVG `<animateTransform>` and `fill`/`font-weight` attributes, which the policy allows. That rewrite knows only svg-term 2.1.1's output: if a new version writes CSS it doesn't recognise, recording stops with an error.
