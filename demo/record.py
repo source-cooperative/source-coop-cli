@@ -1,8 +1,8 @@
 """Record terminal demos of the CLI as asciicasts, for PR descriptions.
 
 Each demo runs bash in a pseudo-terminal against demo/stub.py, with a fresh
-copy of the fixtures, a throwaway HOME and SOURCE_TOKEN set, so it never
-reads the real login session or keychain. It types and presses keys like a
+copy of the fixtures, a throwaway HOME, SOURCE_TOKEN set and an environment
+of its own, so it never reads or changes the real login session. It types and presses keys like a
 person, and the recording keeps the real timing (idle time capped).
 
     python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [NAME ...]
@@ -55,10 +55,11 @@ class Session:
         end = time.time() + timeout
         while time.time() < end:
             with self.lock:
-                if re.search(pattern, ANSI.sub("", self.text[self.seen:])):
-                    # ponytail: everything so far counts as seen; each wait is
-                    # for something new, so nothing needs a precise offset.
-                    self.seen = len(self.text)
+                m = re.search(pattern, ANSI.sub("", self.text[self.seen:]))
+                if m:
+                    # Only what the match covers counts as seen, so text that
+                    # arrived with it, like the next prompt, is left to wait for.
+                    self.seen = after_visible(self.text, self.seen, m.end())
                     return
             time.sleep(0.05)
         tail = ANSI.sub("", self.text[-1500:])
@@ -85,6 +86,11 @@ class Session:
         self.type(command, 0.7)
         self.pause(0.5)
         self.send("\r")
+        # Skip the shell's echo of the command, so a wait for text in the
+        # command itself waits for the command's output instead.
+        # ponytail: the first newline is the Enter; a command too long for
+        # one line could wrap before it.
+        self.see(r"\n")
 
     def enter(self):
         self.pause(0.6)
@@ -112,6 +118,18 @@ class Session:
             f.writelines(json.dumps(e) + "\n" for e in kept)
 
 
+def after_visible(text, start, count):
+    """The index in `text` just past `count` visible (non-ANSI) characters from `start`."""
+    i = start
+    while count and i < len(text):
+        m = ANSI.match(text, i)
+        if m:
+            i = m.end()
+        else:
+            i, count = i + 1, count - 1
+    return i
+
+
 def free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -133,11 +151,21 @@ def record(name, title, fn, bin_dir, out):
     port = free_port()
     stub = subprocess.Popen([sys.executable, "-I", os.path.join(here, "stub.py"), str(port)])
     home = tempfile.mkdtemp(prefix="source-coop-demo-")
+    stub_url = f"http://127.0.0.1:{port}"
     try:
         wait_for(port)
         env = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}", "HOME": home,
                "TERM": "xterm-256color", "LANG": "en_US.UTF-8", "SOURCE_TOKEN": "demo",
-               "SOURCE_API_URL": f"http://localhost:{port}", "BASH_SILENCE_DEPRECATION_WARNING": "1",
+               "SOURCE_API_URL": stub_url,
+               # The cache keys the keyring and its files by environment, and HOME
+               # doesn't change the keyring, so an environment of the run's own keeps
+               # demos away from the real login. ponytail: a demo that saves a session
+               # or credentials still leaves an entry for 127.0.0.1:PORT in the
+               # keyring; switching the keyring off would need a setting in the CLI.
+               "SOURCE_PROXY_URL": stub_url,
+               # The pager would wait for a key on a list taller than the screen.
+               "SOURCE_PAGER": "cat",
+               "BASH_SILENCE_DEPRECATION_WARNING": "1",
                "PS1": "\\[\\e[1;32m\\]$\\[\\e[0m\\] "}
         session = Session(title, env, home)
         fn(session)
@@ -196,9 +224,13 @@ def without_css(s):
         for c in m[1].split():
             merged.update(rules.get(c, {}))
         return " ".join(f'{k}="{v}"' for k, v in merged.items())
-    s = re.sub(r'class="([^"]*)"', attributes, s).replace(' style="white-space:pre"', "")
+    # Only inside tags: the recorded text may say class="…" or style too, and
+    # it can't contain a raw "<", so a tag is everything from "<" to ">".
+    tags = lambda f: re.sub(r"<[^>]*>", lambda t: f(t[0]), s)
+    s = tags(lambda t: re.sub(r'class="([^"]*)"', attributes, t).replace(' style="white-space:pre"', ""))
     s = s.replace("<svg ", '<svg xml:space="preserve" ', 1)
-    assert "style" not in s and "animateTransform" in s, "svg-term wrote CSS this can't rewrite"
+    left = re.findall(r"<style|\sstyle=", "".join(re.findall(r"<[^>]*>", s)))
+    assert not left and "animateTransform" in s, "svg-term wrote CSS this can't rewrite"
     return s
 
 
