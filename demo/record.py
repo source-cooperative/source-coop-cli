@@ -5,13 +5,12 @@ copy of the fixtures, a throwaway HOME and SOURCE_TOKEN set, so it never
 reads the real login session or keychain. It types and presses keys like a
 person, and the recording keeps the real timing (idle time capped).
 
-    python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [--upload] [NAME ...]
+    python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [NAME ...]
 
 SCRIPT defines DEMOS = {name: (title, function)}; each function drives a
 `Session` (see demo/README.md). Each cast is also rendered as a GIF
-with agg, when it's installed. --upload sends each cast to asciinema.org,
-where anyone with the link can watch it, and prints markdown for a PR
-description: the GIF, served from --gif-base, linking to the player.
+with agg, when it's installed, and markdown showing the GIFs is printed
+for a PR description: `gh pr create/edit --attach` uploads them.
 """
 
 import argparse, fcntl, json, os, pty, re, runpy, shutil, socket, struct
@@ -161,29 +160,13 @@ def gif(cast):
     return out
 
 
-def upload(path):
-    done = subprocess.run(["asciinema", "upload", path], capture_output=True, text=True, check=True)
-    # asciinema prints the URL on stderr or stdout, depending on its version.
-    url = re.search(r"https://asciinema\.org/a/\w+", done.stdout + done.stderr)
-    if not url:
-        raise SystemExit(f"asciinema didn't say where {path} went:\n{done.stdout}{done.stderr}")
-    return url[0]
-
-
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("script", help="a demo script defining DEMOS")
     p.add_argument("names", nargs="*", help="which demos to record (all when omitted)")
     p.add_argument("--bin", default="target/debug", help="the directory holding source-coop [target/debug]")
     p.add_argument("--out", default="demo/casts", help="where to write the .cast files [demo/casts]")
-    p.add_argument("--upload", action="store_true", help="upload each cast to asciinema.org and print markdown")
-    p.add_argument("--gif-base", help="with --upload: the URL the GIFs will be served from, e.g. "
-                   "https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60")
     args = p.parse_args()
-    if args.upload and not args.gif_base:
-        # GitHub's image proxy can't fetch asciinema.org's previews, so a PR
-        # shows GIFs served from GitHub, linking to the player.
-        p.error("--upload needs --gif-base: where the GIFs will be served (see demo/README.md)")
     demos = runpy.run_path(args.script, init_globals=dict(KEYS))["DEMOS"]
     bin_dir = os.path.abspath(args.bin)
     if not os.path.exists(os.path.join(bin_dir, "source-coop")):
@@ -197,10 +180,9 @@ def main():
         rendered = gif(path)
         if rendered:
             print(f"rendered {rendered}", file=sys.stderr)
-        if args.upload:
-            url = upload(path)
-            image = f"{args.gif_base.rstrip('/')}/{name}.gif"
-            markdown += [f"**{title}**", "", f"[![{name}]({image})]({url})", ""]
+            # A local path: `gh pr create/edit --attach` uploads the file
+            # and rewrites this reference to point at the upload.
+            markdown += [f"**{title}**", "", f"![{title}]({rendered})", ""]
     if markdown:
         print("\n".join(markdown))
 

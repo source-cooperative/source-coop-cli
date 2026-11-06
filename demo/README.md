@@ -9,7 +9,7 @@ python3 -I demo/record.py demo/scripts/pr-60.py                     # every demo
 python3 -I demo/record.py demo/scripts/pr-60.py product-create      # just one
 ```
 
-It needs Python 3.10 or later on macOS or Linux. To render GIFs it needs [agg](https://github.com/asciinema/agg), and to upload, [asciinema](https://asciinema.org) (`brew install agg asciinema`). Demos that pipe through `jq` need it installed.
+It needs Python 3.10 or later on macOS or Linux, and [agg](https://github.com/asciinema/agg) to render GIFs (`brew install agg`). Demos that pipe through `jq` need it installed.
 
 ## What's here
 
@@ -48,23 +48,21 @@ Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` pointing at the stub, an
 
 ## In a PR description
 
-GitHub fetches images in PR descriptions through its proxy, which can't load asciinema.org's previews. So a PR shows each demo as a GIF served from this repo's `demo-assets` branch, linking to its asciinema.org player. For PR 60:
+`record.py` prints markdown showing each GIF by its local path. `gh` uploads the files you `--attach` and rewrites those paths to point at the uploads, so the GIFs live on GitHub with the PR and nothing else hosts them:
 
 ```bash
-python3 -I demo/record.py demo/scripts/pr-60.py --upload \
-    --gif-base https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60 > demos.md
-
-git worktree add ../demo-assets demo-assets             # the branch holds only images
-mkdir -p ../demo-assets/pr-60 && cp demo/casts/*.gif ../demo-assets/pr-60/
-git -C ../demo-assets add pr-60 && git -C ../demo-assets commit -m "Demo GIFs for #60" && git -C ../demo-assets push
+python3 -I demo/record.py demo/scripts/pr-60.py > demos.md
+# write the description in body.md, pasting demos.md where the demos go, then:
+attach=(); for f in demo/casts/*.gif; do attach+=(--attach "$f"); done
+gh pr create -F body.md "${attach[@]}"                 # or: gh pr edit 60 -F body.md "${attach[@]}"
 ```
 
-Paste `demos.md` into the description. Each entry looks like this:
+Each entry looks like this before `gh` rewrites it:
 
 ```markdown
 **source-coop product create (prompted)**
 
-[![product-create](https://github.com/source-cooperative/source-coop-cli/raw/demo-assets/pr-60/product-create.gif)](https://asciinema.org/a/ID)
+![source-coop product create (prompted)](demo/casts/product-create.gif)
 ```
 
-The GIF plays inline, and clicking it opens the player, where you can pause and copy text. Anyone with a link can watch the recording, so record only the stub's made-up data. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
+Run `gh` from the repository root, or keep `body.md` there: `gh` reads the paths relative to the body file, then to the working directory. It needs `gh` 2.103 or later. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
