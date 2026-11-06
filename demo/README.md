@@ -44,7 +44,7 @@ Write one demo for each command or flow the PR changes, showing what changed: pr
 
 Wait with `see` before every keypress that answers a prompt. Run each command after the first with `s.prompt()` in between, so it waits for the one before. If a `see` never matches, recording stops and prints the end of the screen.
 
-Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` pointing at the stub, and a throwaway `HOME`. So the CLI never reads the real login session or the OS keyring, and drafts land in the throwaway `HOME`. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
+Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` and `SOURCE_PROXY_URL` pointing at the stub, `SOURCE_PAGER=cat` and a throwaway `HOME`. The proxy URL gives the run an environment of its own: the CLI keys its keyring entries and cache files by environment, so it can't read or remove the real login session, and drafts land in the throwaway `HOME`. A demo that saves a session or credentials still writes an entry for that environment (`127.0.0.1:PORT`) to the OS keyring, so leave sign-in out of demos. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
 
 ## In a PR description
 
@@ -65,6 +65,6 @@ Each entry looks like this before `gh` rewrites it:
 ![source-coop product create (prompted)](demo/casts/product-create.svg)
 ```
 
-Run `gh` from the repository root, or keep `body.md` there: `gh` reads the paths relative to the body file, then to the working directory. URLs in the demos name the stub (`http://localhost:PORT`): say so in the PR.
+Run `gh` from the repository root, or keep `body.md` there: `gh` reads the paths relative to the body file, then to the working directory. URLs in the demos name the stub (`http://127.0.0.1:PORT`): say so in the PR.
 
 svg-term animates its SVGs with CSS, and GitHub serves attachments with a Content-Security-Policy that blocks CSS when an SVG is opened on its own (inside the PR it's an image, and animates either way). So `record.py` rewrites the CSS as an SVG `<animateTransform>` and `fill`/`font-weight` attributes, which the policy allows. That rewrite knows only svg-term 2.1.1's output: if a new version writes CSS it doesn't recognise, recording stops with an error.

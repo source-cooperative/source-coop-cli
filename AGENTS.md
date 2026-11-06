@@ -129,7 +129,7 @@ Record with `demo/`: `demo/README.md` says how to write a demo, record it and ge
 - **Write the demo script for your change:** one per PR, in `demo/scripts/` (git ignores it). None are kept and none are waiting to be updated: you know what your change does, so script that. Grow `demo/stub.py` and `demo/fixtures.json` with what your demos need, and commit those.
 - **One demo per command or flow,** each with a bold title. Show the interactive paths: prompts, ← back, the review, and `-i` screens with their keys. Show the failure paths too: a refusal, a typed confirmation typed wrong, and an exit code (`; echo "exit $?"`). Pipe `--json` through `jq -c` to keep it short.
 - **Attach each as an SVG.** Paste what `record.py` prints into the description and create or edit the PR with `--attach` for each SVG: `gh` uploads them and points the markdown at the uploads. `demo/README.md` has the command. Use the SVGs `record.py` writes, not svg-term's own: GitHub's CSP stops those animating when opened directly. Don't commit them, and don't host them elsewhere.
-- **Say in the PR that the demos run against the stub,** so the `http://localhost:PORT` URLs in them aren't mistaken for real ones.
+- **Say in the PR that the demos run against the stub,** so the `http://127.0.0.1:PORT` URLs in them aren't mistaken for real ones.
 - **Attachments are public:** this repository is public, and so are its PRs. Record only the stub's made-up data, never a real account or token.
 - **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.
 
@@ -137,7 +137,7 @@ Record with `demo/`: `demo/README.md` says how to write a demo, record it and ge
 
 `demo/stub.py` stands in for the source.coop API when recording, serving the made-up records in `demo/fixtures.json`. `demo/README.md` explains how it runs. It isn't for tests, which mock the API with `wiremock`. When a demo needs more of it:
 
-- **Never point a demo at a real environment instead.** Every session runs with `SOURCE_TOKEN=demo` and a throwaway `HOME`, so it can't read a real login or the OS keychain. Keep it that way.
+- **Never point a demo at a real environment instead.** Every session runs with `SOURCE_TOKEN=demo`, a throwaway `HOME` and `SOURCE_PROXY_URL` set to the stub, which gives it an environment of its own, so it can't read or remove a real login. Keep it that way, and leave sign-in out of demos: a saved session still lands in the OS keyring, under the stub's environment.
 - **Keep fixtures obviously fake,** under `demo-user` and its organization `demo-org`. Add the records a new demo needs there.
 - **Add endpoints as demos need them.** Anything else gets a 404 saying `The demo stub has no METHOD PATH`, so a missing endpoint is plain from the recording. Add a branch to `handle()` for each new path.
 - **Match the API's shapes, not the CLI's guesses.** Take paths, bodies, status codes and response shapes from the OpenAPI spec (`https://source.coop/api/openapi`) or source.coop's `src/app/api/v1` routes. Listings come in pages (`{"items", "next_cursor"}`): products, data connections, memberships, service accounts, trusts and API keys. A stub that answers in a shape the API doesn't use makes the demo show behaviour real users never see, and hides the CLI bugs a demo should catch.
