@@ -4,3 +4,8 @@
 .env
 .env.local
 !.env.staging
+
+# Recorded demos and the scripts for them, written per PR (demo/README.md)
+demo/casts/
+demo/scripts/
+__pycache__/
