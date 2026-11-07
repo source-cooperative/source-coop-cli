@@ -1,0 +1,37 @@
+{
+ "duration": 24.676,
+ "steps": [
+  {
+   "time": 0.755,
+   "label": "$ source-coop product edit demo-org/demo-data"
+  },
+  {
+   "time": 3.41,
+   "label": "The edit form · Enter"
+  },
+  {
+   "time": 5.269,
+   "label": "Title · \" (2026)\" Enter"
+  },
+  {
+   "time": 7.277,
+   "label": "Title changed · ↓×2 Enter"
+  },
+  {
+   "time": 9.497,
+   "label": "Visibility · ↑ Enter"
+  },
+  {
+   "time": 11.511,
+   "label": "Visibility changed · s"
+  },
+  {
+   "time": 13.484,
+   "label": "Save these changes · Enter"
+  },
+  {
+   "time": 16.685,
+   "label": "$ source-coop product edit demo-org/demo-data --visibility unlisted --json | jq -c '{title, visibility}'"
+  }
+ ]
+}

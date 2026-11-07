@@ -1,0 +1,21 @@
+{
+ "duration": 16.439,
+ "steps": [
+  {
+   "time": 0.759,
+   "label": "$ source-coop member list demo-org -i"
+  },
+  {
+   "time": 3.137,
+   "label": "The members · ↓×3 →"
+  },
+  {
+   "time": 6.028,
+   "label": "grace-demo · e"
+  },
+  {
+   "time": 7.999,
+   "label": "Role for · ↑ Enter ← q"
+  }
+ ]
+}

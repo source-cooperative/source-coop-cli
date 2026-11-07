@@ -1,0 +1,17 @@
+{
+ "duration": 21.578,
+ "steps": [
+  {
+   "time": 0.759,
+   "label": "$ source-coop api products/demo-org | jq -c '.items[] | {product_id, title}'"
+  },
+  {
+   "time": 7.423,
+   "label": "$ source-coop api products/demo-org/demo-data -X PATCH -f title='Demo Data v2' | jq -c '{product_id, title}'"
+  },
+  {
+   "time": 15.632,
+   "label": "$ source-coop api products/demo-org/missing; echo \"exit $?\""
+  }
+ ]
+}

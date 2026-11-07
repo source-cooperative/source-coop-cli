@@ -1,0 +1,29 @@
+{
+ "duration": 22.741,
+ "steps": [
+  {
+   "time": 0.759,
+   "label": "$ source-coop invitation list"
+  },
+  {
+   "time": 4.929,
+   "label": "$ source-coop invitation list -i"
+  },
+  {
+   "time": 7.045,
+   "label": "Your invitations · →"
+  },
+  {
+   "time": 8.716,
+   "label": "The invitation to partner-org · a"
+  },
+  {
+   "time": 10.687,
+   "label": "Accepted · ←"
+  },
+  {
+   "time": 13.889,
+   "label": "$ source-coop invitation reject partner-org/ocean-buoys --json | jq -c '{membership_account_id, product_id, state}'"
+  }
+ ]
+}

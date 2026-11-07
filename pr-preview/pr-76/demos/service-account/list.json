@@ -1,0 +1,13 @@
+{
+ "duration": 11.988,
+ "steps": [
+  {
+   "time": 0.754,
+   "label": "$ source-coop service-account list demo-org"
+  },
+  {
+   "time": 4.14,
+   "label": "$ source-coop service-account list demo-org --json | jq -c '.[] | {account_id, name, disabled}'"
+  }
+ ]
+}

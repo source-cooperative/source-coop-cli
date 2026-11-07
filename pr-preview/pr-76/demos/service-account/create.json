@@ -1,0 +1,77 @@
+{
+ "duration": 35.848,
+ "steps": [
+  {
+   "time": 0.76,
+   "label": "$ source-coop service-account create"
+  },
+  {
+   "time": 3.056,
+   "label": "Owner · ↓ Enter"
+  },
+  {
+   "time": 4.119,
+   "label": "Name · \"Weekly mosaic\" Enter"
+  },
+  {
+   "time": 5.843,
+   "label": "ID · Enter"
+  },
+  {
+   "time": 7.504,
+   "label": "add a sign-in · ↑×2 Enter"
+  },
+  {
+   "time": 8.971,
+   "label": "Repository · \"source-cooperative/source.coop\" Enter"
+  },
+  {
+   "time": 11.555,
+   "label": "Allow runs from · Enter"
+  },
+  {
+   "time": 12.166,
+   "label": "Branch · Enter"
+  },
+  {
+   "time": 14.498,
+   "label": "another · ↑ Enter"
+  },
+  {
+   "time": 16.76,
+   "label": "Label · \"Render farm\" Enter"
+  },
+  {
+   "time": 18.351,
+   "label": "Expires · Enter"
+  },
+  {
+   "time": 20.014,
+   "label": "another · Enter"
+  },
+  {
+   "time": 21.674,
+   "label": "grant a product · ↑×2 Enter"
+  },
+  {
+   "time": 23.137,
+   "label": "Access · ↓ Enter"
+  },
+  {
+   "time": 24.194,
+   "label": "another · Enter"
+  },
+  {
+   "time": 25.655,
+   "label": "Create this service account · Enter"
+  },
+  {
+   "time": 28.161,
+   "label": "Save the key to a file · \"render-farm.key\" Enter"
+  },
+  {
+   "time": 30.656,
+   "label": "$ ls -l render-farm.key | awk '{print $1, $NF}'"
+  }
+ ]
+}

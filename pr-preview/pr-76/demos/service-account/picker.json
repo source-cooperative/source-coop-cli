@@ -1,0 +1,37 @@
+{
+ "duration": 22.187,
+ "steps": [
+  {
+   "time": 0.753,
+   "label": "$ source-coop service-account list demo-org -i"
+  },
+  {
+   "time": 3.452,
+   "label": "The list · ↓ →"
+  },
+  {
+   "time": 5.514,
+   "label": "A service account · ←"
+  },
+  {
+   "time": 8.025,
+   "label": "The list · ↓ →"
+  },
+  {
+   "time": 8.886,
+   "label": "A service account · d"
+  },
+  {
+   "time": 10.845,
+   "label": "Type it to confirm · \"demo-org--old-backfill\" Enter"
+  },
+  {
+   "time": 13.977,
+   "label": "Deleted · q"
+  },
+  {
+   "time": 17.179,
+   "label": "$ source-coop service-account list demo-org"
+  }
+ ]
+}
