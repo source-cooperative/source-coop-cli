@@ -16,7 +16,9 @@ description: `gh pr create/edit --attach` uploads them.
 import argparse, fcntl, json, os, pty, re, runpy, shutil, socket, struct
 import subprocess, sys, tempfile, termios, threading, time
 
-COLS, ROWS = 120, 34
+# 80 columns keeps the text a little larger than the docs site's body text at
+# the width it shows demos; svg-term draws each column 10px wide.
+COLS, ROWS = 80, 28
 KEYS = {"DOWN": "\x1b[B", "UP": "\x1b[A", "RIGHT": "\x1b[C", "LEFT": "\x1b[D",
         "ESC": "\x1b", "BACKSPACE": "\x7f"}
 ANSI = re.compile(r"\x1b(\[[0-9;?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[=>78])")

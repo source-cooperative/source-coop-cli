@@ -1,12 +1,12 @@
 {
- "duration": 14.483,
+ "duration": 14.825,
  "steps": [
   {
    "time": 0.754,
    "label": "$ source-coop service-account create demo-org--tile-builder --name 'Tile builder' \\"
   },
   {
-   "time": 5.947,
+   "time": 5.928,
    "label": "$   --github source-cooperative/source.coop --tag v1.2.0 --access demo-org/landsat-mirror=read --json"
   }
  ]

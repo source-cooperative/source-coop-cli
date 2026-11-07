@@ -1,24 +1,24 @@
 {
- "duration": 19.776,
+ "duration": 19.778,
  "steps": [
   {
-   "time": 0.753,
+   "time": 0.757,
    "label": "$ source-coop product list demo-org -i"
   },
   {
-   "time": 3.07,
+   "time": 3.061,
    "label": "The list · ↓ ↓ →"
   },
   {
-   "time": 5.535,
+   "time": 5.529,
    "label": "Landsat Mirror · ←"
   },
   {
-   "time": 8.04,
+   "time": 8.035,
    "label": "Back to the list, then filter · / \"clim\" Enter →"
   },
   {
-   "time": 13.422,
+   "time": 13.419,
    "label": "Climate Grid · ← q"
   }
  ]

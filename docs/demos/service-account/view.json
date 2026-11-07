@@ -1,12 +1,12 @@
 {
- "duration": 18.168,
+ "duration": 17.49,
  "steps": [
   {
-   "time": 0.759,
+   "time": 0.754,
    "label": "$ source-coop service-account view demo-org--nightly-sync"
   },
   {
-   "time": 6.697,
+   "time": 6.529,
    "label": "$ source-coop service-account view demo-org--nightly-sync --json | jq '{account_id, trusts: [.trusts[].subject], memberships: [.memberships[] | {product_id, role}]}'"
   }
  ]
