@@ -1,33 +1,55 @@
 {
- "duration": 26.294,
+ "duration": 26.312,
  "steps": [
   {
    "time": 0.756,
    "label": "$ source-coop service-account edit demo-org--stac-indexer --disable"
   },
   {
-   "time": 6.953,
+   "time": 6.958,
    "label": "$ source-coop service-account edit demo-org--stac-indexer --enable"
   },
   {
-   "time": 11.302,
+   "time": 11.326,
    "label": "$ source-coop service-account edit demo-org--stac-indexer"
   },
   {
-   "time": 14.551,
+   "time": 14.556,
    "label": "The edit form · Enter"
   },
   {
-   "time": 16.212,
+   "time": 16.216,
    "label": "Name · ⌫×12 \"STAC indexer (production)\" Enter"
   },
   {
-   "time": 19.68,
+   "time": 19.693,
    "label": "The edit form · s"
   },
   {
-   "time": 21.342,
+   "time": 21.352,
    "label": "Save these changes · Enter"
+  }
+ ],
+ "keys": [
+  {
+   "time": 16.164,
+   "key": "Enter"
+  },
+  {
+   "time": 17.422,
+   "key": "⌫×12"
+  },
+  {
+   "time": 19.639,
+   "key": "Enter"
+  },
+  {
+   "time": 21.3,
+   "key": "s"
+  },
+  {
+   "time": 23.801,
+   "key": "Enter"
   }
  ]
 }

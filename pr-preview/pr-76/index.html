@@ -7,6 +7,7 @@
 <meta name="docs-version" content="pr-76">
 <meta name="docs-base" content="/source-coop-cli/">
 <meta name="docs-page" content="">
+<meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
   // The theme before the first paint: this tab's choice, or the system's.
   (function () {
@@ -34,12 +35,17 @@
       <span>CLI guide</span>
     </a>
     <div class="spacer"></div>
-    <label class="version">
-      <span>Version</span>
-      <select id="version" disabled>
-        <option selected>pr-76</option>
-      </select>
-    </label>
+    <div class="search">
+      <input type="search" id="search" placeholder="Search" aria-label="Search the guide" aria-controls="search-results" autocomplete="off" spellcheck="false">
+      <div class="search-results" id="search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+    </div>
+    <div class="version">
+      <button class="version-button" type="button" aria-expanded="false" aria-controls="versions" disabled>
+        <span class="version-name">pr-76</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="version-menu" id="versions" hidden></div>
+    </div>
     <a class="top-link" href="https://github.com/source-cooperative/source-coop-cli">GitHub</a>
     <button class="theme" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark">
       <svg class="icon-moon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>

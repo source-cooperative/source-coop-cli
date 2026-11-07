@@ -1,37 +1,71 @@
 {
- "duration": 22.251,
+ "duration": 22.191,
  "steps": [
   {
-   "time": 0.756,
+   "time": 0.751,
    "label": "$ source-coop service-account list demo-org -i"
   },
   {
-   "time": 3.456,
+   "time": 3.447,
    "label": "The list · ↓ →"
   },
   {
-   "time": 5.523,
+   "time": 5.514,
    "label": "A service account · ←"
   },
   {
-   "time": 8.036,
+   "time": 8.018,
    "label": "The list · ↓ →"
   },
   {
-   "time": 8.896,
+   "time": 8.877,
    "label": "A service account · d"
   },
   {
-   "time": 10.864,
+   "time": 10.839,
    "label": "Type it to confirm · \"demo-org--old-backfill\" Enter"
   },
   {
-   "time": 14.011,
+   "time": 13.974,
    "label": "Deleted · q"
   },
   {
-   "time": 17.218,
+   "time": 17.177,
    "label": "$ source-coop service-account list demo-org"
+  }
+ ],
+ "keys": [
+  {
+   "time": 5.054,
+   "key": "↓"
+  },
+  {
+   "time": 5.46,
+   "key": "→"
+  },
+  {
+   "time": 7.967,
+   "key": "←"
+  },
+  {
+   "time": 8.421,
+   "key": "↓"
+  },
+  {
+   "time": 8.822,
+   "key": "→"
+  },
+  {
+   "time": 10.784,
+   "key": "d"
+  },
+  {
+   "time": 13.919,
+   "key": "Enter"
+  },
+  {
+   "time": 16.422,
+   "key": "q"
   }
  ]
 }
