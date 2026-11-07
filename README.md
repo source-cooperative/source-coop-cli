@@ -135,8 +135,8 @@ source-coop auth status
 ```
 Environment    https://data.source.coop
 Login          logged in
-Account        Anthony Lukach (alukach)
-Profile        https://source.coop/alukach
+Account        Demo User (demo-user)
+Profile        https://source.coop/demo-user
 Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12 (in 29 days)
 ID token       expires 2026-10-13T18:00:00Z (in 1 hour)
 Access token   for https://source.coop, expires 2026-10-13T18:00:00Z (in 1 hour)

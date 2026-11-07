@@ -1220,8 +1220,8 @@ mod tests {
         // 2026-10-13T17:00:00Z
         let now = 1_791_910_800;
         let me = session::Account {
-            account_id: "alukach".into(),
-            name: Some("Anthony Lukach".into()),
+            account_id: "demo-user".into(),
+            name: Some("Demo User".into()),
         };
         let report = status_report(
             "https://data.source.coop",
@@ -1236,8 +1236,8 @@ mod tests {
             report,
             "Environment    https://data.source.coop\n\
              Login          logged in\n\
-             Account        Anthony Lukach (alukach)\n\
-             Profile        https://source.coop/alukach\n\
+             Account        Demo User (demo-user)\n\
+             Profile        https://source.coop/demo-user\n\
              Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago)\n\
              ID token       expires 2026-10-13T18:00:00Z (in 1 hour)\n\
              Access token   for https://source.coop, expired 2026-10-13T16:59:00Z (1 minute ago)\n\
@@ -1328,8 +1328,8 @@ mod tests {
     fn status_json_carries_the_same_facts_as_data() {
         let now = 1_791_910_800;
         let me = session::Account {
-            account_id: "alukach".into(),
-            name: Some("Anthony Lukach".into()),
+            account_id: "demo-user".into(),
+            name: Some("Demo User".into()),
         };
         let json = status_json(
             "https://data.source.coop",
@@ -1347,9 +1347,9 @@ mod tests {
                 "login": {
                     "state": "logged_in",
                     "account": {
-                        "account_id": "alukach",
-                        "name": "Anthony Lukach",
-                        "profile_url": "https://source.coop/alukach",
+                        "account_id": "demo-user",
+                        "name": "Demo User",
+                        "profile_url": "https://source.coop/demo-user",
                     },
                     "refresh_token": {
                         "present": true,
@@ -1432,7 +1432,7 @@ mod tests {
     fn status_colours_labels_and_the_login_state() {
         let now = 1_791_910_800;
         let me = session::Account {
-            account_id: "alukach".into(),
+            account_id: "demo-user".into(),
             name: Some("A".into()),
         };
         let report = status_report(
@@ -1449,7 +1449,10 @@ mod tests {
             "{report:?}"
         );
         // The ID in gray, and a past expiry in yellow.
-        assert!(report.contains("A (\x1b[90malukach\x1b[0m)"), "{report:?}");
+        assert!(
+            report.contains("A (\x1b[90mdemo-user\x1b[0m)"),
+            "{report:?}"
+        );
         assert!(
             report.contains("\x1b[33mexpired 2026-10-13T16:59:00Z \x1b[2m(1 minute ago)\x1b[0m"),
             "{report:?}"
@@ -1471,13 +1474,12 @@ mod tests {
 
     #[test]
     fn the_account_comes_from_whoami() {
-        let me =
-            serde_json::json!({"account": {"account_id": "alukach", "name": "Anthony Lukach"}});
+        let me = serde_json::json!({"account": {"account_id": "demo-user", "name": "Demo User"}});
         assert_eq!(
             session::Account::from_whoami(&me),
             Some(session::Account {
-                account_id: "alukach".into(),
-                name: Some("Anthony Lukach".into())
+                account_id: "demo-user".into(),
+                name: Some("Demo User".into())
             })
         );
         // Signed in without an account yet.
@@ -1493,13 +1495,13 @@ mod tests {
         Mock::given(method("GET"))
             .and(path("/api/v1/whoami"))
             .respond_with(ResponseTemplate::new(200).set_body_json(
-                serde_json::json!({"account": {"account_id": "alukach", "name": "Anthony Lukach"}}),
+                serde_json::json!({"account": {"account_id": "demo-user", "name": "Demo User"}}),
             ))
             .expect(1)
             .mount(&server)
             .await;
         let found = whoami(&server.uri(), Some("at".into()), false).await;
-        assert_eq!(found.map(|a| a.account_id), Some("alukach".to_string()));
+        assert_eq!(found.map(|a| a.account_id), Some("demo-user".to_string()));
         // No token, no request (the mock expects exactly one).
         assert_eq!(whoami(&server.uri(), None, false).await, None);
     }
