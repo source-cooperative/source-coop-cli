@@ -32,6 +32,8 @@ class Session:
         # Steps for the docs player: each command run, and each prompt a key
         # answers, labelled with what was on screen and the keys pressed.
         self.steps, self.pending, self.quiet = [], None, False
+        # Each key pressed (not text typed), for the player's key overlay.
+        self.keys = []
         self.lock = threading.Lock()
         pid, fd = pty.fork()
         if pid == 0:
@@ -120,6 +122,7 @@ class Session:
     def enter(self):
         self.pause(0.6)
         self.act("Enter")
+        self.keys.append({"t": time.time() - self.t0, "key": "Enter"})
         self.send("\r")
 
     def key(self, keys, times=1):
@@ -127,6 +130,8 @@ class Session:
         self.act(name + (f"×{times}" if times > 1 else ""))
         for _ in range(times):
             self.pause(0.4)
+            if not self.quiet:
+                self.keys.append({"t": time.time() - self.t0, "key": name})
             self.send(keys)
 
     def finish(self, path):
@@ -157,7 +162,8 @@ class Session:
         steps = [{"time": round(capped(s["t"]), 3),
                   "label": " · ".join(filter(None, [s["label"], " ".join(s["did"])]))} for s in self.steps]
         with open(path.removesuffix(".cast") + ".json", "w") as f:
-            json.dump({"duration": round(capped(times[-1]), 3), "steps": steps}, f, ensure_ascii=False, indent=1)
+            keys = [{"time": round(capped(k["t"]), 3), "key": k["key"]} for k in self.keys]
+            json.dump({"duration": round(capped(times[-1]), 3), "steps": steps, "keys": keys}, f, ensure_ascii=False, indent=1)
 
 
 NAMES = {"\x1b[B": "↓", "\x1b[A": "↑", "\x1b[C": "→", "\x1b[D": "←", "\x1b": "Esc", "\x7f": "⌫",

@@ -2,11 +2,13 @@ name: Docs
 
 # Builds the docs site from README.md and keeps every published copy on the
 # gh-pages branch: each release's docs (and latest/), and a preview for each
-# open PR that changes the docs. "Docs deploy" then sends that branch to
-# GitHub Pages. docs/site/publish.py says how the branch is laid out.
+# open PR that changes the docs. Releases publish when GitHub publishes them:
+# release-please's bot creates them, so the event reaches this workflow.
+# "Docs deploy" then sends that branch to GitHub Pages. docs/site/publish.py
+# says how the branch is laid out.
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   pull_request:
     types: [opened, reopened, synchronize, closed]
     paths: ["README.md", "docs/**", ".github/workflows/docs*.yml"]
@@ -33,13 +35,13 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
     env:
       PR: ${{ github.event.pull_request.number }}
-      TAG: ${{ inputs.tag || github.ref_name }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
       PREVIEW_URL: https://source-cooperative.github.io/source-coop-cli/pr-preview/pr-${{ github.event.pull_request.number }}/
     steps:
       - uses: actions/checkout@v4
         if: github.event.action != 'closed'
         with:
-          ref: ${{ inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
       - uses: actions/checkout@v4
         if: github.event.action == 'closed'
         with:

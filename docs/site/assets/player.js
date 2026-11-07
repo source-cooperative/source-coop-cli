@@ -10,7 +10,8 @@
 (function () {
   var figures = document.querySelectorAll("figure.demo[data-demo]");
   if (!figures.length || !("SVGSVGElement" in window)) return;
-  var root = (document.querySelector('link[href$="assets/site.css"]').getAttribute("href") || "").replace("assets/site.css", "");
+  var css = document.querySelector('link[href$="assets/site.css"]');
+  var root = css ? css.getAttribute("href").replace("assets/site.css", "") : "";
   var count = 0;
 
   var ICON = {
@@ -67,7 +68,8 @@
       var scale = inner.width.baseVal.value / inner.viewBox.baseVal.width;
       var rowH = parseFloat(inner.querySelector("[font-size]").getAttribute("font-size")) * 1.3;
       var lowest = Math.max.apply(null, [].map.call(anim.parentElement.querySelectorAll("use[y]"), function (u) { return parseFloat(u.getAttribute("y")); }).concat(0));
-      h = Math.min(h, inner.y.baseVal.value + (lowest + rowH) * scale + 20);
+      // A band below the last row keeps the key overlay off the text.
+      h = Math.min(h, inner.y.baseVal.value + (lowest + rowH) * scale + 64);
       svg.setAttribute("viewBox", "0 0 " + w + " " + h);
       screen.style.setProperty("--ratio", w + " / " + h);
       var film = {
@@ -77,13 +79,13 @@
       };
       var dur = parseFloat(anim.getAttribute("dur")) || got[1].duration || 0;
       anim.remove();
-      ready(film, dur, got[1].steps || []);
+      ready(film, dur, got[1].steps || [], got[1].keys || []);
     }).catch(function () {
       screen.classList.remove("poster");
       screen.innerHTML = '<img src="' + root + "demos/" + name + '.svg" alt="" style="width:100%;height:auto;display:block">';
     });
 
-    function ready(film, dur, steps) {
+    function ready(film, dur, steps, keys) {
       var playing = false, started = false, frame = 0, current = -1;
       var now = dur, since = 0;
       range.max = dur;
@@ -132,9 +134,33 @@
         drawer.addEventListener("keydown", function (e) { if (e.key === "Escape") open(false); });
       }
 
+      // The key just pressed, shown in the terminal's bottom right corner for a
+      // second; one pressed again in a row counts up ("↓ ×2"). Typed text isn't
+      // shown: it's on screen already.
+      var cast = keys.length ? el('<div class="keycast" aria-hidden="true"></div>') : null, castHtml = "";
+      if (cast) screen.appendChild(cast);
+      function keycaps(t) {
+        if (!cast) return;
+        var span = 1.2, recent = [];
+        if (started) keys.forEach(function (k) { if (k.time <= t && t - k.time < span) recent.push(k); });
+        var html = "";
+        if (recent.length) {
+          var last = recent[recent.length - 1], n = 0;
+          for (var i = recent.length - 1; i >= 0 && recent[i].key === last.key; i--) n++;
+          var label = (last.key === "Enter" ? "⏎ Enter" : last.key) + (n > 1 ? " ×" + n : "");
+          var fade = Math.max(0, Math.min(1, (span - (t - last.time)) / (span * 0.4)));
+          html = '<kbd style="opacity:' + fade.toFixed(2) + '"></kbd>';
+          if (html !== castHtml) { cast.innerHTML = html; cast.firstChild.textContent = label; castHtml = html; }
+          else cast.firstChild.textContent = label;
+          return;
+        }
+        if (castHtml) { cast.innerHTML = ""; castHtml = ""; }
+      }
+
       function show() {
         var t = now;
         draw(t);
+        keycaps(t);
         var pct = dur ? t / dur * 100 : 0;
         track.querySelector(".fill").style.width = pct + "%";
         track.querySelector(".thumb").style.left = pct + "%";
@@ -148,7 +174,9 @@
           current = at;
         }
         var label = at >= 0 ? " · " + steps[at].label : "";
-        time.textContent = fmt(t) + " / " + fmt(dur) + label;
+        // Just the time: a step's name beside it would resize the track as it
+        // changes. The drawer and the track's marks show the steps.
+        time.textContent = fmt(t) + " / " + fmt(dur);
         range.setAttribute("aria-valuetext", fmt(t) + " of " + fmt(dur) + label);
       }
       function begin() {
@@ -188,6 +216,14 @@
 
       poster.querySelector("button").addEventListener("click", function () { play(); toggle.focus(); });
       toggle.addEventListener("click", function () { playing ? pause() : play(); });
+      // A click on the demo plays or pauses it, unless it ended a drag that
+      // selected some of its text.
+      screen.addEventListener("click", function (e) {
+        if (e.target.closest("button")) return;
+        var picked = window.getSelection();
+        if (picked && !picked.isCollapsed && screen.contains(picked.anchorNode)) return;
+        playing ? pause() : play();
+      });
       range.addEventListener("input", function () { seek(parseFloat(range.value)); });
       show();
     }

@@ -79,6 +79,16 @@ def render(text, anchors, page, ids):
     return re.sub(r"(<table>.*?</table>)", r'<div class="table-wrap">\1</div>', out, flags=re.S)
 
 
+def search_entries(body, page, section):
+    """The search index for a page: one entry for each heading, with the text
+    under it up to the next heading. Demos and the pager aren't text to find."""
+    body = re.sub(r"<figure.*?</figure>", "", body, flags=re.S)
+    parts = re.split(r'<h[1-4] id="([^"]+)">(.*?)</h[1-4]>', body)
+    text = lambda h: " ".join(html.unescape(re.sub(r"<[^>]+>", " ", h)).split())
+    return [{"page": page, "id": parts[i], "title": text(parts[i + 1]), "section": section, "text": text(parts[i + 2])}
+            for i in range(1, len(parts) - 1, 3)]
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--readme", default="README.md")
@@ -105,6 +115,7 @@ def main():
         pages.append({"slug": name, "heading": heading, "text": text, "ids": mine, "subs": subs})
 
     template = open(os.path.join(HERE, "page.html")).read()
+    index = []
     if os.path.exists(args.out):
         shutil.rmtree(args.out)
     for i, page in enumerate(pages):
@@ -113,6 +124,7 @@ def main():
         body = render(heading_md + page["text"], anchors, page["slug"], list(page["ids"]))
         if page["heading"]:
             body = body.replace("<h2", "<h1", 1).replace("</h2>", "</h1>", 1)
+        index += search_entries(body, page["slug"], plain(page["heading"]) if page["heading"] else "Overview")
         nav = []
         for q in pages:
             title = md.renderInline(q["heading"]) if q["heading"] else "Overview"
@@ -139,6 +151,7 @@ def main():
         os.makedirs(os.path.dirname(path), exist_ok=True)
         open(path, "w").write(out)
 
+    json.dump(index, open(os.path.join(args.out, "search.json"), "w"), ensure_ascii=False, separators=(",", ":"))
     shutil.copytree(os.path.join(HERE, "assets"), os.path.join(args.out, "assets"))
     shutil.copytree(args.demos, os.path.join(args.out, "demos"))
     print(f"built {len(pages)} pages for {args.version} in {args.out}")

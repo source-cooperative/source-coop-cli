@@ -1,5 +1,5 @@
 """Update a checkout of the gh-pages branch, which holds every published copy
-of the docs site:
+of the docs site (the Docs workflow runs it on each published release and PR):
 
     python3 docs/site/publish.py PAGES release v0.4.0 --site target/site
     python3 docs/site/publish.py PAGES preview 75 --site target/site
