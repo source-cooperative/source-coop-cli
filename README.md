@@ -11,6 +11,8 @@ All commands work the same way:
 - `-i` shows records full screen, for you to move through.
 - `--json` and the exit codes are stable, for scripts and AI agents.
 
+This guide is also a website, with a page for each section and docs for each release: <https://source-cooperative.github.io/source-coop-cli/>.
+
 The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`). Their `http://127.0.0.1:…` URLs are local.
 
 **Contents**

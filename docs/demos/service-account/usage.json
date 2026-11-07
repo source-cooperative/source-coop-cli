@@ -1,0 +1,17 @@
+{
+ "duration": 15.108,
+ "steps": [
+  {
+   "time": 0.751,
+   "label": "$ source-coop service-account usage demo-org--stac-indexer"
+  },
+  {
+   "time": 4.1,
+   "label": "Sign in with · Enter"
+  },
+  {
+   "time": 8.712,
+   "label": "$ clear; source-coop service-account usage demo-org--stac-indexer --key"
+  }
+ ]
+}

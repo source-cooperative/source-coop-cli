@@ -9,6 +9,7 @@ How this CLI behaves, so every command behaves the same way. Each rule names the
 - **Commands and flags:** new ones get an example. Changed or removed ones are changed or removed there too.
 - **Behaviour:** prompts, keys, output formats and defaults.
 - **Files and environment variables** it reads or writes.
+- **The docs site is the README.** `docs/site/build.py` turns it into the site at <https://source-cooperative.github.io/source-coop-cli/>, one page for each `##` section, so a new `##` heading is a new page. Release tags publish it as that version and as `latest/`. Build it locally with `uv run --with markdown-it-py python docs/site/build.py --out target/site`.
 - **Demos:** the README embeds recordings from `docs/demos/`, made by `demo/demos/guide.py` and `demo/demos/service-accounts.py`. When a change alters what one shows, update its script and re-record it (`demo/README.md` says how).
 
 Before committing, read the README sections your change touches and fix anything now untrue, including text written before your change. The README isn't a changelog: describe how the CLI works now, not what changed. `every_command_is_in_the_readme` in `src/main.rs` fails if a command is missing from it, but it can't tell whether the description is right. That part is on you.
@@ -119,9 +120,10 @@ A reviewer should see what a change is like to use without building it. A PR tha
 1. **A paragraph on what users can now do**, then the commands as a `bash` block of examples, one per command or flag, with a comment where it isn't obvious.
 2. **How it behaves:** prompts and their order, confirmations, what `--json` prints, exit codes, and anything a script relies on.
 3. **Demos:** one recording for each command or flow in the change (below).
-4. **Not in this PR:** what was deliberately left out, why, and when it would be worth adding.
-5. **Follow-ups elsewhere**, such as source.coop server changes the CLI works around. Name the file and the problem.
-6. **Testing:** the commands run and how many tests were added, and what wasn't tried, such as a real or staging API. Say it plainly.
+4. **Docs changes:** what changed in the guide, with a link to each changed page on the PR's docs preview (below).
+5. **Not in this PR:** what was deliberately left out, why, and when it would be worth adding.
+6. **Follow-ups elsewhere**, such as source.coop server changes the CLI works around. Name the file and the problem.
+7. **Testing:** the commands run and how many tests were added, and what wasn't tried, such as a real or staging API. Say it plainly.
 
 ### Demos
 
@@ -133,6 +135,13 @@ Record with `demo/`: `demo/README.md` says how to write a demo, record it and ge
 - **Say in the PR that the demos run against the stub,** so the `http://127.0.0.1:PORT` URLs in them aren't mistaken for real ones.
 - **Attachments are public:** this repository is public, and so are its PRs. Record only the stub's made-up data, never a real account or token.
 - **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.
+
+### Docs previews
+
+A PR that changes `README.md` or `docs/` gets a preview of the docs site at `https://source-cooperative.github.io/source-coop-cli/pr-preview/pr-N/`, where N is the PR's number. The *Docs* workflow builds it and comments the link on the PR, and the preview is removed when the PR closes. PRs from forks get a build check only.
+
+- **Call out the docs changes** in the description: say what changed and link each changed page on the preview, such as `…/pr-preview/pr-N/managing-products/#create`. A page is its `##` section's anchor; an anchor inside it follows `#`.
+- **Look at the preview before asking for review.** A broken link, a demo that doesn't load, or a page split wrongly by a new `##` heading is a bug in the PR.
 
 ### The stub server
 

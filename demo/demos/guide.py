@@ -20,11 +20,11 @@ def product_list(s):
 
 def product_browse(s):
     s.run(f"source-coop product list {ORG} -i")
-    s.see("Landsat"); s.pause(1.2); s.key(DOWN); s.key(DOWN); s.key(RIGHT)
-    s.see("Cloud-optimized"); s.pause(2.5); s.key(LEFT)
-    s.see("Landsat"); s.pause(0.8); s.key("/"); s.type("clim"); s.pause(1.5); s.enter()
+    s.see("Landsat", step="The list"); s.pause(1.2); s.key(DOWN); s.key(DOWN); s.key(RIGHT)
+    s.see("Cloud-optimized", step="Landsat Mirror"); s.pause(2.5); s.key(LEFT)
+    s.see("Landsat", step="Back to the list, then filter"); s.pause(0.8); s.key("/"); s.type("clim"); s.pause(1.5); s.enter()
     s.pause(1); s.key(RIGHT)
-    s.see("Daily gridded"); s.pause(2.5); s.key(LEFT); s.pause(1); s.key("q")
+    s.see("Daily gridded", step="Climate Grid"); s.pause(2.5); s.key(LEFT); s.pause(1); s.key("q")
 
 
 def product_create(s):
@@ -45,11 +45,11 @@ def product_create(s):
 
 def product_edit(s):
     s.run(f"source-coop product edit {ORG}/demo-data")
-    s.see("Save changes"); s.pause(1.2); s.enter()   # Title
+    s.see("Save changes", step="The edit form"); s.pause(1.2); s.enter()   # Title
     s.see("Title"); s.pause(0.6); s.type(" (2026)"); s.enter()
-    s.see("Save changes"); s.pause(0.8); s.key(DOWN, 2); s.enter()   # Visibility
+    s.see("Save changes", step="Title changed"); s.pause(0.8); s.key(DOWN, 2); s.enter()   # Visibility
     s.see("Visibility"); s.pause(1); s.key(UP); s.enter()
-    s.see("Save changes"); s.pause(1.5); s.key("s")
+    s.see("Save changes", step="Visibility changed"); s.pause(1.5); s.key("s")
     s.see("Save these changes"); s.pause(3); s.enter()
     s.prompt()
     s.run(f"source-coop product edit {ORG}/demo-data --visibility unlisted --json | jq -c '{{title, visibility}}'")
@@ -58,11 +58,11 @@ def product_edit(s):
 def product_delete(s):
     s.run(f"source-coop product delete {ORG}/demo-data")
     s.see("Keep the product's data"); s.pause(1.5); s.enter()
-    s.see("Type"); s.pause(1.5); s.type(f"{ORG}/demo-dat"); s.enter()
+    s.see("Type", step="Type the name to confirm"); s.pause(1.5); s.type(f"{ORG}/demo-dat"); s.enter()
     s.prompt(); s.pause(1.5)
     s.run(f"source-coop product delete {ORG}/demo-data")
     s.see("Keep the product's data"); s.pause(1); s.enter()
-    s.see("Type"); s.pause(1); s.type(f"{ORG}/demo-data"); s.enter()
+    s.see("Type", step="Type the name to confirm"); s.pause(1); s.type(f"{ORG}/demo-data"); s.enter()
     s.prompt(); s.pause(1.5)
     s.run(f"source-coop product delete {ORG}/landsat-mirror --yes --preserve-data --json | jq -c '{{product_id}}'")
 
@@ -78,13 +78,13 @@ def members(s):
     s.see("Role for"); s.pause(1); s.key(UP); s.enter()
     s.prompt()
     s.run(f"source-coop member revoke {ORG} linus-demo")
-    s.see(r"\?"); s.pause(1.5); s.key("y")
+    s.see(r"\?", step="Withdraw linus-demo's invitation?"); s.pause(1.5); s.key("y")
 
 
 def member_browse(s):
     s.run(f"source-coop member list {ORG} -i")
-    s.see("grace-demo"); s.pause(1.2); s.key(DOWN, 3); s.key(RIGHT)
-    s.see("Role"); s.pause(1.5); s.key("e")
+    s.see("grace-demo", step="The members"); s.pause(1.2); s.key(DOWN, 3); s.key(RIGHT)
+    s.see("Role", step="grace-demo"); s.pause(1.5); s.key("e")
     s.see("Role for"); s.pause(1); s.key(UP); s.enter()
     s.pause(2.5); s.key(LEFT); s.pause(1); s.key("q")
 
@@ -92,8 +92,8 @@ def member_browse(s):
 def invitations(s):
     s.run("source-coop invitation list"); s.prompt(); s.pause(1.5)
     s.run("source-coop invitation list -i")
-    s.see("ocean-buoys"); s.pause(1.2); s.key(RIGHT)
-    s.see("Role"); s.pause(1.5); s.key("a")
+    s.see("ocean-buoys", step="Your invitations"); s.pause(1.2); s.key(RIGHT)
+    s.see("Role", step="The invitation to partner-org"); s.pause(1.5); s.key("a")
     s.see("Accepted"); s.pause(2.5); s.key(LEFT)  # quits: the list is the top
     s.prompt()
     s.run("source-coop invitation reject partner-org/ocean-buoys --json | jq -c '{membership_account_id, product_id, state}'")

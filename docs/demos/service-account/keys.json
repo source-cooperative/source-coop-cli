@@ -1,0 +1,41 @@
+{
+ "duration": 40.682,
+ "steps": [
+  {
+   "time": 0.753,
+   "label": "$ source-coop service-account view demo-org--nightly-sync | sed -n '/Signs in with/,/^$/p'"
+  },
+  {
+   "time": 8.098,
+   "label": "$ source-coop service-account sign-in add demo-org--nightly-sync --key 'Batch server' --expires 30d --out batch.key"
+  },
+  {
+   "time": 14.956,
+   "label": "$ ls -l batch.key | awk '{print $1, $NF}'"
+  },
+  {
+   "time": 18.116,
+   "label": "$ source-coop service-account sign-in edit demo-org--nightly-sync -i"
+  },
+  {
+   "time": 21.939,
+   "label": "Change which key · Enter"
+  },
+  {
+   "time": 23.602,
+   "label": "When should · ↓ Enter"
+  },
+  {
+   "time": 25.361,
+   "label": "$ source-coop service-account sign-in remove demo-org--nightly-sync key:Qx7Lm2"
+  },
+  {
+   "time": 29.596,
+   "label": "Type it to confirm · \"key:Qx7Lm2\" Enter"
+  },
+  {
+   "time": 33.343,
+   "label": "$ source-coop service-account view demo-org--nightly-sync | sed -n '/Signs in with/,/^$/p'"
+  }
+ ]
+}

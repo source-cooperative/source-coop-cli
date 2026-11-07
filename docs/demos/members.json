@@ -1,0 +1,41 @@
+{
+ "duration": 27.906,
+ "steps": [
+  {
+   "time": 0.761,
+   "label": "$ source-coop member list demo-org"
+  },
+  {
+   "time": 5.183,
+   "label": "$ source-coop member invite demo-org"
+  },
+  {
+   "time": 7.486,
+   "label": "Account IDs · \"alan-demo katherine-demo\" Enter"
+  },
+  {
+   "time": 9.75,
+   "label": "Role · ↑ Enter"
+  },
+  {
+   "time": 11.812,
+   "label": "Invite · Enter"
+  },
+  {
+   "time": 15.01,
+   "label": "$ source-coop member edit demo-org grace-demo"
+  },
+  {
+   "time": 17.787,
+   "label": "Role for · ↑ Enter"
+  },
+  {
+   "time": 20.57,
+   "label": "$ source-coop member revoke demo-org linus-demo"
+  },
+  {
+   "time": 23.48,
+   "label": "Withdraw linus-demo's invitation? · y"
+  }
+ ]
+}
