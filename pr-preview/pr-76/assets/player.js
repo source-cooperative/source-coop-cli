@@ -61,8 +61,15 @@
       svg.removeAttribute("width"); svg.removeAttribute("height");
       svg.setAttribute("role", "img");
       svg.setAttribute("aria-label", caption ? caption.textContent : name);
-      screen.style.setProperty("--ratio", w + " / " + h);
       var anim = svg.querySelector("animateTransform");
+      // Trim the rows no frame uses, so a short demo isn't a tall empty box.
+      var inner = anim.parentElement.closest("svg");
+      var scale = inner.width.baseVal.value / inner.viewBox.baseVal.width;
+      var rowH = parseFloat(inner.querySelector("[font-size]").getAttribute("font-size")) * 1.3;
+      var lowest = Math.max.apply(null, [].map.call(anim.parentElement.querySelectorAll("use[y]"), function (u) { return parseFloat(u.getAttribute("y")); }).concat(0));
+      h = Math.min(h, inner.y.baseVal.value + (lowest + rowH) * scale + 20);
+      svg.setAttribute("viewBox", "0 0 " + w + " " + h);
+      screen.style.setProperty("--ratio", w + " / " + h);
       var film = {
         g: anim.parentElement,
         times: anim.getAttribute("keyTimes").split(";").map(Number),
@@ -114,8 +121,10 @@
           track.insertBefore(tick, range);
           ticks.push(tick);
         });
+        // The rail keeps its place under the open drawer, so the demo
+        // doesn't resize when the drawer opens.
         var open = function (yes) {
-          drawer.hidden = !yes; rail.hidden = yes;
+          drawer.hidden = !yes;
           (yes ? drawer.querySelector("header button") : rail.querySelector("button")).focus();
         };
         rail.querySelector("button").addEventListener("click", function () { open(true); });

@@ -1,20 +1,20 @@
 {
- "duration": 16.439,
+ "duration": 16.266,
  "steps": [
   {
-   "time": 0.759,
+   "time": 0.755,
    "label": "$ source-coop member list demo-org -i"
   },
   {
-   "time": 3.137,
+   "time": 3.007,
    "label": "The members · ↓×3 →"
   },
   {
-   "time": 6.028,
+   "time": 5.878,
    "label": "grace-demo · e"
   },
   {
-   "time": 7.999,
+   "time": 7.841,
    "label": "Role for · ↑ Enter ← q"
   }
  ]

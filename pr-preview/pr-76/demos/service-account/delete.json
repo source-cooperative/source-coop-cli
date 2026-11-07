@@ -1,16 +1,16 @@
 {
- "duration": 16.812,
+ "duration": 16.806,
  "steps": [
   {
-   "time": 0.751,
+   "time": 0.755,
    "label": "$ source-coop service-account delete demo-org--old-backfill"
   },
   {
-   "time": 4.092,
+   "time": 4.091,
    "label": "Type it to confirm · \"demo-org--old-backfill\" Enter"
   },
   {
-   "time": 8.989,
+   "time": 8.974,
    "label": "$ source-coop service-account delete demo-org--stac-indexer --yes --json | jq -c '{account_id, name}'"
   }
  ]

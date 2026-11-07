@@ -1,32 +1,32 @@
 {
- "duration": 29.435,
+ "duration": 28.802,
  "steps": [
   {
-   "time": 0.76,
+   "time": 0.756,
    "label": "$ source-coop product delete demo-org/demo-data"
   },
   {
-   "time": 3.634,
+   "time": 3.502,
    "label": "Keep the product's data · Enter"
   },
   {
-   "time": 5.808,
+   "time": 5.666,
    "label": "Type the name to confirm · \"demo-org/demo-dat\" Enter"
   },
   {
-   "time": 11.459,
+   "time": 11.267,
    "label": "$ source-coop product delete demo-org/demo-data"
   },
   {
-   "time": 14.291,
+   "time": 14.014,
    "label": "Keep the product's data · Enter"
   },
   {
-   "time": 15.958,
+   "time": 15.675,
    "label": "Type the name to confirm · \"demo-org/demo-data\" Enter"
   },
   {
-   "time": 21.158,
+   "time": 20.821,
    "label": "$ source-coop product delete demo-org/landsat-mirror --yes --preserve-data --json | jq -c '{product_id}'"
   }
  ]
