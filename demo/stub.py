@@ -162,12 +162,19 @@ def handle(method, path, q, body):
 
     if path == "/memberships":
         if method == "POST":
-            # An invitation, until the invited account accepts it.
-            m = dict(body, membership_id=str(uuid.uuid4()), state="invited", state_changed=now())
+            # An invitation, until the invited account accepts it. A service
+            # account is added at once, as the API does.
+            service = accounts.get(body.get("account_id"), {}).get("type") == "service"
+            m = dict(body, membership_id=str(uuid.uuid4()), state="member" if service else "invited",
+                     state_changed=now())
             memberships.append(m)
             return 201, m
         filters = ("account_id", "membership_account_id", "product_id", "state")
-        return 200, page([m for m in memberships if all(m.get(f) == q[f] for f in filters if f in q)])
+        found = [m for m in memberships if all(m.get(f) == q[f] for f in filters if f in q)]
+        if "membership_account_id" in q and "product_id" not in q:
+            # As the API does: an organization's members, without its products'.
+            found = [m for m in found if not m.get("product_id")]
+        return 200, page(found)
     if r := re.fullmatch(r"/memberships/([^/]+)", path):
         m = next((m for m in memberships if m["membership_id"] == r[1]), None)
         if not m:
