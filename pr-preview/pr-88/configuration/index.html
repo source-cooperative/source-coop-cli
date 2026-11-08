@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configuration · source-coop CLI</title>
+<meta name="docs-version" content="pr-88">
+<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-page" content="configuration/">
+<meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
+<script>
+  // The theme before the first paint: this tab's choice, or the system's.
+  (function () {
+    var t = null;
+    try { t = sessionStorage.getItem("theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+<script src="../assets/player.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="../">
+      <img class="logo logo-ink" src="../assets/logo-ink.svg" alt="Source Cooperative" width="97" height="26">
+      <img class="logo logo-bone" src="../assets/logo-bone.svg" alt="Source Cooperative" width="97" height="26">
+      <span>CLI guide</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="search">
+      <input type="search" id="search" placeholder="Search" aria-label="Search the guide" aria-controls="search-results" autocomplete="off" spellcheck="false">
+      <div class="search-results" id="search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+    </div>
+    <div class="version">
+      <button class="version-button" type="button" aria-expanded="false" aria-controls="versions" disabled>
+        <span class="version-name">pr-88</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="version-menu" id="versions" hidden></div>
+    </div>
+    <a class="top-link" href="https://github.com/source-cooperative/source-coop-cli">GitHub</a>
+    <button class="theme" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark">
+      <svg class="icon-moon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="icon-sun" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="old-version" role="status" hidden></div>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <details open>
+      <summary>Contents</summary>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/" aria-current="page">Configuration</a><ul><li><a href="#multiple-environments-for-example-staging">Multiple environments (for example, staging)</a></li><li><a href="#sign-in-options">Sign-in options</a></li></ul></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+    </details>
+  </nav>
+  <main id="main">
+<h1 id="configuration">Configuration</h1>
+<p>The CLI has no configuration file. Flags and environment variables set all values. A flag takes priority over its variable.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Env var</th>
+<th>Flag</th>
+<th>Default</th>
+<th>Sets</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SOURCE_PROXY_URL</code></td>
+<td><code>--proxy-url</code></td>
+<td><code>https://data.source.coop</code></td>
+<td>The environment: the data proxy, and the session and credentials to use</td>
+</tr>
+<tr>
+<td><code>SOURCE_API_URL</code></td>
+<td><code>--api-url</code></td>
+<td><code>https://source.coop</code></td>
+<td>The source.coop site whose API (<code>/api/v1</code>) commands use</td>
+</tr>
+<tr>
+<td><code>SOURCE_TOKEN</code></td>
+<td></td>
+<td></td>
+<td>A bearer token for the API, used instead of the session's</td>
+</tr>
+<tr>
+<td><code>SOURCE_ROLE_ARN</code></td>
+<td><code>--role-arn</code></td>
+<td><code>_default</code></td>
+<td>The role for <code>creds</code>, <code>auth login</code>, <code>status</code> and <code>logout</code></td>
+</tr>
+<tr>
+<td><code>SOURCE_OIDC_ISSUER</code></td>
+<td><code>--issuer</code></td>
+<td><code>https://auth.source.coop</code></td>
+<td>Where <code>auth login</code> signs in</td>
+</tr>
+<tr>
+<td><code>SOURCE_OIDC_CLIENT_ID</code></td>
+<td><code>--client-id</code></td>
+<td>source.coop's</td>
+<td>The OAuth2 client for <code>auth login</code></td>
+</tr>
+<tr>
+<td><code>SOURCE_API_AUDIENCE</code></td>
+<td><code>--audience</code></td>
+<td><code>https://source.coop</code></td>
+<td>The audience of the API access token that <code>auth login</code> requests</td>
+</tr>
+<tr>
+<td><code>SOURCE_REFRESH_TOKEN_LIFETIME</code></td>
+<td></td>
+<td><code>30d</code></td>
+<td>The refresh-token lifetime that <code>auth status</code> assumes, for example <code>720h</code> or <code>14d</code></td>
+</tr>
+<tr>
+<td><code>SOURCE_PROMPT_DISABLED</code></td>
+<td></td>
+<td></td>
+<td>If set to any value, the CLI never asks questions</td>
+</tr>
+<tr>
+<td><code>SOURCE_PAGER</code>, <code>PAGER</code></td>
+<td><code>--no-pager</code></td>
+<td><code>less -FRX</code></td>
+<td>The pager for lists on a terminal</td>
+</tr>
+<tr>
+<td><code>VISUAL</code>, <code>EDITOR</code></td>
+<td></td>
+<td></td>
+<td>The editor that <kbd>Ctrl</kbd>+<kbd>E</kbd> opens for long text</td>
+</tr>
+<tr>
+<td><code>GH_TOKEN</code>, <code>GITHUB_TOKEN</code></td>
+<td></td>
+<td></td>
+<td>Lets the CLI ask GitHub about the workflows of a private repository</td>
+</tr>
+<tr>
+<td><code>NO_COLOR</code>, <code>CLICOLOR=0</code></td>
+<td></td>
+<td></td>
+<td>No color, also on a terminal</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>.env.staging</code> in this repository sets the values for staging. Run <code>source .env.staging</code> before a command, or use a subshell as in <a href="#multiple-environments-for-example-staging">Multiple environments</a>.</p>
+<p>To set up the OAuth2 client for another deployment of source.coop, see <a href="https://github.com/source-cooperative/source-coop-cli/blob/main/CONTRIBUTING.md#oidc-provider-setup">CONTRIBUTING.md</a>.</p>
+<h3 id="multiple-environments-for-example-staging">Multiple environments (for example, staging)</h3>
+<p>Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:</p>
+<pre><code class="language-bash">source-coop auth login
+( source .env.staging &amp;&amp; source-coop auth login )
+</code></pre>
+<ul>
+<li><code>--proxy-url</code> (or <code>SOURCE_PROXY_URL</code>) selects the environment for all commands. The default is production.</li>
+<li><code>--api-url</code> (or <code>SOURCE_API_URL</code>) selects the site for commands that use the API. <code>.env.staging</code> sets both.</li>
+</ul>
+<p>An AWS profile for a different environment must use <code>--proxy-url</code>. If it does not, it gets production credentials:</p>
+<pre><code class="language-ini">[profile source-coop]
+credential_process = source-coop creds
+endpoint_url = https://data.source.coop
+
+[profile source-coop-staging]
+credential_process = source-coop creds --proxy-url https://data.staging.source.coop
+endpoint_url = https://data.staging.source.coop
+</code></pre>
+<h3 id="sign-in-options">Sign-in options</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Flag</th>
+<th>Env var</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>--issuer</code></td>
+<td><code>SOURCE_OIDC_ISSUER</code></td>
+<td><code>https://auth.source.coop</code></td>
+<td>OIDC issuer URL</td>
+</tr>
+<tr>
+<td><code>--client-id</code></td>
+<td><code>SOURCE_OIDC_CLIENT_ID</code></td>
+<td><code>197e20e7-...</code></td>
+<td>OAuth2 client ID</td>
+</tr>
+<tr>
+<td><code>--proxy-url</code></td>
+<td><code>SOURCE_PROXY_URL</code></td>
+<td><code>https://data.source.coop</code></td>
+<td>S3 proxy URL for STS. Also selects the environment of the session.</td>
+</tr>
+<tr>
+<td><code>--role-arn</code></td>
+<td><code>SOURCE_ROLE_ARN</code></td>
+<td><code>_default</code></td>
+<td>Role ARN to assume</td>
+</tr>
+<tr>
+<td><code>--format</code></td>
+<td></td>
+<td><code>credential-process</code></td>
+<td>Output format: <code>credential-process</code>, <code>env</code> or <code>aws-credentials</code></td>
+</tr>
+<tr>
+<td><code>--profile</code></td>
+<td></td>
+<td><code>source-coop</code></td>
+<td>Profile name for <code>--format aws-credentials</code></td>
+</tr>
+<tr>
+<td><code>--duration</code></td>
+<td></td>
+<td></td>
+<td>Session duration, for example <code>3600</code>, <code>90s</code>, <code>5m</code>, <code>12h</code>, <code>1d</code> (a number alone is seconds)</td>
+</tr>
+<tr>
+<td><code>--scope</code></td>
+<td></td>
+<td><code>openid offline_access</code></td>
+<td>OAuth2 scopes. <code>offline_access</code> lets <code>creds</code> renew credentials.</td>
+</tr>
+<tr>
+<td><code>--audience</code></td>
+<td><code>SOURCE_API_AUDIENCE</code></td>
+<td><code>https://source.coop</code></td>
+<td>Audience of the API access token. If empty, the CLI requests none, and only <code>creds</code> works.</td>
+</tr>
+<tr>
+<td><code>--port</code></td>
+<td></td>
+<td><code>0</code> (random)</td>
+<td>Local callback port</td>
+</tr>
+<tr>
+<td><code>--no-cache</code></td>
+<td></td>
+<td></td>
+<td>Print the credentials and keep nothing</td>
+</tr>
+</tbody>
+</table></div>
+
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../any-api-request/" rel="prev"><span>Previous</span>Any API request</a><a class="pager-next" href="../credential-storage/" rel="next"><span>Next</span>Credential storage</a></nav>
+  </main>
+</div>
+<footer class="bottom">
+  <div class="bottom-inner">
+    <span>Source Cooperative (a Radiant Earth initiative)</span>
+    <a href="https://source.coop">source.coop</a>
+    <a href="https://github.com/source-cooperative/source-coop-cli/edit/main/README.md">Edit this guide on GitHub</a>
+    <span>Demos use made-up records on a local stand-in for the API.</span>
+  </div>
+</footer>
+</body>
+</html>
