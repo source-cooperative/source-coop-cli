@@ -18,12 +18,36 @@ PAGES/
 
 import argparse, json, os, re, shutil
 
+# Script first, so the browser leaves before painting; the refresh and the
+# styled link are for visitors without JavaScript.
 REDIRECT = """<!doctype html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
 <title>source-coop CLI guide</title>
+<script>location.replace("latest/" + location.search + location.hash);</script>
 <meta http-equiv="refresh" content="0; url=latest/">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="canonical" href="latest/">
-<a href="latest/">The source-coop CLI guide</a>
+<link rel="icon" href="latest/assets/icon.svg" type="image/svg+xml">
+<style>
+  :root { color-scheme: light dark; --bg: #EFEBEA; --fg: #121A1B; --muted: #4A5253; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #121A1B; --fg: #EFEBEA; --muted: #ABAFAE; } }
+  body { margin: 0; min-height: 100vh; display: grid; place-content: center; gap: 16px; padding: 0 16px;
+    background: var(--bg); color: var(--fg); font: 16px/1.55 "IBM Plex Sans", system-ui, -apple-system, sans-serif; text-align: center; }
+  img { margin: 0 auto; }
+  .bone { display: none; }
+  @media (prefers-color-scheme: dark) { .ink { display: none; } .bone { display: block; } }
+  a { color: inherit; font: 700 15px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  p { margin: 0; color: var(--muted); }
+</style>
+</head>
+<body>
+<img class="ink" src="latest/assets/logo-ink.svg" alt="Source Cooperative" width="146" height="39">
+<img class="bone" src="latest/assets/logo-bone.svg" alt="Source Cooperative" width="146" height="39">
+<p>Taking you to the <a href="latest/">source-coop CLI guide</a>…</p>
+</body>
+</html>
 """
 
 
