@@ -17,7 +17,7 @@ It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fe
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys, memberships and the objects in its bucket. Add what a new demo needs here.
 - `check_stub.py` makes a request to each of the stub's routes and validates the answers against the API's OpenAPI spec on staging. CI runs it on PRs that change `demo/`. Run it yourself after changing the stub or fixtures: `uv run --with jsonschema python demo/check_stub.py` (or `pip install jsonschema` first). When a demo needs a new route, add a request for it to `requests()`.
 - `record.py` runs bash in a pseudo-terminal at 80×28 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt. Before it's saved, the stub's URLs are drawn as production's (`https://source.coop` for the site and API, `https://data.source.coop` for the proxy) and the throwaway `HOME` as `~`, so ports and temp paths don't distract; the CLI still only talks to the stub. Each is rendered as an animated SVG beside its cast, with its steps in a JSON file of the same name. The docs site's player marks the steps on its track and lists them: each command run, and each prompt that a key answers. The file also lists each key pressed (`key`, `enter`), which the player shows in the terminal's corner as the demo plays.
-- `demos/` holds the scripts for the demos the README shows, which are kept in `docs/demos/` (below).
+- `demos/guide.py` holds the script for the demos the README shows, which are kept in `docs/demos/` (below).
 - No other demo scripts are kept. Each PR writes its own, for what it changes, in `demo/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
 
 ## Writing a demo
@@ -52,16 +52,15 @@ To show a signed-in CLI (`auth status`, `auth token`, `creds`, `aws`), call `sig
 
 ## In the README
 
-The README embeds animated SVGs from `docs/demos/`, the only recordings git keeps. `demos/guide.py` makes most of them and `demos/service-accounts.py` the service-account section's. When a change alters what one shows, update its script and re-record just that demo, then check the SVG shows what the README says it does:
+The README embeds animated SVGs from `docs/demos/`, the only recordings git keeps. `demos/guide.py` makes them all. When a change alters what one shows, update its function there and re-record just that demo, then check the SVG shows what the README says it does:
 
 ```bash
 cargo build
-python3 -I demo/record.py demo/demos/guide.py --out docs/demos product-create
-python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos service-account-keys
+python3 -I demo/record.py demo/demos/guide.py --out docs/demos product-create service-account-keys
 rm docs/demos/*.cast    # keep the .svg and .json
 ```
 
-A new demo needs a line in the script's `DEMOS` and an image in the README. Each SVG is one to four hundred kilobytes, and every re-recording adds another copy to git's history, so re-record what changed rather than everything.
+A new demo needs a line in `guide.py`'s `DEMOS` and an image in the README. Each SVG is one to four hundred kilobytes, and every re-recording adds another copy to git's history, so re-record what changed rather than everything.
 
 ## In a PR description
 
