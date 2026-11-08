@@ -1,0 +1,99 @@
+{
+ "duration": 41.472,
+ "steps": [
+  {
+   "time": 0.755,
+   "label": "$ source-coop service-account sign-in add demo-org--nightly-sync"
+  },
+  {
+   "time": 4.336,
+   "label": "Sign in with · Enter"
+  },
+  {
+   "time": 5.997,
+   "label": "Repository · \"source-cooperative/source.coop\" Enter"
+  },
+  {
+   "time": 8.525,
+   "label": "Allow runs from · ↓×2 Enter"
+  },
+  {
+   "time": 9.94,
+   "label": "Environment · \"staging\" Enter"
+  },
+  {
+   "time": 12.65,
+   "label": "Trust this workflow · Enter"
+  },
+  {
+   "time": 15.891,
+   "label": "$ source-coop service-account sign-in add demo-org--nightly-sync --github source-cooperative/source.coop --tag v2.0.0 --json | jq -c"
+  },
+  {
+   "time": 23.804,
+   "label": "$ source-coop service-account sign-in remove demo-org--nightly-sync -i"
+  },
+  {
+   "time": 27.684,
+   "label": "Remove which sign-in · ↓×2 Enter"
+  },
+  {
+   "time": 29.15,
+   "label": "signing in as · y"
+  },
+  {
+   "time": 31.516,
+   "label": "$ echo sck_0000demo0000demo0000demo0000demoK3yQ > leaked.key"
+  },
+  {
+   "time": 35.587,
+   "label": "$ source-coop service-account sign-in revoke-key < leaked.key"
+  }
+ ],
+ "keys": [
+  {
+   "time": 5.944,
+   "key": "Enter"
+  },
+  {
+   "time": 8.471,
+   "key": "Enter"
+  },
+  {
+   "time": 8.931,
+   "key": "↓"
+  },
+  {
+   "time": 9.335,
+   "key": "↓"
+  },
+  {
+   "time": 9.94,
+   "key": "Enter"
+  },
+  {
+   "time": 11.291,
+   "key": "Enter"
+  },
+  {
+   "time": 15.136,
+   "key": "Enter"
+  },
+  {
+   "time": 28.089,
+   "key": "↓"
+  },
+  {
+   "time": 28.491,
+   "key": "↓"
+  },
+  {
+   "time": 29.096,
+   "key": "Enter"
+  },
+  {
+   "time": 30.761,
+   "key": "y"
+  }
+ ]
+}

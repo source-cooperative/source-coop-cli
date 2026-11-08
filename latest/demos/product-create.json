@@ -1,0 +1,95 @@
+{
+ "duration": 29.007,
+ "steps": [
+  {
+   "time": 0.755,
+   "label": "$ source-coop product create"
+  },
+  {
+   "time": 2.585,
+   "label": "Account · ↓ Enter"
+  },
+  {
+   "time": 3.647,
+   "label": "Product ID · \"sea-ice\" Enter"
+  },
+  {
+   "time": 5.061,
+   "label": "Title · ↑"
+  },
+  {
+   "time": 6.723,
+   "label": "Product ID · \"-extent\" Enter"
+  },
+  {
+   "time": 9.122,
+   "label": "Title · Enter"
+  },
+  {
+   "time": 10.785,
+   "label": "Description · \"Daily Arctic sea-ice extent from passive microwave.\" Enter"
+  },
+  {
+   "time": 14.318,
+   "label": "Data connection · Enter"
+  },
+  {
+   "time": 15.976,
+   "label": "Visibility · ↓ Enter"
+  },
+  {
+   "time": 18.038,
+   "label": "Create this product · Enter"
+  },
+  {
+   "time": 21.24,
+   "label": "$ source-coop product view demo-org/sea-ice-extent --json | jq -c '{product_id, title, visibility}'"
+  }
+ ],
+ "keys": [
+  {
+   "time": 2.99,
+   "key": "↓"
+  },
+  {
+   "time": 3.596,
+   "key": "Enter"
+  },
+  {
+   "time": 5.005,
+   "key": "Enter"
+  },
+  {
+   "time": 6.667,
+   "key": "↑"
+  },
+  {
+   "time": 9.071,
+   "key": "Enter"
+  },
+  {
+   "time": 10.73,
+   "key": "Enter"
+  },
+  {
+   "time": 14.263,
+   "key": "Enter"
+  },
+  {
+   "time": 15.924,
+   "key": "Enter"
+  },
+  {
+   "time": 17.385,
+   "key": "↓"
+  },
+  {
+   "time": 17.987,
+   "key": "Enter"
+  },
+  {
+   "time": 20.488,
+   "key": "Enter"
+  }
+ ]
+}

@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Managing service accounts · source-coop CLI</title>
+<meta name="docs-version" content="main">
+<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-page" content="managing-service-accounts/">
+<meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
+<script>
+  // The theme before the first paint: this tab's choice, or the system's.
+  (function () {
+    var t = null;
+    try { t = sessionStorage.getItem("theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+<script src="../assets/player.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="../">
+      <img class="logo logo-ink" src="../assets/logo-ink.svg" alt="Source Cooperative" width="97" height="26">
+      <img class="logo logo-bone" src="../assets/logo-bone.svg" alt="Source Cooperative" width="97" height="26">
+      <span>CLI guide</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="search">
+      <input type="search" id="search" placeholder="Search" aria-label="Search the guide" aria-controls="search-results" autocomplete="off" spellcheck="false">
+      <div class="search-results" id="search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+    </div>
+    <div class="version">
+      <button class="version-button" type="button" aria-expanded="false" aria-controls="versions" disabled>
+        <span class="version-name">main</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="version-menu" id="versions" hidden></div>
+    </div>
+    <a class="top-link" href="https://github.com/source-cooperative/source-coop-cli">GitHub</a>
+    <button class="theme" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark">
+      <svg class="icon-moon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="icon-sun" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="old-version" role="status" hidden></div>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <details open>
+      <summary>Contents</summary>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/" aria-current="page">Managing service accounts</a><ul><li><a href="#access-to-products">Access to products</a></li></ul></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+    </details>
+  </nav>
+  <main id="main">
+<h1 id="managing-service-accounts">Managing service accounts</h1>
+<p>A service account is an account for software, such as a GitHub Actions workflow or a script with an API key. It has an owner: you, or an organization that you own or maintain. source.coop must first let that account own service accounts.</p>
+<p>A service account's ID is the owner's ID, then <code>--</code>, then its own name: <code>my-org--nightly-sync</code>. AWS tools use this ID: <code>role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess</code>.</p>
+<p><code>source-coop service-account</code> shows a service account as the web UI does: what it is, how it signs in, and the products it can use.</p>
+<pre><code class="language-bash">source-coop service-account list my-org             # my-org's service accounts (yours, with no owner)
+source-coop service-account list my-org --no-pager  # print directly, not in the pager
+source-coop service-account list my-org -i          # move through them full screen (keys as for products)
+source-coop service-account view my-org--nightly-sync          # --json adds `trusts`, `keys` and `memberships`
+source-coop service-account view my-org--nightly-sync -w       # open its page in the browser
+source-coop service-account create                  # asks for all values, as the web form does
+source-coop service-account create my-org--nightly-sync --name &quot;Nightly sync&quot; \
+    --github my-org/data --branch main --access my-org/my-data=write
+source-coop service-account edit my-org--nightly-sync --name &quot;Nightly sync&quot;
+source-coop service-account edit my-org--nightly-sync            # a form of its name and products
+source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+source-coop service-account delete my-org--nightly-sync           # asks you to type its ID
+</code></pre>
+<figure class="demo" data-demo="service-account/list"><noscript><img src="../demos/service-account/list.svg" alt="service-account list: an owner&#x27;s service accounts, then as --json"></noscript><figcaption><code>service-account list</code>: an owner's service accounts, then as <code>--json</code></figcaption></figure>
+<figure class="demo" data-demo="service-account/view"><noscript><img src="../demos/service-account/view.svg" alt="service-account view: who it is, how it signs in, what it can reach; --json adds trusts and memberships"></noscript><figcaption><code>service-account view</code>: who it is, how it signs in, what it can reach; <code>--json</code> adds <code>trusts</code> and <code>memberships</code></figcaption></figure>
+<p><strong><code>create</code></strong> takes values as flags, as a JSON object with <code>--from-file</code>, or both:</p>
+<ul>
+<li>Flags: <code>--name</code>, one <code>--github</code> workflow, a <code>--key</code> with <code>--expires</code> and <code>--out</code>, and <code>--access</code> (one or more).</li>
+<li>JSON uses the API's fields: <code>name</code>, <code>local_id</code>, <code>github_subjects</code>, <code>key</code>, <code>grants</code>.</li>
+</ul>
+<p>At a terminal, <code>create</code> asks for the missing values: the owner, the name, the ID (made from the name), workflows and an API key, and products. Then it shows all values, with the condition that each workflow must match, and asks you to confirm.</p>
+<p>If <code>create</code> issues a key, it gives you the key as <code>sign-in add</code> does. But stdout gets the account's ID, not the key. To keep the key, use <code>--out</code> or <code>--json</code>.</p>
+<p><code>create</code> and <code>edit</code> print the service account's ID on stdout. Thus <code>id=$(source-coop service-account create …)</code> works. Going back, drafts, the sign-in check and <code>--yes</code> work as for products.</p>
+<figure class="demo" data-demo="service-account/create"><noscript><img src="../demos/service-account/create.svg" alt="service-account create with prompts"></noscript><figcaption><code>service-account create</code> with prompts</figcaption></figure>
+<figure class="demo" data-demo="service-account/create-flags"><noscript><img src="../demos/service-account/create-flags.svg" alt="service-account create from flags, with --json"></noscript><figcaption><code>service-account create</code> from flags, with <code>--json</code></figcaption></figure>
+<p><strong><code>edit --disable</code></strong> stops all sign-ins as the service account. It keeps its sign-ins and products. <code>--enable</code> lets its workflows and its keys that are not revoked sign in again.</p>
+<p><strong><code>delete</code></strong> removes the service account, its sign-ins and its access to products. Type its ID to confirm, or use <code>--yes</code>.</p>
+<figure class="demo" data-demo="service-account/edit"><noscript><img src="../demos/service-account/edit.svg" alt="service-account edit: --disable, --enable, then a rename in the edit form"></noscript><figcaption><code>service-account edit</code>: <code>--disable</code>, <code>--enable</code>, then a rename in the edit form</figcaption></figure>
+<figure class="demo" data-demo="service-account/delete"><noscript><img src="../demos/service-account/delete.svg" alt="service-account delete: typed confirmation, then --yes --json"></noscript><figcaption><code>service-account delete</code>: typed confirmation, then <code>--yes --json</code></figcaption></figure>
+<figure class="demo" data-demo="service-account/picker"><noscript><img src="../demos/service-account/picker.svg" alt="service-account list -i: open one, go back, delete one from its screen"></noscript><figcaption><code>service-account list -i</code>: open one, go back, delete one from its screen</figcaption></figure>
+<h3 id="access-to-products">Access to products</h3>
+<p>A service account can read, or read and write, its owner's products. Each grant is a usual membership of the product.</p>
+<ul>
+<li><code>create --access</code> gives access when you create the service account.</li>
+<li><code>edit --access</code> gives access, changes the role, or removes access (<code>=none</code>).</li>
+</ul>
+<pre><code class="language-bash">source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old-data=none
+</code></pre>
+<p>If the product already has that role, or has no access to remove, nothing changes. Thus you can run an edit two times safely.</p>
+<p>With no flags, <code>edit</code> opens a full-screen form with <strong>Name</strong>, then the products under <strong>Can reach</strong>, each with its role:</p>
+<ul>
+<li>↑/↓ moves. Enter changes the selected row: the name, or the access to a product (Read, Read and write, or No access).</li>
+<li><em>Grant a product…</em> adds one of the owner's other products.</li>
+<li>A changed row shows its old value.</li>
+<li><code>s</code>, or Enter on <em>Save changes</em>, shows the changes and asks you to confirm. ← goes back to the form.</li>
+<li>Esc or ← on the form cancels. If you changed a row, the form asks first.</li>
+</ul>
+<p><code>--disable</code> and <code>--enable</code> are flags only.</p>
+<figure class="demo" data-demo="service-account/access"><noscript><img src="../demos/service-account/access.svg" alt="service-account edit --access, then the edit form: take a product away, grant another"></noscript><figcaption><code>service-account edit --access</code>, then the edit form: take a product away, grant another</figcaption></figure>
+
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../managing-members/" rel="prev"><span>Previous</span>Managing members</a><a class="pager-next" href="../service-account-sign-ins/" rel="next"><span>Next</span>Service account sign-ins</a></nav>
+  </main>
+</div>
+<footer class="bottom">
+  <div class="bottom-inner">
+    <span>Source Cooperative (a Radiant Earth initiative)</span>
+    <a href="https://source.coop">source.coop</a>
+    <a href="https://github.com/source-cooperative/source-coop-cli/edit/main/README.md">Edit this guide on GitHub</a>
+    <span>Demos use made-up records on a local stand-in for the API.</span>
+  </div>
+</footer>
+</body>
+</html>
