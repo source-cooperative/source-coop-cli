@@ -64,21 +64,21 @@
   <main id="main">
 <h1 id="install">Install</h1>
 <h3 id="homebrew-macos--linux">Homebrew (macOS / Linux)</h3>
-<pre><code class="language-bash">brew install source-cooperative/tap/source-coop
+<pre><code class="language-bash"><span class="nf">brew</span><span class="w"> </span>install<span class="w"> </span>source-cooperative/tap/source-coop
 </code></pre>
 <h3 id="from-github-releases-recommended">From GitHub Releases (recommended)</h3>
 <p><strong>macOS / Linux:</strong></p>
-<pre><code class="language-bash">curl --proto '=https' --tlsv1.2 -LsSf \
-  https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.sh | sh
+<pre><code class="language-bash"><span class="nf">curl</span><span class="w"> </span><span class="na">--proto</span><span class="w"> </span><span class="s1">'=https'</span><span class="w"> </span><span class="na">--tlsv1.2</span><span class="w"> </span><span class="na">-LsSf</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.sh<span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nf">sh</span>
 </code></pre>
 <p><strong>Windows PowerShell:</strong></p>
-<pre><code class="language-powershell">powershell -ExecutionPolicy ByPass -c &quot;irm https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.ps1 | iex&quot;
+<pre><code class="language-powershell"><span class="n">powershell</span> <span class="n">-ExecutionPolicy</span> <span class="n">ByPass</span> <span class="n">-c</span> <span class="s2">"irm https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.ps1 | iex"</span>
 </code></pre>
 <h3 id="from-source">From source</h3>
-<pre><code class="language-bash">cargo install --git https://github.com/source-cooperative/source-coop-cli
+<pre><code class="language-bash"><span class="nf">cargo</span><span class="w"> </span>install<span class="w"> </span><span class="na">--git</span><span class="w"> </span>https://github.com/source-cooperative/source-coop-cli
 </code></pre>
 <p>To see the installed version:</p>
-<pre><code class="language-bash">source-coop --version
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span><span class="na">--version</span>
 </code></pre>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../" rel="prev"><span>Previous</span>Overview</a><a class="pager-next" href="../signing-in/" rel="next"><span>Next</span>Signing in</a></nav>

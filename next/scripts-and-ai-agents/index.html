@@ -94,7 +94,7 @@
 <li><code>request_id</code>: give it if you report the error.</li>
 <li><code>field_errors</code>: if the API refused the input, the fields to correct, by path (<code>metadata.title</code>).</li>
 </ul>
-<pre><code class="language-json">{&quot;error&quot;: {&quot;code&quot;: &quot;invalid&quot;, &quot;message&quot;: &quot;…&quot;, &quot;status&quot;: 400, &quot;field_errors&quot;: {&quot;title&quot;: [&quot;…&quot;]}, &quot;type&quot;: &quot;https://source.coop/api/problems/invalid&quot;, &quot;request_id&quot;: &quot;…&quot;}}
+<pre><code class="language-json"><span class="p">{</span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"invalid"</span><span class="p">,</span><span class="w"> </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"…"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">400</span><span class="p">,</span><span class="w"> </span><span class="nt">"field_errors"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="nt">"title"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"…"</span><span class="p">]},</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"https://source.coop/api/problems/invalid"</span><span class="p">,</span><span class="w"> </span><span class="nt">"request_id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"…"</span><span class="p">}}</span>
 </code></pre>
 <h3 id="exit-codes">Exit codes</h3>
 <p>All commands use the same exit codes:</p>
@@ -141,7 +141,7 @@
 <p>If <code>SOURCE_TOKEN</code> is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without <code>auth login</code>.</p>
 <h3 id="use-your-session-with-other-tools">Use your session with other tools</h3>
 <p><code>auth token</code> prints the session's access token for the source.coop API. If the token has expired, it renews it first.</p>
-<pre><code class="language-bash">curl -H &quot;Authorization: Bearer $(source-coop auth token)&quot; https://source.coop/api/v1/...
+<pre><code class="language-bash"><span class="nf">curl</span><span class="w"> </span><span class="na">-H</span><span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="k">$(</span><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>token<span class="k">)</span><span class="s2">"</span><span class="w"> </span>https://source.coop/api/v1/...
 </code></pre>
 <figure class="demo" data-demo="auth-token"><noscript><img src="../demos/auth-token.svg" alt="auth token: the session&#x27;s access token, for curl"></noscript><figcaption><code>auth token</code>: the session's access token, for <code>curl</code></figcaption></figure>
 <p>To send a request through the CLI, see <a href="../any-api-request/">Any API request</a>.</p>

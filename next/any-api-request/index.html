@@ -64,18 +64,18 @@
   <main id="main">
 <h1 id="any-api-request">Any API request</h1>
 <p><code>source-coop api</code> sends a request to <code>/api/v1</code> as you, and prints the response. Use it for what the other commands do not do.</p>
-<pre><code class="language-bash"># GET, with a query parameter
-source-coop api products/my-org -q limit=5
+<pre><code class="language-bash"><span class="c1"># GET, with a query parameter</span>
+<span class="nf">source-coop</span><span class="w"> </span>api<span class="w"> </span>products/my-org<span class="w"> </span><span class="na">-q</span><span class="w"> </span><span class="nv">limit</span><span class="o">=</span><span class="m">5</span>
 
-# POST, with fields from flags
-source-coop api products/my-org -f product_id=new -f title=&quot;New&quot; -f description=&quot;&quot; \
-  -f visibility=public -f data_connection_id=my-connection
+<span class="c1"># POST, with fields from flags</span>
+<span class="nf">source-coop</span><span class="w"> </span>api<span class="w"> </span>products/my-org<span class="w"> </span><span class="na">-f</span><span class="w"> </span><span class="nv">product_id</span><span class="o">=</span>new<span class="w"> </span><span class="na">-f</span><span class="w"> </span><span class="nv">title</span><span class="o">=</span><span class="s2">"New"</span><span class="w"> </span><span class="na">-f</span><span class="w"> </span><span class="nv">description</span><span class="o">=</span><span class="s2">""</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span><span class="na">-f</span><span class="w"> </span><span class="nv">visibility</span><span class="o">=</span>public<span class="w"> </span><span class="na">-f</span><span class="w"> </span><span class="nv">data_connection_id</span><span class="o">=</span>my-connection
 
-# PATCH, with fields from a file and a flag (the flag wins)
-source-coop api products/my-org/new -X PATCH -F changes.json -f title=&quot;Renamed&quot;
+<span class="c1"># PATCH, with fields from a file and a flag (the flag wins)</span>
+<span class="nf">source-coop</span><span class="w"> </span>api<span class="w"> </span>products/my-org/new<span class="w"> </span><span class="na">-X</span><span class="w"> </span>PATCH<span class="w"> </span><span class="na">-F</span><span class="w"> </span>changes.json<span class="w"> </span><span class="na">-f</span><span class="w"> </span><span class="nv">title</span><span class="o">=</span><span class="s2">"Renamed"</span>
 
-# PATCH, with the body from stdin
-echo '{&quot;title&quot;: &quot;Renamed&quot;, &quot;tags&quot;: [&quot;a&quot;]}' | source-coop api products/my-org/new -X PATCH -F -
+<span class="c1"># PATCH, with the body from stdin</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'{"title": "Renamed", "tags": ["a"]}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nf">source-coop</span><span class="w"> </span>api<span class="w"> </span>products/my-org/new<span class="w"> </span><span class="na">-X</span><span class="w"> </span>PATCH<span class="w"> </span><span class="na">-F</span><span class="w"> </span><span class="na">-</span>
 </code></pre>
 <div class="table-wrap"><table>
 <thead>

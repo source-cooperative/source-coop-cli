@@ -65,35 +65,35 @@
 <h1 id="managing-products">Managing products</h1>
 <p><code>source-coop product</code> lists, views, creates, edits and deletes products through the source.coop API (<code>/api/v1</code>). The CLI does not check values itself. It shows the API's errors for each field. A product's name is <code>ACCOUNT/PRODUCT</code>.</p>
 <h3 id="list-and-view">List and view</h3>
-<pre><code class="language-bash"># public products
-source-coop product list
+<pre><code class="language-bash"><span class="c1"># public products</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list
 
-# the products of one account, as JSON
-source-coop product list my-org --json
+<span class="c1"># the products of one account, as JSON</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span>my-org<span class="w"> </span><span class="na">--json</span>
 
-# one row for each product; tab-separated when piped
-source-coop product list --format table
+<span class="c1"># one row for each product; tab-separated when piped</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span><span class="na">--format</span><span class="w"> </span>table
 
-# search titles, descriptions and IDs
-source-coop product list -q climate
+<span class="c1"># search titles, descriptions and IDs</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span><span class="na">-q</span><span class="w"> </span>climate
 
-# featured products with all these tags
-source-coop product list --tags zarr,climate --featured
+<span class="c1"># featured products with all these tags</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span><span class="na">--tags</span><span class="w"> </span>zarr,climate<span class="w"> </span><span class="na">--featured</span>
 
-# up to 100 (default 30, or all in the pager)
-source-coop product list -L 100
+<span class="c1"># up to 100 (default 30, or all in the pager)</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span><span class="na">-L</span><span class="w"> </span><span class="m">100</span>
 
-# move through them full screen (see &quot;Browsing with -i&quot;)
-source-coop product list my-org -i
+<span class="c1"># move through them full screen (see "Browsing with -i")</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span>my-org<span class="w"> </span><span class="na">-i</span>
 
-# one product
-source-coop product view my-org/my-product
+<span class="c1"># one product</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>view<span class="w"> </span>my-org/my-product
 
-# open its page in the browser
-source-coop product view my-org/my-product -w
+<span class="c1"># open its page in the browser</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>view<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">-w</span>
 
-# its screen, with shortcuts; with no name, select one first
-source-coop product view my-org/my-product -i
+<span class="c1"># its screen, with shortcuts; with no name, select one first</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>view<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">-i</span>
 </code></pre>
 <p><code>list</code> has two formats:</p>
 <ul>
@@ -105,18 +105,18 @@ source-coop product view my-org/my-product -i
 <p><code>list -i</code> and <code>view -i</code> show products full screen. <a href="../browsing-with--i/">Browsing with <code>-i</code></a> lists the keys.</p>
 <figure class="demo" data-demo="product-browse"><noscript><img src="../demos/product-browse.svg" alt="product list -i: open a product, go back, filter with /"></noscript><figcaption><code>product list -i</code>: open a product, go back, filter with <code>/</code></figcaption></figure>
 <h3 id="create">Create</h3>
-<pre><code class="language-bash"># asks for all values
-source-coop product create
+<pre><code class="language-bash"><span class="c1"># asks for all values</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create
 
-# asks for the other values
-source-coop product create my-org/my-product
+<span class="c1"># asks for the other values</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create<span class="w"> </span>my-org/my-product
 
-# all values from flags
-source-coop product create my-org/my-product -t &quot;My product&quot; -d &quot;What's in it&quot; \
-    --visibility public --data-connection my-connection
+<span class="c1"># all values from flags</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">-t</span><span class="w"> </span><span class="s2">"My product"</span><span class="w"> </span><span class="na">-d</span><span class="w"> </span><span class="s2">"What's in it"</span><span class="w"> </span><span class="se">\</span>
+<span class="w">    </span><span class="na">--visibility</span><span class="w"> </span>public<span class="w"> </span><span class="na">--data-connection</span><span class="w"> </span>my-connection
 
-# values from JSON on stdin
-echo '{&quot;title&quot;: &quot;My product&quot;}' | source-coop product create my-org/my-product -F -
+<span class="c1"># values from JSON on stdin</span>
+<span class="nb">echo</span><span class="w"> </span><span class="s1">'{"title": "My product"}'</span><span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">-F</span><span class="w"> </span><span class="na">-</span>
 </code></pre>
 <p>Give the values as flags (<code>--title</code>, <code>--description</code>, <code>--visibility</code>, <code>--data-connection</code>), as a JSON object with <code>--from-file PATH</code> (<code>-</code> for stdin), or both. Flags take priority.</p>
 <p>At a terminal, <code>create</code> asks for the missing values, with the web form's defaults:</p>
@@ -130,20 +130,20 @@ echo '{&quot;title&quot;: &quot;My product&quot;}' | source-coop product create 
 <p><code>create</code> prints the product's URL on stdout and its message on stderr. Thus <code>url=$(source-coop product create ...)</code> works.</p>
 <figure class="demo" data-demo="product-create"><noscript><img src="../demos/product-create.svg" alt="product create with prompts: ↑ goes back a question, then the review"></noscript><figcaption><code>product create</code> with prompts: ↑ goes back a question, then the review</figcaption></figure>
 <h3 id="edit">Edit</h3>
-<pre><code class="language-bash"># a form of its fields
-source-coop product edit my-org/my-product
+<pre><code class="language-bash"><span class="c1"># a form of its fields</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span>my-org/my-product
 
-# change one field
-source-coop product edit my-org/my-product --visibility unlisted
+<span class="c1"># change one field</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">--visibility</span><span class="w"> </span>unlisted
 
-# change one field and print the result as JSON
-source-coop product edit my-org/my-product -d &quot;New description&quot; --json
+<span class="c1"># change one field and print the result as JSON</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">-d</span><span class="w"> </span><span class="s2">"New description"</span><span class="w"> </span><span class="na">--json</span>
 
-# --enable makes it active again (admins only)
-source-coop product edit my-org/my-product --disable
+<span class="c1"># --enable makes it active again (admins only)</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">--disable</span>
 
-# select one of your account's products
-source-coop product edit -i
+<span class="c1"># select one of your account's products</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span><span class="na">-i</span>
 </code></pre>
 <p><code>edit</code> uses the same values as <code>create</code>, but not the data connection. Give them as flags or with <code>--from-file</code>. <code>--disable</code> and <code>--enable</code> are flags only. <code>edit</code> prints the product's URL on stdout.</p>
 <p>With no flags, <code>edit</code> opens a full-screen form of the title, description and visibility:</p>
@@ -157,17 +157,17 @@ source-coop product edit -i
 </ul>
 <figure class="demo" data-demo="product-edit"><noscript><img src="../demos/product-edit.svg" alt="product edit: the edit form, then a flag"></noscript><figcaption><code>product edit</code>: the edit form, then a flag</figcaption></figure>
 <h3 id="delete">Delete</h3>
-<pre><code class="language-bash"># asks you to type the name
-source-coop product delete my-org/my-product
+<pre><code class="language-bash"><span class="c1"># asks you to type the name</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>delete<span class="w"> </span>my-org/my-product
 
-# keep its objects in storage
-source-coop product delete my-org/my-product --preserve-data
+<span class="c1"># keep its objects in storage</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>delete<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">--preserve-data</span>
 
-# no questions, for scripts
-source-coop product delete my-org/my-product --yes --json
+<span class="c1"># no questions, for scripts</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>delete<span class="w"> </span>my-org/my-product<span class="w"> </span><span class="na">--yes</span><span class="w"> </span><span class="na">--json</span>
 
-# select one of your account's products
-source-coop product delete -i
+<span class="c1"># select one of your account's products</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>delete<span class="w"> </span><span class="na">-i</span>
 </code></pre>
 <p><code>delete</code> asks two questions:</p>
 <ol>

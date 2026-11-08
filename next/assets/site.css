@@ -23,6 +23,9 @@
   --term-border: transparent;
   --warning: #B87A00;
   --danger: #C8261E;
+  --code-string: #2F6B3A;
+  --code-keyword: #1F4F8A;
+  --code-value: #8A4B12;
   --mono: "Berkeley Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   --sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif;
   color-scheme: light;
@@ -36,6 +39,9 @@
   --panel: #1B2425;
   --nav-active: rgba(239, 235, 234, 0.1);
   --term-border: rgba(239, 235, 234, 0.22);
+  --code-string: #9CCB9F;
+  --code-keyword: #9BBDEB;
+  --code-value: #E3AE7A;
   color-scheme: dark;
 }
 
@@ -132,6 +138,11 @@ code { font-family: var(--mono); font-size: 0.88em; }
 :not(.keycast) > kbd { font: 0.85em var(--mono); padding: 1px 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px; white-space: nowrap; }
 pre { margin: 0 0 16px; padding: 14px 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; overflow-x: auto; font: 14px/1.6 var(--mono); }
 pre code { font-size: inherit; }
+/* Highlighting, from Pygments' classes (build.py). Quiet, like the rest. */
+pre .c, pre .c1, pre .ch, pre .cm { color: var(--muted); font-style: italic; }
+pre .s, pre .s1, pre .s2, pre .se, pre .si, pre .sh, pre .sb, pre .dl { color: var(--code-string); }
+pre .k, pre .kn, pre .nb, pre .nt, pre .nf { color: var(--code-keyword); }
+pre .nv, pre .na, pre .m, pre .mi, pre .mf, pre .kc { color: var(--code-value); }
 .table-wrap { overflow-x: auto; margin: 0 0 16px; }
 table { border-collapse: collapse; font-size: 14px; line-height: 1.45; }
 th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }

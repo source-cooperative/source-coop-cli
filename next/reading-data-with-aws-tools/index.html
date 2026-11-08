@@ -67,19 +67,19 @@
 <ol>
 <li>
 <p>Sign in once:</p>
-<pre><code class="language-bash">source-coop auth login
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 </code></pre>
 </li>
 <li>
 <p>Add a profile to <code>~/.aws/config</code>:</p>
-<pre><code class="language-ini">[profile source-coop]
-credential_process = source-coop creds
-endpoint_url = https://data.source.coop
+<pre><code class="language-ini"><span class="k">[profile source-coop]</span>
+<span class="na">credential_process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">source-coop creds</span>
+<span class="na">endpoint_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">https://data.source.coop</span>
 </code></pre>
 </li>
 <li>
 <p>Use AWS tools with that profile:</p>
-<pre><code class="language-bash">aws s3 ls s3://my-account/my-product --profile source-coop
+<pre><code class="language-bash"><span class="nf">aws</span><span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-account/my-product<span class="w"> </span><span class="na">--profile</span><span class="w"> </span>source-coop
 </code></pre>
 </li>
 </ol>
@@ -88,19 +88,19 @@ endpoint_url = https://data.source.coop
 <h3 id="output-formats">Output formats</h3>
 <p><code>creds</code> and <code>auth login</code> print credentials in one of three formats. Select one with <code>--format</code>:</p>
 <p><strong>credential-process</strong> (default): JSON for AWS <code>credential_process</code>.</p>
-<pre><code class="language-bash">source-coop creds
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>creds
 </code></pre>
 <p><strong>env</strong>: shell <code>export</code> statements. They set <code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code> and <code>AWS_SESSION_TOKEN</code> in your shell.</p>
-<pre><code class="language-bash">eval $(source-coop creds --format env)
+<pre><code class="language-bash"><span class="nb">eval</span><span class="w"> </span><span class="k">$(</span><span class="nf">source-coop</span><span class="w"> </span>creds<span class="w"> </span><span class="na">--format</span><span class="w"> </span>env<span class="k">)</span>
 </code></pre>
 <p><strong>aws-credentials</strong>: an INI profile for <code>~/.aws/credentials</code>. <code>--profile</code> sets the section name.</p>
-<pre><code class="language-bash">source-coop creds --format aws-credentials &gt;&gt; ~/.aws/credentials
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>creds<span class="w"> </span><span class="na">--format</span><span class="w"> </span>aws-credentials<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.aws/credentials
 </code></pre>
-<pre><code class="language-ini">[source-coop]
-# expires 2026-07-13T12:00:00Z
-aws_access_key_id = ...
-aws_secret_access_key = ...
-aws_session_token = ...
+<pre><code class="language-ini"><span class="k">[source-coop]</span>
+<span class="c1"># expires 2026-07-13T12:00:00Z</span>
+<span class="na">aws_access_key_id</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">...</span>
+<span class="na">aws_secret_access_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">...</span>
+<span class="na">aws_session_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">...</span>
 </code></pre>
 <blockquote class="callout callout-tip"><p class="callout-title">Tip</p><p>These credentials are temporary. When they expire, run the command again. Each run adds a new section, and AWS uses the last one, so remove old sections occasionally. We recommend <code>credential_process</code> in <code>~/.aws/config</code> instead.</p>
 </blockquote>
@@ -108,20 +108,20 @@ aws_session_token = ...
 <blockquote class="callout callout-warning"><p class="callout-title">Warning</p><p>The Source Cooperative data proxy does not yet support custom roles.</p>
 </blockquote>
 <p>The CLI keeps the credentials of each role separately:</p>
-<pre><code class="language-bash"># credentials for a read-only role
-source-coop auth login --role-arn reader-role
+<pre><code class="language-bash"><span class="c1"># credentials for a read-only role</span>
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="na">--role-arn</span><span class="w"> </span>reader-role
 
-# credentials for an admin role, kept separately
-source-coop auth login --role-arn admin-role
+<span class="c1"># credentials for an admin role, kept separately</span>
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="na">--role-arn</span><span class="w"> </span>admin-role
 </code></pre>
 <p>Use <code>--role-arn</code> with <code>creds</code> to select the role:</p>
-<pre><code class="language-ini">[profile source-coop]
-credential_process = source-coop creds --role-arn reader-role
-endpoint_url = https://data.source.coop
+<pre><code class="language-ini"><span class="k">[profile source-coop]</span>
+<span class="na">credential_process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">source-coop creds --role-arn reader-role</span>
+<span class="na">endpoint_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">https://data.source.coop</span>
 
-[profile source-coop-admin]
-credential_process = source-coop creds --role-arn admin-role
-endpoint_url = https://data.source.coop
+<span class="k">[profile source-coop-admin]</span>
+<span class="na">credential_process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">source-coop creds --role-arn admin-role</span>
+<span class="na">endpoint_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">https://data.source.coop</span>
 </code></pre>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../signing-in/" rel="prev"><span>Previous</span>Signing in</a><a class="pager-next" href="../managing-products/" rel="next"><span>Next</span>Managing products</a></nav>

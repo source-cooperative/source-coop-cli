@@ -77,17 +77,17 @@
 <p>This guide is also a website, with a page for each section and docs for each release, plus <code>next</code> for what's on main and not yet released: <a href="https://cli.source.coop/">https://cli.source.coop/</a>.</p>
 <p>The demos in this guide use a stand-in for the API with made-up records (<code>demo-org</code>, <code>demo-user</code>), and a made-up session where they show you signed in. They show production's addresses (<code>source.coop</code>, <code>data.source.coop</code>), but <code>demo-org</code> and <code>demo-user</code> don't exist there.</p>
 <h3 id="quick-start">Quick start</h3>
-<pre><code class="language-bash"># sign in through your browser, once
-source-coop auth login
+<pre><code class="language-bash"><span class="c1"># sign in through your browser, once</span>
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 
-# an account's products
-source-coop product list my-org
+<span class="c1"># an account's products</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span>my-org
 
-# asks for each value a new product needs
-source-coop product create
+<span class="c1"># asks for each value a new product needs</span>
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create
 
-# after you add the AWS profile (below)
-aws s3 ls s3://my-org/my-data --profile source-coop
+<span class="c1"># after you add the AWS profile (below)</span>
+<span class="nf">aws</span><span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-org/my-data<span class="w"> </span><span class="na">--profile</span><span class="w"> </span>source-coop
 </code></pre>
 <p><code>source-coop --help</code> lists the commands. <code>source-coop &lt;command&gt; --help</code> lists the flags of a command, with examples.</p>
 <figure class="demo" data-demo="tour"><noscript><img src="demos/tour.svg" alt="source-coop: an account&#x27;s products, one product, then as --json"></noscript><figcaption><code>source-coop</code>: an account's products, one product, then as <code>--json</code></figcaption></figure>

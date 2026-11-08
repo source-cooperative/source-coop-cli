@@ -158,24 +158,24 @@
 <p>To set up the OAuth2 client for another deployment of source.coop, see <a href="https://github.com/source-cooperative/source-coop-cli/blob/main/CONTRIBUTING.md#oidc-provider-setup">CONTRIBUTING.md</a>.</p>
 <h3 id="multiple-environments-for-example-staging">Multiple environments (for example, staging)</h3>
 <p>Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:</p>
-<pre><code class="language-bash"># sign in to production
-source-coop auth login
+<pre><code class="language-bash"><span class="c1"># sign in to production</span>
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 
-# sign in to staging, in a subshell
-( source .env.staging &amp;&amp; source-coop auth login )
+<span class="c1"># sign in to staging, in a subshell</span>
+<span class="o">(</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span>.env.staging<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="o">)</span>
 </code></pre>
 <ul>
 <li><code>--proxy-url</code> (or <code>SOURCE_PROXY_URL</code>) selects the environment for all commands. The default is production.</li>
 <li><code>--api-url</code> (or <code>SOURCE_API_URL</code>) selects the site for commands that use the API. <code>.env.staging</code> sets both.</li>
 </ul>
 <p>An AWS profile for a different environment must use <code>--proxy-url</code>. If it does not, it gets production credentials:</p>
-<pre><code class="language-ini">[profile source-coop]
-credential_process = source-coop creds
-endpoint_url = https://data.source.coop
+<pre><code class="language-ini"><span class="k">[profile source-coop]</span>
+<span class="na">credential_process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">source-coop creds</span>
+<span class="na">endpoint_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">https://data.source.coop</span>
 
-[profile source-coop-staging]
-credential_process = source-coop creds --proxy-url https://data.staging.source.coop
-endpoint_url = https://data.staging.source.coop
+<span class="k">[profile source-coop-staging]</span>
+<span class="na">credential_process</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">source-coop creds --proxy-url https://data.staging.source.coop</span>
+<span class="na">endpoint_url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s">https://data.staging.source.coop</span>
 </code></pre>
 <h3 id="sign-in-options">Sign-in options</h3>
 <div class="table-wrap"><table>
