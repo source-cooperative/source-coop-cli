@@ -1,0 +1,59 @@
+{
+ "duration": 16.272,
+ "steps": [
+  {
+   "time": 0.755,
+   "label": "$ source-coop member list demo-org -i"
+  },
+  {
+   "time": 3.007,
+   "label": "The members · ↓×3 →"
+  },
+  {
+   "time": 5.879,
+   "label": "grace-demo · e"
+  },
+  {
+   "time": 7.841,
+   "label": "Role for · ↑ Enter ← q"
+  }
+ ],
+ "keys": [
+  {
+   "time": 4.617,
+   "key": "↓"
+  },
+  {
+   "time": 5.019,
+   "key": "↓"
+  },
+  {
+   "time": 5.422,
+   "key": "↓"
+  },
+  {
+   "time": 5.822,
+   "key": "→"
+  },
+  {
+   "time": 7.787,
+   "key": "e"
+  },
+  {
+   "time": 9.25,
+   "key": "↑"
+  },
+  {
+   "time": 9.855,
+   "key": "Enter"
+  },
+  {
+   "time": 12.359,
+   "key": "←"
+  },
+  {
+   "time": 13.763,
+   "key": "q"
+  }
+ ]
+}
