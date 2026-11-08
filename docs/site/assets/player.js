@@ -1,7 +1,7 @@
 // The demo player: a recorded SVG, still on its last frame until played, with
 // play/pause, a scrub track marked at each step, and a drawer of the steps.
 //
-// The SVGs animate with one SMIL <animateTransform> (demo/record.py) that
+// The SVGs animate with one SMIL <animateTransform> (docs/recorder/record.py) that
 // slides a filmstrip of frames. Browsers start an inlined SVG's animation at
 // whatever time its clock had reached, so seeking through SMIL lands on the
 // wrong frame: the player takes the keyframes out and moves the filmstrip

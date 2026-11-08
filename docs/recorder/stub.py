@@ -8,7 +8,7 @@ it checks nothing, so it is no substitute for the API in tests.
 Outside /api/v1 it is the data proxy, for `aws s3 ls`: a ListObjectsV2 of
 fixtures.json's `objects`, signatures unchecked.
 
-    python3 -I demo/stub.py PORT [FIXTURES]
+    python3 -I docs/recorder/stub.py PORT [FIXTURES]
 """
 
 import copy, json, os, re, secrets, string, sys, uuid

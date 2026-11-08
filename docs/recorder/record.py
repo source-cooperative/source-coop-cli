@@ -1,14 +1,14 @@
 """Record terminal demos of the CLI as asciicasts, for PR descriptions.
 
-Each demo runs bash in a pseudo-terminal against demo/stub.py, with a fresh
+Each demo runs bash in a pseudo-terminal against docs/recorder/stub.py, with a fresh
 copy of the fixtures, a throwaway HOME, SOURCE_TOKEN set and an environment
 of its own, so it never reads or changes the real login session. It types and presses keys like a
 person, and the recording keeps the real timing (idle time capped).
 
-    python3 -I demo/record.py SCRIPT [--bin DIR] [--out DIR] [NAME ...]
+    python3 -I docs/recorder/record.py SCRIPT [--bin DIR] [--out DIR] [NAME ...]
 
 SCRIPT defines DEMOS = {name: (title, function)}; each function drives a
-`Session` (see demo/README.md). Each cast is also rendered as an
+`Session` (see docs/recorder/README.md). Each cast is also rendered as an
 animated SVG, and markdown showing the SVGs is printed for a PR
 description: `gh pr create/edit --attach` uploads them.
 """
@@ -340,7 +340,7 @@ def main():
     p.add_argument("script", help="a demo script defining DEMOS")
     p.add_argument("names", nargs="*", help="which demos to record (all when omitted)")
     p.add_argument("--bin", default="target/debug", help="the directory holding source-coop [target/debug]")
-    p.add_argument("--out", default="demo/casts", help="where to write the .cast files [demo/casts]")
+    p.add_argument("--out", default="docs/recorder/casts", help="where to write the .cast files [docs/recorder/casts]")
     args = p.parse_args()
     demos = runpy.run_path(args.script, init_globals=dict(KEYS))["DEMOS"]
     bin_dir = os.path.abspath(args.bin)

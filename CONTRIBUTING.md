@@ -32,7 +32,7 @@ Running it again updates the preview.
 - **It's for testing, not a release.** A preview's pre-release is never marked latest, so the release installers and Homebrew keep installing the real release, and neither the *Release* nor the *Docs* workflow runs for it.
 - **Remove a preview you're done with:** `gh release delete NAME --cleanup-tag`, and `rm ~/.local/bin/source-coop-NAME` to uninstall it.
 
-On a PR that changes the workflow or `preview/install.sh`, *Preview build* only builds the default preview, without publishing.
+On a PR that changes the workflow or `.github/preview/install.sh`, *Preview build* only builds the default preview, without publishing.
 
 ## OIDC provider setup
 
