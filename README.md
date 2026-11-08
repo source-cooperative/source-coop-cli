@@ -682,17 +682,13 @@ To edit or delete, you must open the record first. Thus a wrong key in a list ch
 
 Add one of these lines to your shell's startup file:
 
-```bash
+```text
 eval "$(source-coop completions bash)"          # ~/.bashrc
 eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
 source-coop completions fish | source           # ~/.config/fish/config.fish
-```
-
-```powershell
+eval (source-coop completions elvish | slurp)   # ~/.config/elvish/rc.elv
 source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
 ```
-
-`elvish` is also available.
 
 TAB then completes commands, flags, flag values and record names:
 
