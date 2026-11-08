@@ -1,0 +1,94 @@
+name: Docs
+
+# Builds the docs site from README.md and keeps every published copy on the
+# gh-pages branch: each release's docs (and latest/), and a preview for each
+# open PR that changes the docs. Releases publish when GitHub publishes them:
+# release-please's bot creates them, so the event reaches this workflow.
+# "Docs deploy" then sends that branch to GitHub Pages. docs/site/publish.py
+# says how the branch is laid out.
+on:
+  release:
+    types: [published]
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+    paths: ["README.md", "docs/**", ".github/workflows/docs*.yml"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "A release tag to publish (or republish), e.g. v0.4.0. It must have docs/site/build.py."
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# One change to gh-pages at a time, never cancelled half-way.
+concurrency:
+  group: gh-pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish to gh-pages
+    runs-on: ubuntu-latest
+    # A fork's PR can't push here: it gets the build check only.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    env:
+      PR: ${{ github.event.pull_request.number }}
+      TAG: ${{ inputs.tag || github.event.release.tag_name }}
+      PREVIEW_URL: https://source-cooperative.github.io/source-coop-cli/pr-preview/pr-${{ github.event.pull_request.number }}/
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event.action != 'closed'
+        with:
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+      - uses: actions/checkout@v4
+        if: github.event.action == 'closed'
+        with:
+          sparse-checkout: docs/site
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the site
+        if: github.event.action != 'closed'
+        run: |
+          if [ -n "$PR" ]; then version="pr-$PR"; else version="$TAG"; fi
+          uv run --with markdown-it-py python docs/site/build.py --out "$RUNNER_TEMP/site" --version "$version"
+      - name: Check out gh-pages
+        run: |
+          git fetch origin gh-pages && git worktree add "$RUNNER_TEMP/pages" origin/gh-pages \
+            || git worktree add --orphan -b gh-pages "$RUNNER_TEMP/pages"
+      - name: Update gh-pages
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then
+            python3 docs/site/publish.py "$RUNNER_TEMP/pages" release "$TAG" --site "$RUNNER_TEMP/site"
+            message="docs: publish $TAG"
+          elif [ "${{ github.event.action }}" = closed ]; then
+            python3 docs/site/publish.py "$RUNNER_TEMP/pages" remove-preview "$PR"
+            message="docs: remove the preview of #$PR"
+          else
+            python3 docs/site/publish.py "$RUNNER_TEMP/pages" preview "$PR" --site "$RUNNER_TEMP/site"
+            message="docs: preview #$PR at ${{ github.event.pull_request.head.sha }}"
+          fi
+          cd "$RUNNER_TEMP/pages"
+          git add -A
+          if git diff --cached --quiet; then echo "Nothing changed."; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "$message"
+          git push origin HEAD:gh-pages
+      - name: Link the preview from the PR
+        if: github.event_name == 'pull_request' && github.event.action != 'closed'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          body="**Docs preview:** $PREVIEW_URL
+
+          Built from ${{ github.event.pull_request.head.sha }}. It goes live a minute or two after the *Docs deploy* run, and is removed when the PR closes."
+          gh pr comment "$PR" --repo "${{ github.repository }}" --edit-last --create-if-none --body "$body"
+
+  check:
+    name: Build check (fork PRs)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' && github.event.action != 'closed' && github.event.pull_request.head.repo.full_name != github.repository
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv run --with markdown-it-py python docs/site/build.py --out "$RUNNER_TEMP/site" --version "pr-${{ github.event.pull_request.number }}"

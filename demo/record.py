@@ -16,7 +16,9 @@ description: `gh pr create/edit --attach` uploads them.
 import argparse, fcntl, json, os, pty, re, runpy, shutil, socket, struct
 import subprocess, sys, tempfile, termios, threading, time
 
-COLS, ROWS = 120, 34
+# 80 columns keeps the text close to the docs site's body text (about 15px
+# against 16px) at the width it shows demos; svg-term draws a column 10px wide.
+COLS, ROWS = 80, 28
 KEYS = {"DOWN": "\x1b[B", "UP": "\x1b[A", "RIGHT": "\x1b[C", "LEFT": "\x1b[D",
         "ESC": "\x1b", "BACKSPACE": "\x7f"}
 ANSI = re.compile(r"\x1b(\[[0-9;?]*[ -/]*[@-~]|[()][0-9A-Za-z]|[=>78])")
@@ -27,6 +29,11 @@ class Session:
 
     def __init__(self, title, env, cwd):
         self.title, self.events, self.text, self.seen = title, [], "", 0
+        # Steps for the docs player: each command run, and each prompt a key
+        # answers, labelled with what was on screen and the keys pressed.
+        self.steps, self.pending, self.quiet = [], None, False
+        # Each key pressed (not text typed), for the player's key overlay.
+        self.keys = []
         self.lock = threading.Lock()
         pid, fd = pty.fork()
         if pid == 0:
@@ -50,13 +57,18 @@ class Session:
                 self.events.append([round(time.time() - self.t0, 6), "o", text])
                 self.text += text
 
-    def see(self, pattern, timeout=20):
-        """Wait for `pattern` (a regex) in what has appeared since the last wait."""
+    def see(self, pattern, timeout=20, step=None):
+        """Wait for `pattern` (a regex) in what has appeared since the last wait.
+        If a key answers it, that's a step in the docs player, labelled `step`,
+        or the pattern when it's plain words, or else the line it matched."""
         end = time.time() + timeout
         while time.time() < end:
             with self.lock:
-                m = re.search(pattern, ANSI.sub("", self.text[self.seen:]))
+                stripped = ANSI.sub("", self.text[self.seen:])
+                m = re.search(pattern, stripped)
                 if m:
+                    plain = re.fullmatch(r"[\w ,.'-]+", pattern) and pattern
+                    self.pending = (time.time() - self.t0, step or plain or prompt_line(stripped, m))
                     # Only what the match covers counts as seen, so text that
                     # arrived with it, like the next prompt, is left to wait for.
                     self.seen = after_visible(self.text, self.seen, m.end())
@@ -75,14 +87,28 @@ class Session:
     def send(self, keys):
         os.write(self.fd, keys.encode())
 
+    def act(self, did):
+        """Note an input for the steps: it answers the prompt last seen."""
+        if self.quiet:
+            return
+        if self.pending:
+            t, label = self.pending
+            self.steps.append({"t": t, "label": label, "did": []})
+            self.pending = None
+        if self.steps:
+            self.steps[-1]["did"].append(did)
+
     def type(self, text, before=0.4):
         self.pause(before)
+        self.act(json.dumps(text, ensure_ascii=False))
         for c in text:
             self.send(c)
             time.sleep(0.045)
 
     def run(self, command):
         """Type a command at the prompt and run it."""
+        self.pending, self.quiet = None, True
+        self.steps.append({"t": time.time() - self.t0 + 0.7, "label": "$ " + command, "did": []})
         self.type(command, 0.7)
         self.pause(0.5)
         self.send("\r")
@@ -91,14 +117,21 @@ class Session:
         # ponytail: the first newline is the Enter; a command too long for
         # one line could wrap before it.
         self.see(r"\n")
+        self.pending, self.quiet = None, False
 
     def enter(self):
         self.pause(0.6)
+        self.act("Enter")
+        self.keys.append({"t": time.time() - self.t0, "key": "Enter"})
         self.send("\r")
 
     def key(self, keys, times=1):
+        name = NAMES.get(keys) or NAMES.get(keys[:1], keys) + (f"×{len(keys)}" if len(keys) > 1 else "")
+        self.act(name + (f"×{times}" if times > 1 else ""))
         for _ in range(times):
             self.pause(0.4)
+            if not self.quiet:
+                self.keys.append({"t": time.time() - self.t0, "key": name})
             self.send(keys)
 
     def finish(self, path):
@@ -116,6 +149,36 @@ class Session:
         with open(path, "w") as f:
             f.write(json.dumps(header) + "\n")
             f.writelines(json.dumps(e) + "\n" for e in kept)
+        # The steps, on the SVG's timeline: svg-term caps each pause at the
+        # cast's idle_time_limit, so the same cap maps wall-clock times onto it.
+        times = [e[0] for e in kept]
+        def capped(t):
+            at, prev = 0.0, 0.0
+            for e in times:
+                if e > t:
+                    break
+                at, prev = at + min(e - prev, 2.5), e
+            return at + min(max(t - prev, 0), 2.5)
+        steps = [{"time": round(capped(s["t"]), 3),
+                  "label": " · ".join(filter(None, [s["label"], " ".join(s["did"])]))} for s in self.steps]
+        with open(path.removesuffix(".cast") + ".json", "w") as f:
+            keys = [{"time": round(capped(k["t"]), 3), "key": k["key"]} for k in self.keys]
+            json.dump({"duration": round(capped(times[-1]), 3), "steps": steps, "keys": keys}, f, ensure_ascii=False, indent=1)
+
+
+NAMES = {"\x1b[B": "↓", "\x1b[A": "↑", "\x1b[C": "→", "\x1b[D": "←", "\x1b": "Esc", "\x7f": "⌫",
+         "\t": "Tab", "\r": "Enter"}
+
+
+def prompt_line(text, m):
+    """The screen line a match is on, as a step's label: the prompt, without
+    its marks and key hints. ponytail: full-screen views redraw with cursor
+    moves, so their "line" can hold more than one row; good enough to tell
+    steps apart."""
+    a, b = text.rfind("\n", 0, m.start()) + 1, text.find("\n", m.end())
+    line = text[a:b if b != -1 else len(text)].replace("\r", " ")
+    line = re.split(r" ›| \[|  +(?=\S)", line.strip(" ?✔›>\t"))[0]
+    return " ".join(line.split())[:60]
 
 
 def after_visible(text, start, count):

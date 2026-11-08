@@ -11,6 +11,8 @@ All commands work the same way:
 - `-i` shows records full screen, for you to move through.
 - `--json` and the exit codes are stable, for scripts and AI agents.
 
+This guide is also a website, with a page for each section and docs for each release: <https://source-cooperative.github.io/source-coop-cli/>.
+
 The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`). Their `http://127.0.0.1:…` URLs are local.
 
 **Contents**
@@ -32,6 +34,12 @@ The demos in this guide use a stand-in for the API with made-up records (`demo-o
 
 ## Install
 
+### Homebrew (macOS / Linux)
+
+```bash
+brew install source-cooperative/tap/source-coop
+```
+
 ### From GitHub Releases (recommended)
 
 **macOS / Linux:**
@@ -45,12 +53,6 @@ curl --proto '=https' --tlsv1.2 -LsSf \
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.ps1 | iex"
-```
-
-### Homebrew (macOS / Linux)
-
-```bash
-brew install source-cooperative/tap/source-coop
 ```
 
 ### From source

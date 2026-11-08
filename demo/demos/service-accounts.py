@@ -56,11 +56,11 @@ def create_flags(s):
 
 def browse(s):
     s.run(f"source-coop service-account list {ORG} -i")
-    s.see("Service accounts of"); s.pause(1.2); s.key(DOWN); s.key(RIGHT)
-    s.see("Can reach"); s.pause(3); s.key(LEFT)
-    s.see("Service accounts of"); s.key(DOWN); s.key(RIGHT)
-    s.see("Can reach"); s.pause(1.5); s.key("d")
-    s.see("Type"); s.pause(1); s.type(f"{ORG}--old-backfill"); s.enter()
+    s.see("Service accounts of", step="The list"); s.pause(1.2); s.key(DOWN); s.key(RIGHT)
+    s.see("Can reach", step="A service account"); s.pause(3); s.key(LEFT)
+    s.see("Service accounts of", step="The list"); s.key(DOWN); s.key(RIGHT)
+    s.see("Can reach", step="A service account"); s.pause(1.5); s.key("d")
+    s.see("Type", step="Type it to confirm"); s.pause(1); s.type(f"{ORG}--old-backfill"); s.enter()
     s.see("Deleted"); s.pause(2.5); s.key("q")
     # The picker leaves the screen as it was; show what's left.
     s.prompt()
@@ -71,16 +71,16 @@ def edit(s):
     s.run(f"source-coop service-account edit {ORG}--stac-indexer --disable"); s.prompt(); s.pause(2)
     s.run(f"source-coop service-account edit {ORG}--stac-indexer --enable"); s.prompt()
     s.run(f"source-coop service-account edit {ORG}--stac-indexer")
-    s.see("Save changes"); s.pause(1); s.enter()   # Name
+    s.see("Save changes", step="The edit form"); s.pause(1); s.enter()   # Name
     s.see("Name"); s.pause(0.8)
     s.key(BACKSPACE * len("STAC indexer"))
     s.type("STAC indexer (production)"); s.enter()
-    s.see("Save changes"); s.pause(1.2); s.key("s")
+    s.see("Save changes", step="The edit form"); s.pause(1.2); s.key("s")
     s.see("Save these changes"); s.pause(2.5); s.enter()
 
 def delete(s):
     s.run(f"source-coop service-account delete {ORG}--old-backfill")
-    s.see("Type"); s.pause(2.5); s.type(f"{ORG}--old-backfill"); s.enter(); s.prompt()
+    s.see("Type", step="Type it to confirm"); s.pause(2.5); s.type(f"{ORG}--old-backfill"); s.enter(); s.prompt()
     s.run(f"source-coop service-account delete {ORG}--stac-indexer --yes --json | jq -c '{{account_id, name}}'")
 
 
@@ -112,7 +112,7 @@ def keys(s):
     s.see("When should"); s.key(DOWN); s.enter()
     s.prompt()
     s.run(f"source-coop service-account sign-in remove {ORG}--nightly-sync key:Qx7Lm2")
-    s.see("Type"); s.pause(1.5); s.type("key:Qx7Lm2"); s.enter()
+    s.see("Type", step="Type it to confirm"); s.pause(1.5); s.type("key:Qx7Lm2"); s.enter()
     s.prompt()
     s.run(f"source-coop service-account view {ORG}--nightly-sync | sed -n '/Signs in with/,/^$/p'")
 
@@ -120,13 +120,13 @@ def keys(s):
 def access(s):
     s.run(f"source-coop service-account edit {ORG}--nightly-sync --access {ORG}/demo-data=write"); s.prompt()
     s.run(f"source-coop service-account edit {ORG}--nightly-sync")
-    s.see("Save changes"); s.pause(1.5)
+    s.see("Save changes", step="The edit form"); s.pause(1.5)
     s.key(DOWN); s.enter()                      # demo-org/climate-grid
     s.see("Access to"); s.key(DOWN); s.enter()  # No access
-    s.see("Save changes"); s.key(DOWN, 2); s.enter()   # Grant a product…
+    s.see("Save changes", step="The edit form"); s.key(DOWN, 2); s.enter()   # Grant a product…
     s.see("Grant which product"); s.pause(1); s.enter()
     s.see("Access"); s.enter()                  # Read
-    s.see("Save changes"); s.pause(1.5); s.key("s")
+    s.see("Save changes", step="The edit form"); s.pause(1.5); s.key("s")
     s.see("Save these changes"); s.pause(3); s.enter()
     s.prompt()
     s.run(f"source-coop service-account view {ORG}--nightly-sync | sed -n '/Can reach/,$p'")
