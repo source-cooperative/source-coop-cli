@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Configuration · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="configuration/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -158,7 +158,10 @@
 <p>To set up the OAuth2 client for another deployment of source.coop, see <a href="https://github.com/source-cooperative/source-coop-cli/blob/main/CONTRIBUTING.md#oidc-provider-setup">CONTRIBUTING.md</a>.</p>
 <h3 id="multiple-environments-for-example-staging">Multiple environments (for example, staging)</h3>
 <p>Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:</p>
-<pre><code class="language-bash">source-coop auth login
+<pre><code class="language-bash"># sign in to production
+source-coop auth login
+
+# sign in to staging, in a subshell
 ( source .env.staging &amp;&amp; source-coop auth login )
 </code></pre>
 <ul>

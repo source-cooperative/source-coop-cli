@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Signing in · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="signing-in/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -125,9 +125,14 @@
 <p><code>auth status</code> shows one environment and one role, because the keyring cannot list its entries. To see others, use <code>--proxy-url</code> and <code>--role-arn</code> (or <code>SOURCE_PROXY_URL</code> and <code>SOURCE_ROLE_ARN</code>).</p>
 <h3 id="sign-out">Sign out</h3>
 <p><code>auth logout</code> removes the session of one environment and the credentials of one role. It removes them from the keyring and from the <a href="../credential-storage/#file-fallback">file fallback</a>.</p>
-<pre><code class="language-bash">source-coop auth logout
+<pre><code class="language-bash"># the default environment and role
+source-coop auth logout
+
+# another environment and role
 source-coop auth logout --proxy-url https://data.staging.source.coop --role-arn reader-role
-source-coop auth logout --json   # {&quot;proxy_url&quot;: …, &quot;role_arn&quot;: …, &quot;removed&quot;: {&quot;session&quot;: true, &quot;credentials&quot;: true}}
+
+# {&quot;proxy_url&quot;: …, &quot;role_arn&quot;: …, &quot;removed&quot;: {&quot;session&quot;: true, &quot;credentials&quot;: true}}
+source-coop auth logout --json
 </code></pre>
 <p>It uses <code>--proxy-url</code> (<code>SOURCE_PROXY_URL</code>) and <code>--role-arn</code> (<code>SOURCE_ROLE_ARN</code>), as <code>creds</code> does.</p>
 <p>The keyring cannot list its entries, so the credentials of other roles stay. You can use them until they expire, but the CLI cannot renew them without the session. To remove them now, run <code>auth logout --role-arn &lt;role&gt;</code> for each role.</p>

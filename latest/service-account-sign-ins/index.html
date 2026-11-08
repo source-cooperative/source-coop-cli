@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Service account sign-ins · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="service-account-sign-ins/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -68,11 +68,20 @@
 <li><strong>A GitHub Actions workflow</strong> that it trusts. The trust is for one repository and one branch, tag or environment. GitHub vouches for each run, so there is no secret to keep.</li>
 <li><strong>An API key</strong>, where GitHub is not available.</li>
 </ul>
-<pre><code class="language-bash">source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --branch main
+<pre><code class="language-bash"># trust runs on a branch
+source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --branch main
+
+# trust runs in a GitHub environment
 source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --environment production
+
+# trust a subject as it is
 source-coop service-account sign-in add my-org--nightly-sync --subject repo:my-org/data:ref:refs/tags/v1
+
+# remove a trust by its subject
 source-coop service-account sign-in remove my-org--nightly-sync repo:my-org/data:ref:refs/heads/main
-source-coop service-account sign-in remove my-org--nightly-sync -i   # select a sign-in
+
+# select a sign-in
+source-coop service-account sign-in remove my-org--nightly-sync -i
 </code></pre>
 <ul>
 <li><code>--github OWNER/REPO</code> with <code>--branch</code>, <code>--tag</code> or <code>--environment</code> makes the subject that GitHub's tokens contain, such as <code>repo:OWNER/REPO:ref:refs/heads/main</code>.</li>
@@ -86,10 +95,17 @@ source-coop service-account sign-in remove my-org--nightly-sync -i   # select a 
 <li>Each key has a label that tells where it is used. Use it to find the key to revoke.</li>
 <li>A key expires after 30 days, 90 days (default), one year, never, or on a date (at midnight UTC).</li>
 </ul>
-<pre><code class="language-bash">source-coop service-account sign-in add my-org--nightly-sync --key &quot;HPC cron job&quot; --expires 1y --out ~/.source-coop/nightly.key
-key=$(source-coop service-account sign-in add my-org--nightly-sync --key &quot;HPC cron job&quot;)   # piped: only the key on stdout
-source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never      # a new expiry, from now
-source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3                    # revoke it; asks you to type key:a1B2c3
+<pre><code class="language-bash"># issue a key that expires in a year, and save it to a file
+source-coop service-account sign-in add my-org--nightly-sync --key &quot;HPC cron job&quot; --expires 1y --out ~/.source-coop/nightly.key
+
+# piped: only the key on stdout
+key=$(source-coop service-account sign-in add my-org--nightly-sync --key &quot;HPC cron job&quot;)
+
+# a new expiry, from now
+source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never
+
+# revoke it; asks you to type key:a1B2c3
+source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3
 </code></pre>
 <p>The CLI shows a key one time only, when it issues the key:</p>
 <ul>
@@ -106,9 +122,12 @@ source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3      
 </code></pre>
 <h3 id="use-a-service-account">Use a service account</h3>
 <p>Workflows and scripts sign in with standard AWS tools, not with this CLI. <code>usage</code> prints what they need, as the web UI does:</p>
-<pre><code class="language-bash">source-coop service-account usage my-org--nightly-sync --subject repo:my-org/data:ref:refs/heads/main \
-    &gt; .github/workflows/source-coop.yml   # a workflow that uses aws-actions/configure-aws-credentials
-source-coop service-account usage my-org--nightly-sync --key   # the AWS_* variables for a key in a file
+<pre><code class="language-bash"># a workflow that uses aws-actions/configure-aws-credentials
+source-coop service-account usage my-org--nightly-sync --subject repo:my-org/data:ref:refs/heads/main \
+    &gt; .github/workflows/source-coop.yml
+
+# the AWS_* variables for a key in a file
+source-coop service-account usage my-org--nightly-sync --key
 </code></pre>
 <p>At a terminal, without <code>--subject</code> or <code>--key</code>, <code>usage</code> asks which sign-in to show.</p>
 <figure class="demo" data-demo="service-account-usage"><noscript><img src="../demos/service-account-usage.svg" alt="service-account usage: pick a sign-in for its workflow, then --key"></noscript><figcaption><code>service-account usage</code>: pick a sign-in for its workflow, then <code>--key</code></figcaption></figure>

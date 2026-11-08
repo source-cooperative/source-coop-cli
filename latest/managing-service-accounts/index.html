@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Managing service accounts · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="managing-service-accounts/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -67,11 +67,20 @@
 <p>A service account's ID is the owner's ID, then <code>--</code>, then its own name: <code>my-org--nightly-sync</code>. AWS tools use this ID: <code>role-to-assume: arn:aws:iam::my-org--nightly-sync:role/FullAccess</code>.</p>
 <p><code>source-coop service-account</code> shows a service account as the web UI does: what it is, how it signs in, and the products it can use.</p>
 <h3 id="list-and-view-2">List and view</h3>
-<pre><code class="language-bash">source-coop service-account list my-org             # my-org's service accounts (yours, with no owner)
-source-coop service-account list my-org --no-pager  # print directly, not in the pager
-source-coop service-account list my-org -i          # move through them full screen (keys as for products)
-source-coop service-account view my-org--nightly-sync          # --json adds `trusts`, `keys` and `memberships`
-source-coop service-account view my-org--nightly-sync -w       # open its page in the browser
+<pre><code class="language-bash"># my-org's service accounts (yours, with no owner)
+source-coop service-account list my-org
+
+# print directly, not in the pager
+source-coop service-account list my-org --no-pager
+
+# move through them full screen (keys as for products)
+source-coop service-account list my-org -i
+
+# --json adds `trusts`, `keys` and `memberships`
+source-coop service-account view my-org--nightly-sync
+
+# open its page in the browser
+source-coop service-account view my-org--nightly-sync -w
 </code></pre>
 <figure class="demo" data-demo="service-account-list"><noscript><img src="../demos/service-account-list.svg" alt="service-account list: an owner&#x27;s service accounts, then as --json"></noscript><figcaption><code>service-account list</code>: an owner's service accounts, then as <code>--json</code></figcaption></figure>
 <p><code>view</code> shows who the service account is, how it signs in and the products it can reach. <code>--json</code> adds <code>trusts</code>, <code>keys</code> and <code>memberships</code>.</p>
@@ -79,7 +88,10 @@ source-coop service-account view my-org--nightly-sync -w       # open its page i
 <p><code>list -i</code> uses the same keys as <code>product list -i</code>. On a service account's screen, <code>e</code> edits it and <code>d</code> deletes it.</p>
 <figure class="demo" data-demo="service-account-picker"><noscript><img src="../demos/service-account-picker.svg" alt="service-account list -i: open one, go back, delete one from its screen"></noscript><figcaption><code>service-account list -i</code>: open one, go back, delete one from its screen</figcaption></figure>
 <h3 id="create-1">Create</h3>
-<pre><code class="language-bash">source-coop service-account create                  # asks for all values, as the web form does
+<pre><code class="language-bash"># asks for all values, as the web form does
+source-coop service-account create
+
+# all values from flags
 source-coop service-account create my-org--nightly-sync --name &quot;Nightly sync&quot; \
     --github my-org/data --branch main --access my-org/my-data=write
 </code></pre>
@@ -94,15 +106,21 @@ source-coop service-account create my-org--nightly-sync --name &quot;Nightly syn
 <p><code>create</code> and <code>edit</code> print the service account's ID on stdout. Thus <code>id=$(source-coop service-account create …)</code> works. Going back, drafts, the sign-in check and <code>--yes</code> work as for products.</p>
 <figure class="demo" data-demo="service-account-create-flags"><noscript><img src="../demos/service-account-create-flags.svg" alt="service-account create from flags, with --json"></noscript><figcaption><code>service-account create</code> from flags, with <code>--json</code></figcaption></figure>
 <h3 id="edit-2">Edit</h3>
-<pre><code class="language-bash">source-coop service-account edit my-org--nightly-sync --name &quot;Nightly sync&quot;
-source-coop service-account edit my-org--nightly-sync            # a form of its name and products
-source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+<pre><code class="language-bash"># rename it
+source-coop service-account edit my-org--nightly-sync --name &quot;Nightly sync&quot;
+
+# a form of its name and products
+source-coop service-account edit my-org--nightly-sync
+
+# --enable lets it sign in again
+source-coop service-account edit my-org--nightly-sync --disable
 </code></pre>
 <p><code>--disable</code> stops all sign-ins as the service account. It keeps its sign-ins and products. <code>--enable</code> lets its workflows and its keys that are not revoked sign in again.</p>
 <p>With no flags, <code>edit</code> opens a form of its name and products (see <a href="#access-to-products">Access to products</a>).</p>
 <figure class="demo" data-demo="service-account-edit"><noscript><img src="../demos/service-account-edit.svg" alt="service-account edit: --disable, --enable, then a rename in the edit form"></noscript><figcaption><code>service-account edit</code>: <code>--disable</code>, <code>--enable</code>, then a rename in the edit form</figcaption></figure>
 <h3 id="delete-1">Delete</h3>
-<pre><code class="language-bash">source-coop service-account delete my-org--nightly-sync           # asks you to type its ID
+<pre><code class="language-bash"># asks you to type its ID
+source-coop service-account delete my-org--nightly-sync
 </code></pre>
 <p><code>delete</code> removes the service account, its sign-ins and its access to products. Type its ID to confirm, or use <code>--yes</code>.</p>
 <figure class="demo" data-demo="service-account-delete"><noscript><img src="../demos/service-account-delete.svg" alt="service-account delete: typed confirmation, then --yes --json"></noscript><figcaption><code>service-account delete</code>: typed confirmation, then <code>--yes --json</code></figcaption></figure>

@@ -26,8 +26,10 @@
 
   // Versions: versions.json at the site's base names the release in latest/
   // and lists every release, newest first. The button shows this page's
-  // version and opens the list; a build that isn't a release (a PR preview, a
-  // local build) shows as itself.
+  // version and opens the list: main's docs (next/) when published, latest/
+  // (even before a release has docs, when it holds main's), then the other
+  // releases. A build that isn't a release (a PR preview, a local build)
+  // shows as itself. The entry for the folder this page is in is ticked.
   var version = meta("docs-version"), base = meta("docs-base"), page = meta("docs-page");
   var button = document.querySelector(".version-button"), menu = document.getElementById("versions");
   var preview = version.indexOf("pr-") === 0;
@@ -43,7 +45,7 @@
   });
   fetch(base + "versions.json").then(function (r) { return r.ok ? r.json() : Promise.reject(); }).then(function (listed) {
     var versions = listed.versions || [], newest = listed.latest;
-    if (!versions.length || !newest) return;
+    var here = function (folder) { return location.pathname.indexOf(base + folder + "/") === 0; };
     var item = function (href, name, current, note) {
       var a = document.createElement("a");
       a.href = href;
@@ -54,21 +56,26 @@
       menu.appendChild(a);
     };
     if (preview) item(location.pathname + location.hash, "PR #" + version.slice(3), true, "preview");
+    if (listed.next) item(base + "next/" + page, "next", here("next"), "main");
+    item(base + "latest/" + page, newest || "latest", here("latest"), newest ? "latest" : "");
     versions.forEach(function (v) {
-      item(base + (v === newest ? "latest" : v) + "/" + page, v, v === version, v === newest ? "latest" : "");
+      if (v !== newest) item(base + v + "/" + page, v, here(v), "");
     });
     menu.appendChild(document.createElement("hr"));
     var all = document.createElement("a");
     all.className = "all"; all.href = meta("docs-repo") + "/releases"; all.textContent = "All releases on GitHub";
     menu.appendChild(all);
     button.disabled = false;
-    if (versions.indexOf(version) >= 0 && version !== newest) {
+    var unreleased = here("next");
+    if (unreleased || (newest && versions.indexOf(version) >= 0 && version !== newest && !here("latest"))) {
       var note = document.querySelector(".old-version");
-      note.innerHTML = '<div><span>These docs are for <code></code>. The latest release is <code></code>.</span>' +
+      note.innerHTML = '<div><span>' + (unreleased ? "These docs are for <code></code>, not yet released." : "These docs are for <code></code>.") +
+        (newest ? ' The latest release is <code></code>.' : "") + '</span>' +
         '<a href="' + base + 'latest/' + page + '">Go to the latest docs</a>' +
         '<span>Run <code>source-coop --version</code> to see yours.</span></div>';
       var codes = note.querySelectorAll("code");
-      codes[0].textContent = version; codes[1].textContent = newest;
+      codes[0].textContent = unreleased ? "main" : version;
+      if (newest) codes[1].textContent = newest;
       note.hidden = false;
     }
   }).catch(function () {});

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Managing members · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="managing-members/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -80,11 +80,20 @@
 <p>With <code>--json</code>, these commands print the memberships as the API gives them: <code>membership_id</code>, <code>account_id</code>, <code>membership_account_id</code>, <code>product_id</code> (for a product), <code>role</code>, <code>state</code> and <code>state_changed</code>. <code>invite --json</code> prints an array of the new memberships.</p>
 <p><code>create</code> and <code>delete</code> are other names for <code>invite</code> and <code>revoke</code>.</p>
 <h3 id="list-and-view-1">List and view</h3>
-<pre><code class="language-bash">source-coop member list my-org                    # members and open invitations
-source-coop member list my-org/my-data --json     # the members of a product, as JSON
-source-coop member list my-org --state invited    # only open invitations
-source-coop member list my-org -i                 # move through the members full screen
-source-coop member view my-org alice              # one member; -i for its screen
+<pre><code class="language-bash"># members and open invitations
+source-coop member list my-org
+
+# the members of a product, as JSON
+source-coop member list my-org/my-data --json
+
+# only open invitations
+source-coop member list my-org --state invited
+
+# move through the members full screen
+source-coop member list my-org -i
+
+# one member; -i for its screen
+source-coop member view my-org alice
 </code></pre>
 <figure class="demo" data-demo="member-list"><noscript><img src="../demos/member-list.svg" alt="member list and view, then --json"></noscript><figcaption><code>member list</code> and <code>view</code>, then <code>--json</code></figcaption></figure>
 <p><code>member list -i</code> uses the same keys as <code>product list -i</code>. On a member's screen:</p>
@@ -95,9 +104,14 @@ source-coop member view my-org alice              # one member; -i for its scree
 </ul>
 <figure class="demo" data-demo="member-browse"><noscript><img src="../demos/member-browse.svg" alt="member list -i: open a member and change their role"></noscript><figcaption><code>member list -i</code>: open a member and change their role</figcaption></figure>
 <h3 id="invite">Invite</h3>
-<pre><code class="language-bash">source-coop member invite my-org alice bob --role maintainers
+<pre><code class="language-bash"># invite two accounts to an organization
+source-coop member invite my-org alice bob --role maintainers
+
+# invite each account listed in a file to a product
 source-coop member invite my-org/my-data -A people.txt --role read_data
-source-coop member invite my-org                  # asks who to invite, and the role
+
+# asks who to invite, and the role
+source-coop member invite my-org
 </code></pre>
 <p><code>invite</code> takes account IDs as arguments.</p>
 <ul>
@@ -110,25 +124,40 @@ source-coop member invite my-org                  # asks who to invite, and the 
 </ul>
 <figure class="demo" data-demo="member-invite"><noscript><img src="../demos/member-invite.svg" alt="member invite with prompts, then from flags with --json"></noscript><figcaption><code>member invite</code> with prompts, then from flags with <code>--json</code></figcaption></figure>
 <h3 id="edit-1">Edit</h3>
-<pre><code class="language-bash">source-coop member edit my-org alice --role owners
-source-coop member edit my-org -i                 # select a member, then a role
+<pre><code class="language-bash"># give a member another role
+source-coop member edit my-org alice --role owners
+
+# select a member, then a role
+source-coop member edit my-org -i
 </code></pre>
 <p>Without <code>--role</code>, <code>edit</code> asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.</p>
 <figure class="demo" data-demo="member-edit"><noscript><img src="../demos/member-edit.svg" alt="member edit: pick a role, then --role with --json"></noscript><figcaption><code>member edit</code>: pick a role, then <code>--role</code> with <code>--json</code></figcaption></figure>
 <h3 id="revoke-and-leave">Revoke and leave</h3>
-<pre><code class="language-bash">source-coop member revoke my-org alice            # also withdraws an open invitation
-source-coop member leave my-org                   # end your own membership
+<pre><code class="language-bash"># also withdraws an open invitation
+source-coop member revoke my-org alice
+
+# end your own membership
+source-coop member leave my-org
 </code></pre>
 <p><code>revoke</code> asks you to confirm. For your own membership, you must also type the organization or product name.</p>
 <p><code>leave</code> always asks you to type the name, because only an owner or maintainer can add you again.</p>
 <p>Without a terminal, <code>revoke</code> and <code>leave</code> need <code>--yes</code>.</p>
 <figure class="demo" data-demo="member-revoke"><noscript><img src="../demos/member-revoke.svg" alt="member revoke an invitation, then member leave with the name typed wrong"></noscript><figcaption><code>member revoke</code> an invitation, then <code>member leave</code> with the name typed wrong</figcaption></figure>
 <h3 id="your-invitations">Your invitations</h3>
-<pre><code class="language-bash">source-coop invitation list                       # invitations that wait for your answer
-source-coop invitation list -i                    # open one, then accept (a) or reject (r) it
+<pre><code class="language-bash"># invitations that wait for your answer
+source-coop invitation list
+
+# open one, then accept (a) or reject (r) it
+source-coop invitation list -i
+
+# accept an invitation to a product
 source-coop invitation accept my-org/my-data
+
+# reject an invitation to an organization
 source-coop invitation reject my-org
-source-coop invitation accept -i                  # select an invitation
+
+# select an invitation
+source-coop invitation accept -i
 </code></pre>
 <p>When you accept, you become a member with the role of the invitation. With <code>--json</code>, the command prints the membership after the change.</p>
 <figure class="demo" data-demo="invitations"><noscript><img src="../demos/invitations.svg" alt="invitation list -i: accept one, then reject another"></noscript><figcaption><code>invitation list -i</code>: accept one, then reject another</figcaption></figure>

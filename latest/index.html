@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>source-coop CLI guide</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -74,13 +74,20 @@
 <li><code>-i</code> shows records full screen, for you to move through.</li>
 <li><code>--json</code> and the exit codes are stable, for scripts and AI agents.</li>
 </ul>
-<p>This guide is also a website, with a page for each section and docs for each release: <a href="https://source-cooperative.github.io/source-coop-cli/">https://source-cooperative.github.io/source-coop-cli/</a>.</p>
+<p>This guide is also a website, with a page for each section and docs for each release, plus <code>next</code> for what's on main and not yet released: <a href="https://cli.source.coop/">https://cli.source.coop/</a>.</p>
 <p>The demos in this guide use a stand-in for the API with made-up records (<code>demo-org</code>, <code>demo-user</code>), and a made-up session where they show you signed in. They show production's addresses (<code>source.coop</code>, <code>data.source.coop</code>), but <code>demo-org</code> and <code>demo-user</code> don't exist there.</p>
 <h3 id="quick-start">Quick start</h3>
-<pre><code class="language-bash">source-coop auth login                        # sign in through your browser, once
-source-coop product list my-org               # an account's products
-source-coop product create                    # asks for each value a new product needs
-aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS profile (below)
+<pre><code class="language-bash"># sign in through your browser, once
+source-coop auth login
+
+# an account's products
+source-coop product list my-org
+
+# asks for each value a new product needs
+source-coop product create
+
+# after you add the AWS profile (below)
+aws s3 ls s3://my-org/my-data --profile source-coop
 </code></pre>
 <p><code>source-coop --help</code> lists the commands. <code>source-coop &lt;command&gt; --help</code> lists the flags of a command, with examples.</p>
 <figure class="demo" data-demo="tour"><noscript><img src="demos/tour.svg" alt="source-coop: an account&#x27;s products, one product, then as --json"></noscript><figcaption><code>source-coop</code>: an account's products, one product, then as <code>--json</code></figcaption></figure>

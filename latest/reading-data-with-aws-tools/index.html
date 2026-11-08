@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Reading data with AWS tools · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="reading-data-with-aws-tools/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -108,7 +108,10 @@ aws_session_token = ...
 <blockquote class="callout callout-warning"><p class="callout-title">Warning</p><p>The Source Cooperative data proxy does not yet support custom roles.</p>
 </blockquote>
 <p>The CLI keeps the credentials of each role separately:</p>
-<pre><code class="language-bash">source-coop auth login --role-arn reader-role
+<pre><code class="language-bash"># credentials for a read-only role
+source-coop auth login --role-arn reader-role
+
+# credentials for an admin role, kept separately
 source-coop auth login --role-arn admin-role
 </code></pre>
 <p>Use <code>--role-arn</code> with <code>creds</code> to select the role:</p>

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Managing products · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="managing-products/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -65,16 +65,35 @@
 <h1 id="managing-products">Managing products</h1>
 <p><code>source-coop product</code> lists, views, creates, edits and deletes products through the source.coop API (<code>/api/v1</code>). The CLI does not check values itself. It shows the API's errors for each field. A product's name is <code>ACCOUNT/PRODUCT</code>.</p>
 <h3 id="list-and-view">List and view</h3>
-<pre><code class="language-bash">source-coop product list                      # public products
-source-coop product list my-org --json        # the products of one account, as JSON
-source-coop product list --format table       # one row for each product; tab-separated when piped
-source-coop product list -q climate           # search titles, descriptions and IDs
-source-coop product list --tags zarr,climate --featured   # featured products with all these tags
-source-coop product list -L 100               # up to 100 (default 30, or all in the pager)
-source-coop product list my-org -i            # move through them full screen (see &quot;Browsing with -i&quot;)
-source-coop product view my-org/my-product    # one product
-source-coop product view my-org/my-product -w # open its page in the browser
-source-coop product view my-org/my-product -i # its screen, with shortcuts; with no name, select one first
+<pre><code class="language-bash"># public products
+source-coop product list
+
+# the products of one account, as JSON
+source-coop product list my-org --json
+
+# one row for each product; tab-separated when piped
+source-coop product list --format table
+
+# search titles, descriptions and IDs
+source-coop product list -q climate
+
+# featured products with all these tags
+source-coop product list --tags zarr,climate --featured
+
+# up to 100 (default 30, or all in the pager)
+source-coop product list -L 100
+
+# move through them full screen (see &quot;Browsing with -i&quot;)
+source-coop product list my-org -i
+
+# one product
+source-coop product view my-org/my-product
+
+# open its page in the browser
+source-coop product view my-org/my-product -w
+
+# its screen, with shortcuts; with no name, select one first
+source-coop product view my-org/my-product -i
 </code></pre>
 <p><code>list</code> has two formats:</p>
 <ul>
@@ -86,10 +105,17 @@ source-coop product view my-org/my-product -i # its screen, with shortcuts; with
 <p><code>list -i</code> and <code>view -i</code> show products full screen. <a href="../browsing-with--i/">Browsing with <code>-i</code></a> lists the keys.</p>
 <figure class="demo" data-demo="product-browse"><noscript><img src="../demos/product-browse.svg" alt="product list -i: open a product, go back, filter with /"></noscript><figcaption><code>product list -i</code>: open a product, go back, filter with <code>/</code></figcaption></figure>
 <h3 id="create">Create</h3>
-<pre><code class="language-bash">source-coop product create                    # asks for all values
-source-coop product create my-org/my-product  # asks for the other values
+<pre><code class="language-bash"># asks for all values
+source-coop product create
+
+# asks for the other values
+source-coop product create my-org/my-product
+
+# all values from flags
 source-coop product create my-org/my-product -t &quot;My product&quot; -d &quot;What's in it&quot; \
     --visibility public --data-connection my-connection
+
+# values from JSON on stdin
 echo '{&quot;title&quot;: &quot;My product&quot;}' | source-coop product create my-org/my-product -F -
 </code></pre>
 <p>Give the values as flags (<code>--title</code>, <code>--description</code>, <code>--visibility</code>, <code>--data-connection</code>), as a JSON object with <code>--from-file PATH</code> (<code>-</code> for stdin), or both. Flags take priority.</p>
@@ -104,11 +130,20 @@ echo '{&quot;title&quot;: &quot;My product&quot;}' | source-coop product create 
 <p><code>create</code> prints the product's URL on stdout and its message on stderr. Thus <code>url=$(source-coop product create ...)</code> works.</p>
 <figure class="demo" data-demo="product-create"><noscript><img src="../demos/product-create.svg" alt="product create with prompts: ↑ goes back a question, then the review"></noscript><figcaption><code>product create</code> with prompts: ↑ goes back a question, then the review</figcaption></figure>
 <h3 id="edit">Edit</h3>
-<pre><code class="language-bash">source-coop product edit my-org/my-product                     # a form of its fields
+<pre><code class="language-bash"># a form of its fields
+source-coop product edit my-org/my-product
+
+# change one field
 source-coop product edit my-org/my-product --visibility unlisted
+
+# change one field and print the result as JSON
 source-coop product edit my-org/my-product -d &quot;New description&quot; --json
-source-coop product edit my-org/my-product --disable           # --enable makes it active again (admins only)
-source-coop product edit -i                                    # select one of your account's products
+
+# --enable makes it active again (admins only)
+source-coop product edit my-org/my-product --disable
+
+# select one of your account's products
+source-coop product edit -i
 </code></pre>
 <p><code>edit</code> uses the same values as <code>create</code>, but not the data connection. Give them as flags or with <code>--from-file</code>. <code>--disable</code> and <code>--enable</code> are flags only. <code>edit</code> prints the product's URL on stdout.</p>
 <p>With no flags, <code>edit</code> opens a full-screen form of the title, description and visibility:</p>
@@ -122,10 +157,17 @@ source-coop product edit -i                                    # select one of y
 </ul>
 <figure class="demo" data-demo="product-edit"><noscript><img src="../demos/product-edit.svg" alt="product edit: the edit form, then a flag"></noscript><figcaption><code>product edit</code>: the edit form, then a flag</figcaption></figure>
 <h3 id="delete">Delete</h3>
-<pre><code class="language-bash">source-coop product delete my-org/my-product                  # asks you to type the name
-source-coop product delete my-org/my-product --preserve-data  # keep its objects in storage
-source-coop product delete my-org/my-product --yes --json     # no questions, for scripts
-source-coop product delete -i                                 # select one of your account's products
+<pre><code class="language-bash"># asks you to type the name
+source-coop product delete my-org/my-product
+
+# keep its objects in storage
+source-coop product delete my-org/my-product --preserve-data
+
+# no questions, for scripts
+source-coop product delete my-org/my-product --yes --json
+
+# select one of your account's products
+source-coop product delete -i
 </code></pre>
 <p><code>delete</code> asks two questions:</p>
 <ol>

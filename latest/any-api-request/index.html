@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Any API request · source-coop CLI</title>
 <meta name="docs-version" content="main">
-<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-base" content="/">
 <meta name="docs-page" content="any-api-request/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
@@ -64,10 +64,17 @@
   <main id="main">
 <h1 id="any-api-request">Any API request</h1>
 <p><code>source-coop api</code> sends a request to <code>/api/v1</code> as you, and prints the response. Use it for what the other commands do not do.</p>
-<pre><code class="language-bash">source-coop api products/my-org -q limit=5
+<pre><code class="language-bash"># GET, with a query parameter
+source-coop api products/my-org -q limit=5
+
+# POST, with fields from flags
 source-coop api products/my-org -f product_id=new -f title=&quot;New&quot; -f description=&quot;&quot; \
   -f visibility=public -f data_connection_id=my-connection
+
+# PATCH, with fields from a file and a flag (the flag wins)
 source-coop api products/my-org/new -X PATCH -F changes.json -f title=&quot;Renamed&quot;
+
+# PATCH, with the body from stdin
 echo '{&quot;title&quot;: &quot;Renamed&quot;, &quot;tags&quot;: [&quot;a&quot;]}' | source-coop api products/my-org/new -X PATCH -F -
 </code></pre>
 <div class="table-wrap"><table>
