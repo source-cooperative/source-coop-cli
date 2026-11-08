@@ -9,7 +9,7 @@ How this CLI behaves, so every command behaves the same way. Each rule names the
 - **Commands and flags:** new ones get an example. Changed or removed ones are changed or removed there too.
 - **Behaviour:** prompts, keys, output formats and defaults.
 - **Files and environment variables** it reads or writes.
-- **The docs site is the README.** `docs/site/build.py` turns it into the site at <https://source-cooperative.github.io/source-coop-cli/>, one page for each `##` section, so a new `##` heading is a new page. A `<!-- group: NAME -->` line (GitHub doesn't show it) starts a group of sections, listed under NAME in the site's sidebar and the README's contents: put a new section in the group a reader would look in, and add it to the contents list. The team's own workflows, preview builds and setup for whoever runs the sign-in server, are in CONTRIBUTING.md, not the README. Each published release publishes it as that version and, for the newest stable release, as `latest/`. Build it locally with `uv run --with markdown-it-py python docs/site/build.py --out target/site`.
+- **The docs site is the README.** `docs/site/build.py` turns it into the site at <https://cli.source.coop/>, one page for each `##` section, so a new `##` heading is a new page. A `<!-- group: NAME -->` line (GitHub doesn't show it) starts a group of sections, listed under NAME in the site's sidebar and the README's contents: put a new section in the group a reader would look in, and add it to the contents list. The team's own workflows, preview builds and setup for whoever runs the sign-in server, are in CONTRIBUTING.md, not the README. Each published release publishes it as that version and, for the newest stable release, as `latest/`. Build it locally with `uv run --with markdown-it-py python docs/site/build.py --out target/site`.
 - **Demos:** the README embeds recordings from `docs/demos/`, made by `docs/recorder/guide.py`. When a change alters what one shows, update its script and re-record it (`docs/recorder/README.md` says how).
 
 Before committing, read the README sections your change touches and fix anything now untrue, including text written before your change. The README isn't a changelog: describe how the CLI works now, not what changed. `every_command_is_in_the_readme` in `src/main.rs` fails if a command is missing from it, but it can't tell whether the description is right. That part is on you.
@@ -138,7 +138,7 @@ Record with `docs/recorder/`: `docs/recorder/README.md` says how to write a demo
 
 ### Docs previews
 
-A PR that changes `README.md` or `docs/` gets a preview of the docs site at `https://source-cooperative.github.io/source-coop-cli/pr-preview/pr-N/`, where N is the PR's number. The *Docs* workflow builds it and comments the link on the PR, and the preview is removed when the PR closes. PRs from forks get a build check only.
+A PR that changes `README.md` or `docs/` gets a preview of the docs site at `https://cli.source.coop/pr-preview/pr-N/`, where N is the PR's number. The *Docs* workflow builds it and comments the link on the PR, and the preview is removed when the PR closes. PRs from forks get a build check only.
 
 - **Call out the docs changes** in the description: say what changed and link each changed page on the preview, such as `…/pr-preview/pr-N/managing-products/#create`. A page is its `##` section's anchor; an anchor inside it follows `#`.
 - **Look at the preview before asking for review.** A broken link, a demo that doesn't load, or a page split wrongly by a new `##` heading is a bug in the PR.

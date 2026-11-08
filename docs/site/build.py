@@ -110,7 +110,7 @@ def main():
     p.add_argument("--demos", default="docs/demos")
     p.add_argument("--out", default="target/site")
     p.add_argument("--version", default="dev", help="the version these docs are for: a tag, or e.g. pr-75")
-    p.add_argument("--base", default="/source-coop-cli/", help="the site's path on its host, where versions.json is")
+    p.add_argument("--base", default="/", help="the site's path on its host, where versions.json is")
     args = p.parse_args()
 
     sections = split(demo_figures(open(args.readme).read()))
