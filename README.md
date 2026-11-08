@@ -1,3 +1,5 @@
+<!-- group: Get started -->
+
 # source-coop CLI
 
 The command line for [Source Cooperative](https://source.coop). Use it to:
@@ -15,22 +17,25 @@ This guide is also a website, with a page for each section and docs for each rel
 
 The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`). Their `http://127.0.0.1:…` URLs are local.
 
+### Quick start
+
+```bash
+source-coop auth login                        # sign in through your browser, once
+source-coop product list my-org               # an account's products
+source-coop product create                    # asks for each value a new product needs
+aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS profile (below)
+```
+
+`source-coop --help` lists the commands. `source-coop <command> --help` lists the flags of a command, with examples.
+
 **Contents**
 
-- [Install](#install)
-- [Quick start](#quick-start)
-- [Signing in](#signing-in)
-- [Reading data with AWS tools](#reading-data-with-aws-tools)
-- [Managing products](#managing-products)
-- [Managing members](#managing-members)
-- [Managing service accounts](#managing-service-accounts)
-- [Prompts](#prompts)
-- [Browsing with `-i`](#browsing-with--i)
-- [Scripts and AI agents](#scripts-and-ai-agents)
-- [Any API request](#any-api-request)
-- [Configuration](#configuration)
-- [Credential storage](#credential-storage)
-- [OIDC provider setup](#oidc-provider-setup)
+- **Get started:** [Install](#install), [Signing in](#signing-in)
+- **Get data:** [Reading data with AWS tools](#reading-data-with-aws-tools)
+- **Manage source.coop:** [Products](#managing-products), [Members](#managing-members), [Service accounts](#managing-service-accounts), [Service account sign-ins](#service-account-sign-ins)
+- **How commands work:** [Prompts](#prompts), [Browsing with `-i`](#browsing-with--i), [Shell completion](#shell-completion)
+- **Automate:** [Scripts and AI agents](#scripts-and-ai-agents), [Any API request](#any-api-request)
+- **Reference:** [Configuration](#configuration), [Credential storage](#credential-storage)
 
 ## Install
 
@@ -66,46 +71,6 @@ To see the installed version:
 ```bash
 source-coop --version
 ```
-
-### Shell completion
-
-Add one of these lines to your shell's startup file:
-
-```bash
-eval "$(source-coop completions bash)"          # ~/.bashrc
-eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
-source-coop completions fish | source           # ~/.config/fish/config.fish
-```
-
-```powershell
-source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
-```
-
-`elvish` is also available.
-
-TAB then completes commands, flags, flag values and record names:
-
-- `source-coop product view my-org/<TAB>` shows the products of `my-org`. Before the `/`, it shows the accounts that you are a member of.
-- `source-coop service-account view my<TAB>` shows full service account IDs, such as `my-org--nightly-sync`. It does not complete the ID of a new service account for `create`.
-
-How completion works:
-
-- **It always matches the installed version.** On each TAB, the script runs `source-coop` with `SOURCE_COOP_COMPLETE` set.
-- **Names come from the API, as you.** Completion uses your session's access token (or `SOURCE_TOKEN`) and never renews it. When the token has expired, only public products complete. The next command that you run renews it.
-- **It reads the environment only.** It uses `SOURCE_API_URL` and `SOURCE_PROXY_URL`. It ignores `--api-url` and `--proxy-url` on the command line.
-- **It waits 2 seconds for the API.** After that, it shows no names, and bash shows file names.
-- **On macOS, the keychain can ask for your password.** TAB waits up to one minute for you. Select **Always Allow** so that it does not ask again until you install a new build.
-
-## Quick start
-
-```bash
-source-coop auth login                        # sign in through your browser, once
-source-coop product list my-org               # an account's products
-source-coop product create                    # asks for each value a new product needs
-aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS profile (below)
-```
-
-`source-coop --help` lists the commands. `source-coop <command> --help` lists the flags of a command, with examples.
 
 ## Signing in
 
@@ -194,40 +159,6 @@ source-coop auth status --json | jq -r .login.refresh_token.issued_at
 
 `auth status` shows one environment and one role, because the keyring cannot list its entries. To see others, use `--proxy-url` and `--role-arn` (or `SOURCE_PROXY_URL` and `SOURCE_ROLE_ARN`).
 
-### Use your session with other tools
-
-`auth token` prints the session's access token for the source.coop API. If the token has expired, it renews it first.
-
-```bash
-curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
-```
-
-To send a request through the CLI, see [Any API request](#any-api-request).
-
-### Multiple environments (for example, staging)
-
-Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:
-
-```bash
-source-coop auth login
-( source .env.staging && source-coop auth login )
-```
-
-- `--proxy-url` (or `SOURCE_PROXY_URL`) selects the environment for all commands. The default is production.
-- `--api-url` (or `SOURCE_API_URL`) selects the site for commands that use the API. `.env.staging` sets both.
-
-An AWS profile for a different environment must use `--proxy-url`. If it does not, it gets production credentials:
-
-```ini
-[profile source-coop]
-credential_process = source-coop creds
-endpoint_url = https://data.source.coop
-
-[profile source-coop-staging]
-credential_process = source-coop creds --proxy-url https://data.staging.source.coop
-endpoint_url = https://data.staging.source.coop
-```
-
 ### Sign out
 
 `auth logout` removes the session of one environment and the credentials of one role. It removes them from the keyring and from the [file fallback](#file-fallback).
@@ -244,21 +175,7 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 `auth logout` does not revoke tokens at the identity provider.
 
-### Sign-in options
-
-| Flag | Env var | Default | Description |
-|------|---------|---------|-------------|
-| `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
-| `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `197e20e7-...` | OAuth2 client ID |
-| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS. Also selects the environment of the session. |
-| `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
-| `--format` | | `credential-process` | Output format: `credential-process`, `env` or `aws-credentials` |
-| `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
-| `--duration` | | | Session duration, for example `3600`, `90s`, `5m`, `12h`, `1d` (a number alone is seconds) |
-| `--scope` | | `openid offline_access` | OAuth2 scopes. `offline_access` lets `creds` renew credentials. |
-| `--audience` | `SOURCE_API_AUDIENCE` | `https://source.coop` | Audience of the API access token. If empty, the CLI requests none, and only `creds` works. |
-| `--port` | | `0` (random) | Local callback port |
-| `--no-cache` | | | Print the credentials and keep nothing |
+<!-- group: Get data -->
 
 ## Reading data with AWS tools
 
@@ -342,6 +259,8 @@ endpoint_url = https://data.source.coop
 credential_process = source-coop creds --role-arn admin-role
 endpoint_url = https://data.source.coop
 ```
+
+<!-- group: Manage source.coop -->
 
 ## Managing products
 
@@ -566,7 +485,32 @@ If `create` issues a key, it gives you the key as `sign-in add` does. But stdout
 
 ![`service-account list -i`: open one, go back, delete one from its screen](docs/demos/service-account/picker.svg)
 
-### Sign-ins
+### Access to products
+
+A service account can read, or read and write, its owner's products. Each grant is a usual membership of the product.
+
+- `create --access` gives access when you create the service account.
+- `edit --access` gives access, changes the role, or removes access (`=none`).
+
+```bash
+source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old-data=none
+```
+
+If the product already has that role, or has no access to remove, nothing changes. Thus you can run an edit two times safely.
+
+With no flags, `edit` opens a full-screen form with **Name**, then the products under **Can reach**, each with its role:
+
+- ↑/↓ moves. Enter changes the selected row: the name, or the access to a product (Read, Read and write, or No access).
+- *Grant a product…* adds one of the owner's other products.
+- A changed row shows its old value.
+- `s`, or Enter on *Save changes*, shows the changes and asks you to confirm. ← goes back to the form.
+- Esc or ← on the form cancels. If you changed a row, the form asks first.
+
+`--disable` and `--enable` are flags only.
+
+![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account/access.svg)
+
+## Service account sign-ins
 
 A service account signs in in one of two ways:
 
@@ -621,31 +565,6 @@ If a key leaks, anyone with the key can revoke it, without signing in. The comma
 source-coop service-account sign-in revoke-key < leaked-key-file
 ```
 
-### Access to products
-
-A service account can read, or read and write, its owner's products. Each grant is a usual membership of the product.
-
-- `create --access` gives access when you create the service account.
-- `edit --access` gives access, changes the role, or removes access (`=none`).
-
-```bash
-source-coop service-account edit my-org--nightly-sync --access my-org/my-data=write --access my-org/old-data=none
-```
-
-If the product already has that role, or has no access to remove, nothing changes. Thus you can run an edit two times safely.
-
-With no flags, `edit` opens a full-screen form with **Name**, then the products under **Can reach**, each with its role:
-
-- ↑/↓ moves. Enter changes the selected row: the name, or the access to a product (Read, Read and write, or No access).
-- *Grant a product…* adds one of the owner's other products.
-- A changed row shows its old value.
-- `s`, or Enter on *Save changes*, shows the changes and asks you to confirm. ← goes back to the form.
-- Esc or ← on the form cancels. If you changed a row, the form asks first.
-
-`--disable` and `--enable` are flags only.
-
-![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account/access.svg)
-
 ### Use a service account
 
 Workflows and scripts sign in with standard AWS tools, not with this CLI. `usage` prints what they need, as the web UI does:
@@ -659,6 +578,8 @@ source-coop service-account usage my-org--nightly-sync --key   # the AWS_* varia
 At a terminal, without `--subject` or `--key`, `usage` asks which sign-in to show.
 
 ![`service-account usage`: pick a sign-in for its workflow, then `--key`](docs/demos/service-account/usage.svg)
+
+<!-- group: How commands work -->
 
 ## Prompts
 
@@ -707,6 +628,37 @@ The CLI does not ask questions if stdin or stderr is not a terminal, or if `SOUR
 To edit or delete, you must open the record first. Thus a wrong key in a list changes nothing. The shortcuts do the same as the commands, with the same questions. Lists get more records as you move down.
 
 ![`product list -i`: open a product, go back, filter with `/`](docs/demos/product-browse.svg)
+
+## Shell completion
+
+Add one of these lines to your shell's startup file:
+
+```bash
+eval "$(source-coop completions bash)"          # ~/.bashrc
+eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
+source-coop completions fish | source           # ~/.config/fish/config.fish
+```
+
+```powershell
+source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
+```
+
+`elvish` is also available.
+
+TAB then completes commands, flags, flag values and record names:
+
+- `source-coop product view my-org/<TAB>` shows the products of `my-org`. Before the `/`, it shows the accounts that you are a member of.
+- `source-coop service-account view my<TAB>` shows full service account IDs, such as `my-org--nightly-sync`. It does not complete the ID of a new service account for `create`.
+
+How completion works:
+
+- **It always matches the installed version.** On each TAB, the script runs `source-coop` with `SOURCE_COOP_COMPLETE` set.
+- **Names come from the API, as you.** Completion uses your session's access token (or `SOURCE_TOKEN`) and never renews it. When the token has expired, only public products complete. The next command that you run renews it.
+- **It reads the environment only.** It uses `SOURCE_API_URL` and `SOURCE_PROXY_URL`. It ignores `--api-url` and `--proxy-url` on the command line.
+- **It waits 2 seconds for the API.** After that, it shows no names, and bash shows file names.
+- **On macOS, the keychain can ask for your password.** TAB waits up to one minute for you. Select **Always Allow** so that it does not ask again until you install a new build.
+
+<!-- group: Automate -->
 
 ## Scripts and AI agents
 
@@ -769,6 +721,16 @@ All commands use the same exit codes:
 
 If `SOURCE_TOKEN` is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without `auth login`.
 
+### Use your session with other tools
+
+`auth token` prints the session's access token for the source.coop API. If the token has expired, it renews it first.
+
+```bash
+curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
+```
+
+To send a request through the CLI, see [Any API request](#any-api-request).
+
 ## Any API request
 
 `source-coop api` sends a request to `/api/v1` as you, and prints the response. Use it for what the other commands do not do.
@@ -796,6 +758,8 @@ Public data needs no sign-in. Other requests use the session from `source-coop a
 
 ![`api`: any request to the API](docs/demos/api.svg)
 
+<!-- group: Reference -->
+
 ## Configuration
 
 The CLI has no configuration file. Flags and environment variables set all values. A flag takes priority over its variable.
@@ -817,6 +781,48 @@ The CLI has no configuration file. Flags and environment variables set all value
 | `NO_COLOR`, `CLICOLOR=0` | | | No color, also on a terminal |
 
 `.env.staging` in this repository sets the values for staging. Run `source .env.staging` before a command, or use a subshell as in [Multiple environments](#multiple-environments-for-example-staging).
+
+To set up the OAuth2 client for another deployment of source.coop, see [CONTRIBUTING.md](CONTRIBUTING.md#oidc-provider-setup).
+
+### Multiple environments (for example, staging)
+
+Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:
+
+```bash
+source-coop auth login
+( source .env.staging && source-coop auth login )
+```
+
+- `--proxy-url` (or `SOURCE_PROXY_URL`) selects the environment for all commands. The default is production.
+- `--api-url` (or `SOURCE_API_URL`) selects the site for commands that use the API. `.env.staging` sets both.
+
+An AWS profile for a different environment must use `--proxy-url`. If it does not, it gets production credentials:
+
+```ini
+[profile source-coop]
+credential_process = source-coop creds
+endpoint_url = https://data.source.coop
+
+[profile source-coop-staging]
+credential_process = source-coop creds --proxy-url https://data.staging.source.coop
+endpoint_url = https://data.staging.source.coop
+```
+
+### Sign-in options
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
+| `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `197e20e7-...` | OAuth2 client ID |
+| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS. Also selects the environment of the session. |
+| `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
+| `--format` | | `credential-process` | Output format: `credential-process`, `env` or `aws-credentials` |
+| `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
+| `--duration` | | | Session duration, for example `3600`, `90s`, `5m`, `12h`, `1d` (a number alone is seconds) |
+| `--scope` | | `openid offline_access` | OAuth2 scopes. `offline_access` lets `creds` renew credentials. |
+| `--audience` | `SOURCE_API_AUDIENCE` | `https://source.coop` | Audience of the API access token. If empty, the CLI requests none, and only `creds` works. |
+| `--port` | | `0` (random) | Local callback port |
+| `--no-cache` | | | Print the credentials and keep nothing |
 
 ## Credential storage
 
@@ -849,34 +855,3 @@ If there is no OS keyring (for example on servers, in containers and in CI), the
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
 The session is in `source-coop/session.json`. Other environments use the same layout in `source-coop/env/<host>/`, or in `source-coop/env/<host>/<port>/` if the port is not the default. For example: `source-coop/env/data.staging.source.coop/session.json`.
-
-## OIDC provider setup
-
-The CLI uses the OAuth2 Authorization Code flow with PKCE. It starts a temporary local server at `http://127.0.0.1:{port}/callback` to receive the authorization code.
-
-The OAuth2 client must have a redirect URI that agrees with this. Use one of these two options.
-
-### Option A: Allow all ports (recommended)
-
-Register `http://127.0.0.1/callback` as a redirect URI on the OAuth2 client. [RFC 8252 Section 7.3](https://datatracker.ietf.org/doc/html/rfc8252#section-7.3) says that loopback redirect URIs must allow all ports. Ory Network does this: a URI without a port allows all ports.
-
-The CLI's default, `--port 0`, uses a random free port. This works with option A.
-
-### Option B: One fixed port
-
-Register a redirect URI with a port, for example `http://127.0.0.1:8400/callback`. Then run the CLI with that port:
-
-```bash
-source-coop auth login --role-arn <ARN> --port 8400
-```
-
-### Client configuration
-
-Configure the OAuth2 client as a **public client** (no client secret):
-
-- **Grant type**: Authorization Code
-- **Token endpoint auth method**: `none` (PKCE replaces the secret)
-- **Allowed scopes**: `openid`, `offline_access`
-- **Redirect URIs**: `http://127.0.0.1/callback` (see above)
-- **Allowed audiences**: the source.coop site of the API (`https://source.coop` or `https://staging.source.coop`). Without it, Ory refuses a sign-in that requests that audience.
-- **Access token strategy**: `jwt`. Then the API can verify access tokens with Ory's public keys, and does not need to ask Ory about each token.
