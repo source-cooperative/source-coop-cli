@@ -1,11 +1,11 @@
 name: Demo stub
 
-# Checks demo/stub.py's answers against the API's OpenAPI spec on staging, so
-# the stub can't drift from the API unnoticed. Only when demo/ changes: demos
+# Checks docs/recorder/stub.py's answers against the API's OpenAPI spec on staging, so
+# the stub can't drift from the API unnoticed. Only when docs/recorder/ changes: demos
 # are recorded in PRs that touch it, and that's when drift would show.
 on:
   pull_request:
-    paths: ["demo/**", ".github/workflows/demo-stub.yml"]
+    paths: ["docs/recorder/**", ".github/workflows/demo-stub.yml"]
   workflow_dispatch:
 
 jobs:
@@ -18,4 +18,4 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install jsonschema
-      - run: python demo/check_stub.py
+      - run: python docs/recorder/check_stub.py

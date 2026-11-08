@@ -26,7 +26,7 @@ on:
         options: [staging, production]
         default: staging
   pull_request:
-    paths: [".github/workflows/preview-build.yml", "preview/install.sh"]
+    paths: [".github/workflows/preview-build.yml", ".github/preview/install.sh"]
 
 permissions:
   contents: read
@@ -120,7 +120,7 @@ jobs:
       # a branch or tag from before it has none, and everyone downloads it.
       - uses: actions/checkout@v4
         with:
-          sparse-checkout: preview/install.sh
+          sparse-checkout: .github/preview/install.sh
           sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
@@ -129,7 +129,7 @@ jobs:
       - name: Replace the preview's pre-release
         run: |
           # This preview's installer: the same script, with its name set.
-          sed "s/^name=staging\$/name=$NAME/" preview/install.sh > dist/install.sh
+          sed "s/^name=staging\$/name=$NAME/" .github/preview/install.sh > dist/install.sh
           grep -q "^name=$NAME\$" dist/install.sh
           install="curl -LsSf https://github.com/$GITHUB_REPOSITORY/releases/download/$NAME/install.sh | sh"
           cat > notes.md <<EOF

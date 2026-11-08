@@ -1,8 +1,8 @@
-"""The demos the README shows, against demo/stub.py's fixtures. Recorded into
+"""The demos the README shows, against docs/recorder/stub.py's fixtures. Recorded into
 docs/demos/, which the README embeds and git keeps:
 
     cargo build
-    python3 -I demo/record.py demo/demos/guide.py --out docs/demos [NAME ...]
+    python3 -I docs/recorder/record.py docs/recorder/guide.py --out docs/demos [NAME ...]
 
 DOWN, UP, RIGHT, LEFT, ESC and BACKSPACE are given by record.py. The GitHub
 lookups in the service-account demos are real: source-cooperative/source.coop

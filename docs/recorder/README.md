@@ -1,12 +1,12 @@
 # Recording demos for PR descriptions
 
-`demo/` records terminal demos of the CLI as [asciicasts](https://docs.asciinema.org/manual/asciicast/v2/), so a PR can show what a change looks like to use. Each recording runs against a stub of the source.coop API filled with made-up records, so nothing touches a real account or a real login.
+`docs/recorder/` records terminal demos of the CLI as [asciicasts](https://docs.asciinema.org/manual/asciicast/v2/), so a PR can show what a change looks like to use. Each recording runs against a stub of the source.coop API filled with made-up records, so nothing touches a real account or a real login.
 
 ```bash
 cargo build
-# write demo/scripts/pr-60.py for your change (see "Writing a demo"), then:
-python3 -I demo/record.py demo/scripts/pr-60.py                     # every demo in the script, to demo/casts/
-python3 -I demo/record.py demo/scripts/pr-60.py product-create      # just one
+# write docs/recorder/scripts/pr-60.py for your change (see "Writing a demo"), then:
+python3 -I docs/recorder/record.py docs/recorder/scripts/pr-60.py                     # every demo in the script, to docs/recorder/casts/
+python3 -I docs/recorder/record.py docs/recorder/scripts/pr-60.py product-create      # just one
 ```
 
 It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fetches [svg-term-cli](https://github.com/marionebl/svg-term-cli) 2.1.1 to render the SVGs. Putting them in a PR needs [`gh`](https://cli.github.com) 2.103 or later. Demos that pipe through `jq` need it installed.
@@ -15,17 +15,17 @@ It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fe
 
 - `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`. Outside `/api/v1` it stands in for the data proxy's S3 listing (ListObjectsV2 of the fixtures' `objects`), so `aws s3 ls` works against it.
 - `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys, memberships and the objects in its bucket. Add what a new demo needs here.
-- `check_stub.py` makes a request to each of the stub's routes and validates the answers against the API's OpenAPI spec on staging. CI runs it on PRs that change `demo/`. Run it yourself after changing the stub or fixtures: `uv run --with jsonschema python demo/check_stub.py` (or `pip install jsonschema` first). When a demo needs a new route, add a request for it to `requests()`.
+- `check_stub.py` makes a request to each of the stub's routes and validates the answers against the API's OpenAPI spec on staging. CI runs it on PRs that change `docs/recorder/`. Run it yourself after changing the stub or fixtures: `uv run --with jsonschema python docs/recorder/check_stub.py` (or `pip install jsonschema` first). When a demo needs a new route, add a request for it to `requests()`.
 - `record.py` runs bash in a pseudo-terminal at 80×28 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt. Before it's saved, the stub's URLs are drawn as production's (`https://source.coop` for the site and API, `https://data.source.coop` for the proxy) and the throwaway `HOME` as `~`, so ports and temp paths don't distract; the CLI still only talks to the stub. Each is rendered as an animated SVG beside its cast, with its steps in a JSON file of the same name. The docs site's player marks the steps on its track and lists them: each command run, and each prompt that a key answers. The file also lists each key pressed (`key`, `enter`), which the player shows in the terminal's corner as the demo plays.
-- `demos/guide.py` holds the script for the demos the README shows, which are kept in `docs/demos/` (below).
-- No other demo scripts are kept. Each PR writes its own, for what it changes, in `demo/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
+- `guide.py` holds the script for the demos the README shows, which are kept in `docs/demos/` (below).
+- No other demo scripts are kept. Each PR writes its own, for what it changes, in `docs/recorder/scripts/`, which git ignores. A script that isn't run between PRs only goes stale, and whoever made a change knows what to show of it.
 
 ## Writing a demo
 
 A script is a Python file defining `DEMOS = {name: (title, function)}`, where each function drives a `Session`. `record.py` provides `DOWN`, `UP`, `RIGHT`, `LEFT`, `ESC` and `BACKSPACE`.
 
 ```python
-# demo/scripts/pr-60.py
+# docs/recorder/scripts/pr-60.py
 def create(s):
     s.run("source-coop product create")   # type a command at the prompt and run it
     s.see("Account")                      # wait for text (a regex) to appear
@@ -48,15 +48,15 @@ Wait with `see` before every keypress that answers a prompt. That prompt and the
 
 Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` and `SOURCE_PROXY_URL` pointing at two copies of the stub (the site and the data proxy, as in production), `SOURCE_PAGER=cat` and a throwaway `HOME`. The proxy URL gives the run an environment of its own: the CLI keys its keyring entries and cache files by environment, so it can't read or remove the real login session, and drafts land in the throwaway `HOME`. A demo that saves a session or credentials still writes an entry for that environment (`127.0.0.1:PORT`) to the OS keyring, so leave sign-in out of demos.
 
-To show a signed-in CLI (`auth status`, `auth token`, `creds`, `aws`), call `signed_in(s)` from `demos/guide.py` first. It writes a made-up session, role credentials and an `~/.aws/config` profile into the run's `HOME`, where `s.home`, `s.stub_url` and `s.proxy_url` say. The keyring has nothing for the stub's environment, so the CLI reads those files, and as everything in them is fresh, it only reads: nothing reaches the keyring. Don't let such a demo refresh or sign in. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
+To show a signed-in CLI (`auth status`, `auth token`, `creds`, `aws`), call `signed_in(s)` from `guide.py` first. It writes a made-up session, role credentials and an `~/.aws/config` profile into the run's `HOME`, where `s.home`, `s.stub_url` and `s.proxy_url` say. The keyring has nothing for the stub's environment, so the CLI reads those files, and as everything in them is fresh, it only reads: nothing reaches the keyring. Don't let such a demo refresh or sign in. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
 
 ## In the README
 
-The README embeds animated SVGs from `docs/demos/`, the only recordings git keeps. `demos/guide.py` makes them all. When a change alters what one shows, update its function there and re-record just that demo, then check the SVG shows what the README says it does:
+The README embeds animated SVGs from `docs/demos/`, the only recordings git keeps. `guide.py` makes them all. When a change alters what one shows, update its function there and re-record just that demo, then check the SVG shows what the README says it does:
 
 ```bash
 cargo build
-python3 -I demo/record.py demo/demos/guide.py --out docs/demos product-create service-account-keys
+python3 -I docs/recorder/record.py docs/recorder/guide.py --out docs/demos product-create service-account-keys
 rm docs/demos/*.cast    # keep the .svg and .json
 ```
 
@@ -67,9 +67,9 @@ A new demo needs a line in `guide.py`'s `DEMOS` and an image in the README. Each
 `record.py` prints markdown showing each SVG by its local path. `gh` uploads the files you `--attach` and rewrites those paths to point at the uploads, so the SVGs live on GitHub with the PR and nothing else hosts them:
 
 ```bash
-python3 -I demo/record.py demo/scripts/pr-60.py > demos.md
+python3 -I docs/recorder/record.py docs/recorder/scripts/pr-60.py > demos.md
 # write the description in body.md, pasting demos.md where the demos go, then:
-attach=(); for f in demo/casts/*.svg; do attach+=(--attach "$f"); done
+attach=(); for f in docs/recorder/casts/*.svg; do attach+=(--attach "$f"); done
 gh pr create -F body.md "${attach[@]}"                 # or: gh pr edit 60 -F body.md "${attach[@]}"
 ```
 
@@ -78,7 +78,7 @@ Each entry looks like this before `gh` rewrites it:
 ```markdown
 **source-coop product create (prompted)**
 
-![source-coop product create (prompted)](demo/casts/product-create.svg)
+![source-coop product create (prompted)](docs/recorder/casts/product-create.svg)
 ```
 
 Run `gh` from the repository root, or keep `body.md` there: `gh` reads the paths relative to the body file, then to the working directory. The demos show production's URLs, but run against the stub: say so in the PR.

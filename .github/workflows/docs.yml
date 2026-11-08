@@ -11,7 +11,7 @@ on:
     types: [published]
   pull_request:
     types: [opened, reopened, synchronize, closed]
-    paths: ["README.md", "docs/**", ".github/workflows/docs*.yml"]
+    paths: ["README.md", "docs/**", "!docs/recorder/**", ".github/workflows/docs*.yml"]
   workflow_dispatch:
     inputs:
       tag:

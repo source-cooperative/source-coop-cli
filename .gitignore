@@ -5,7 +5,7 @@
 .env.local
 !.env.staging
 
-# Recorded demos and the scripts for them, written per PR (demo/README.md)
-demo/casts/
-demo/scripts/
+# Recorded demos and the scripts for them, written per PR (docs/recorder/README.md)
+docs/recorder/casts/
+docs/recorder/scripts/
 __pycache__/

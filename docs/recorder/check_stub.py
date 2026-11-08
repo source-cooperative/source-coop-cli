@@ -1,4 +1,4 @@
-"""Check demo/stub.py's answers against the API's OpenAPI spec.
+"""Check docs/recorder/stub.py's answers against the API's OpenAPI spec.
 
 Starts the stub, makes a request to each of its routes, and validates every
 answer against the schema the spec gives for that path, method and status.
@@ -6,8 +6,8 @@ Exits 1 if any answer doesn't match, or if the stub serves something the spec
 doesn't have, so drift between the stub and the API fails a check instead of
 showing up in a demo.
 
-    pip install jsonschema    # or: uv run --with jsonschema python demo/check_stub.py
-    python3 demo/check_stub.py [SPEC]
+    pip install jsonschema    # or: uv run --with jsonschema python docs/recorder/check_stub.py
+    python3 docs/recorder/check_stub.py [SPEC]
 
 SPEC is a URL or a file [https://staging.source.coop/api/openapi].
 """
@@ -126,7 +126,7 @@ def main():
         stub.kill()
         stub.wait()
     if failed:
-        sys.exit(f"{failed} of the stub's answers don't match the spec: fix demo/stub.py or demo/fixtures.json")
+        sys.exit(f"{failed} of the stub's answers don't match the spec: fix docs/recorder/stub.py or docs/recorder/fixtures.json")
 
 
 if __name__ == "__main__":
