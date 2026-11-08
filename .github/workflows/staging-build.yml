@@ -20,15 +20,32 @@ on:
     paths: [".github/workflows/staging-build.yml", "staging/install.sh"]
 
 permissions:
-  contents: write
+  contents: read
 
+# Publishes one at a time, never cancelled half-way. A PR's builds have a group
+# of their own, so they neither wait on a publish nor replace a queued one.
 concurrency:
-  group: staging-build
-  cancel-in-progress: false
+  group: staging-build-${{ github.event_name == 'workflow_dispatch' && 'publish' || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # The commit `ref` names now, so every build and the release are of that one
+  # commit, even if the branch moves while they run.
+  resolve:
+    name: Resolve the commit
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.target }}
+    needs: resolve
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -41,11 +58,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.ref }}
+          ref: ${{ needs.resolve.outputs.sha }}
       - name: Linux libraries for the keyring
         if: runner.os == 'Linux'
         run: sudo apt-get update -q && sudo apt-get install -yq libdbus-1-dev pkg-config
-      - run: rustup target add ${{ matrix.target }}
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: staging-${{ matrix.target }}
@@ -62,26 +82,31 @@ jobs:
 
   publish:
     name: Publish the staging pre-release
-    needs: build
+    needs: [resolve, build]
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       GH_TOKEN: ${{ github.token }}
       REF: ${{ inputs.ref }}
+      SHA: ${{ needs.resolve.outputs.sha }}
     steps:
+      # The installer comes from this workflow's commit, not the built one:
+      # a branch or tag from before it has none, and everyone downloads it.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          sparse-checkout: staging/install.sh
+          sparse-checkout-cone-mode: false
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
       - name: Replace the staging pre-release
         run: |
-          sha=$(git rev-parse HEAD)
           cp staging/install.sh dist/install.sh
           cat > notes.md <<EOF
-          Built from \`$REF\` at $sha with \`--features staging\`: it signs in to and calls source.coop's **staging** environment. For testing only; each run of *Staging build* replaces it.
+          Built from \`$REF\` at $SHA with \`--features staging\`: it signs in to and calls source.coop's **staging** environment. For testing only; each run of *Staging build* replaces it.
 
           Install or update \`source-coop-staging\` (macOS or Linux):
 
@@ -89,10 +114,14 @@ jobs:
           curl -LsSf https://github.com/${{ github.repository }}/releases/download/staging/install.sh | sh
           \`\`\`
           EOF
-          # A new release each time, on the tag moved to this commit, so the
-          # date and commit shown are this build's.
-          gh release delete staging --yes --cleanup-tag 2>/dev/null || true
-          git tag -f staging "$sha"
-          git push -f origin refs/tags/staging
-          gh release create staging dist/* --prerelease --latest=false \
-            --title "Staging build: $REF ($(git rev-parse --short HEAD))" --notes-file notes.md
+          # A new release each time, with its tag on this commit, so the date
+          # and commit shown are this build's. A tag left by a failed run goes
+          # too, or the new release would keep it.
+          if gh release view staging >/dev/null 2>&1; then
+            gh release delete staging --yes --cleanup-tag
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/staging" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/staging"
+          fi
+          gh release create staging dist/* --target "$SHA" --prerelease --latest=false \
+            --title "Staging build: $REF (${SHA:0:7})" --notes-file notes.md

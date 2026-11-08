@@ -23,10 +23,16 @@ esac
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 echo "Downloading source-coop-staging for $target" >&2
-curl -fsSL "$url/source-coop-staging-$target.tar.gz" | tar -xz -C "$tmp"
+# To a file first: piped, a failed download would reach tar as an empty
+# archive, which macOS's tar accepts.
+curl -fsSL -o "$tmp/build.tar.gz" "$url/source-coop-staging-$target.tar.gz"
+tar -xzf "$tmp/build.tar.gz" -C "$tmp"
+chmod 755 "$tmp/source-coop-staging"
 mkdir -p "$dir"
-mv "$tmp/source-coop-staging" "$dir/source-coop-staging"
-chmod 755 "$dir/source-coop-staging"
+# Into the folder, then renamed over the old one, so a copy running now is
+# never written over in place.
+mv "$tmp/source-coop-staging" "$dir/.source-coop-staging.new"
+mv "$dir/.source-coop-staging.new" "$dir/source-coop-staging"
 echo "Installed $("$dir/source-coop-staging" --version) as $dir/source-coop-staging" >&2
 
 case ":$PATH:" in

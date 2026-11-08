@@ -20,7 +20,7 @@ curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/downlo
 
 - **It sits beside the production CLI.** It installs as `source-coop-staging` in `~/.local/bin` (set `SOURCE_COOP_STAGING_DIR` for elsewhere), and keeps its own login: run `source-coop-staging auth login` once.
 - **On macOS, each new build asks once for your password** to read its login from the keychain. Choose **Always Allow**.
-- **TAB completion** is set up for `source-coop` only, not `source-coop-staging`.
+- **TAB completion** works for `source-coop` only. Don't load `source-coop-staging completions` in your shell: its script registers for `source-coop`, so the production command's TAB would ask staging.
 - **It's for testing.** The `staging` pre-release is never marked latest, so the release installers and Homebrew keep installing the real release, and neither the *Release* nor the *Docs* workflow runs for it.
 
 On a PR that changes the workflow or `staging/install.sh`, *Staging build* only builds, without publishing.
