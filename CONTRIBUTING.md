@@ -27,7 +27,7 @@ curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/downlo
 
 Running it again updates the preview. For a `both` preview, that line installs the production build; add `-s -- staging` after `sh` for the staging one.
 
-**Every push to main that changes the code (`src/`, `Cargo.toml`, `Cargo.lock`) is published as the `next` preview** (the *Main previews* workflow): `source-coop-next` is the next release as it stands, and `source-coop-next-staging` is the same commit calling staging. Its docs go to <https://source-cooperative.github.io/source-coop-cli/next/> when the README or `docs/` changes, listed as `next` in the version menu; `latest/` stays the newest release.
+**Every push to main that changes the code (`src/`, `Cargo.toml`, `Cargo.lock`) is published as the `next` preview** (the *Main previews* workflow): `source-coop-next` is the next release as it stands, and `source-coop-next-staging` is the same commit calling staging. Its docs go to <https://cli.source.coop/next/> when the README or `docs/` changes, listed as `next` in the version menu; `latest/` stays the newest release.
 
 ```bash
 curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/next/install.sh | sh                  # source-coop-next
