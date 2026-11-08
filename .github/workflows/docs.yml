@@ -12,6 +12,7 @@ on:
     types: [published]
   push:
     branches: [main]
+    paths: ["README.md", "docs/**", "!docs/recorder/**", ".github/workflows/docs*.yml"]
   pull_request:
     types: [opened, reopened, synchronize, closed]
     paths: ["README.md", "docs/**", "!docs/recorder/**", ".github/workflows/docs*.yml"]

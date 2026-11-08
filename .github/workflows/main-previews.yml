@@ -1,11 +1,20 @@
 name: Main previews
 
-# After each push to main, publishes it as the `next` preview (see Preview
-# build): source-coop-next with production's defaults, the next release, and
-# source-coop-next-staging calling source.coop's staging environment.
+# After each push to main that changes what's built, publishes it as the
+# `next` preview (see Preview build): source-coop-next with production's
+# defaults, the next release, and source-coop-next-staging calling
+# source.coop's staging environment. A push that changes only docs or CI
+# elsewhere leaves the last one in place.
 on:
   push:
     branches: [main]
+    paths:
+      - "src/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/preview/install.sh"
+      - ".github/workflows/main-previews.yml"
+      - ".github/workflows/preview-build.yml"
 
 permissions:
   contents: write
