@@ -63,12 +63,21 @@
   </nav>
   <main id="main">
 <h1 id="shell-completion">Shell completion</h1>
-<p>Add one of these lines to your shell's startup file:</p>
-<pre><code class="language-text">eval &quot;$(source-coop completions bash)&quot;          # ~/.bashrc
-eval &quot;$(source-coop completions zsh)&quot;           # ~/.zshrc, after compinit
-source-coop completions fish | source           # ~/.config/fish/config.fish
-eval (source-coop completions elvish | slurp)   # ~/.config/elvish/rc.elv
-source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
+<p>Add the line for your shell to its startup file:</p>
+<pre><code class="language-text"># bash: ~/.bashrc
+eval &quot;$(source-coop completions bash)&quot;
+
+# zsh: ~/.zshrc, after compinit
+eval &quot;$(source-coop completions zsh)&quot;
+
+# fish: ~/.config/fish/config.fish
+source-coop completions fish | source
+
+# elvish: ~/.config/elvish/rc.elv
+eval (source-coop completions elvish | slurp)
+
+# PowerShell: $PROFILE
+source-coop completions powershell | Out-String | Invoke-Expression
 </code></pre>
 <p>TAB then completes commands, flags, flag values and record names:</p>
 <ul>
