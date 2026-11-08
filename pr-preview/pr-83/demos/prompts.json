@@ -1,0 +1,167 @@
+{
+ "duration": 44.801,
+ "steps": [
+  {
+   "time": 0.752,
+   "label": "$ source-coop product create"
+  },
+  {
+   "time": 2.633,
+   "label": "Account · ↓ Enter"
+  },
+  {
+   "time": 3.695,
+   "label": "Product ID · \"Sea Ice\" Enter"
+  },
+  {
+   "time": 5.101,
+   "label": "Title · \"Sea Ice\" Enter"
+  },
+  {
+   "time": 7.297,
+   "label": "Description · Enter"
+  },
+  {
+   "time": 8.553,
+   "label": "Data connection · Enter"
+  },
+  {
+   "time": 10.014,
+   "label": "Visibility · Enter"
+  },
+  {
+   "time": 11.475,
+   "label": "Create this product · Enter"
+  },
+  {
+   "time": 13.639,
+   "label": "The API refused the ID, so it's asked again · ⌫×7 \"sea-ice\" Enter"
+  },
+  {
+   "time": 22.391,
+   "label": "$ clear; source-coop product create demo-org/climate-grid"
+  },
+  {
+   "time": 25.813,
+   "label": "Title · Enter"
+  },
+  {
+   "time": 27.291,
+   "label": "Description · Enter"
+  },
+  {
+   "time": 28.557,
+   "label": "Data connection · Enter"
+  },
+  {
+   "time": 30.034,
+   "label": "Visibility · Enter"
+  },
+  {
+   "time": 31.511,
+   "label": "Create this product · Enter"
+  },
+  {
+   "time": 35.632,
+   "label": "$ clear; source-coop product create"
+  },
+  {
+   "time": 38.449,
+   "label": "Account · Esc"
+  },
+  {
+   "time": 41.113,
+   "label": "$ echo \"exit $?\""
+  }
+ ],
+ "keys": [
+  {
+   "time": 3.039,
+   "key": "↓"
+  },
+  {
+   "time": 3.642,
+   "key": "Enter"
+  },
+  {
+   "time": 5.046,
+   "key": "Enter"
+  },
+  {
+   "time": 7.241,
+   "key": "Enter"
+  },
+  {
+   "time": 8.502,
+   "key": "Enter"
+  },
+  {
+   "time": 9.96,
+   "key": "Enter"
+  },
+  {
+   "time": 11.423,
+   "key": "Enter"
+  },
+  {
+   "time": 13.587,
+   "key": "Enter"
+  },
+  {
+   "time": 16.092,
+   "key": "⌫"
+  },
+  {
+   "time": 16.493,
+   "key": "⌫"
+  },
+  {
+   "time": 16.896,
+   "key": "⌫"
+  },
+  {
+   "time": 17.298,
+   "key": "⌫"
+  },
+  {
+   "time": 17.7,
+   "key": "⌫"
+  },
+  {
+   "time": 18.102,
+   "key": "⌫"
+  },
+  {
+   "time": 18.503,
+   "key": "⌫"
+  },
+  {
+   "time": 19.878,
+   "key": "Enter"
+  },
+  {
+   "time": 27.231,
+   "key": "Enter"
+  },
+  {
+   "time": 28.505,
+   "key": "Enter"
+  },
+  {
+   "time": 29.977,
+   "key": "Enter"
+  },
+  {
+   "time": 31.454,
+   "key": "Enter"
+  },
+  {
+   "time": 33.126,
+   "key": "Enter"
+  },
+  {
+   "time": 40.358,
+   "key": "Esc"
+  }
+ ]
+}
