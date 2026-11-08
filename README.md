@@ -15,7 +15,7 @@ All commands work the same way:
 
 This guide is also a website, with a page for each section and docs for each release: <https://source-cooperative.github.io/source-coop-cli/>.
 
-The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`). Their `http://127.0.0.1:…` URLs are local.
+The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`), and a made-up session where they show you signed in. They show production's addresses (`source.coop`, `data.source.coop`), but `demo-org` and `demo-user` don't exist there.
 
 ### Quick start
 
@@ -27,6 +27,8 @@ aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS pr
 ```
 
 `source-coop --help` lists the commands. `source-coop <command> --help` lists the flags of a command, with examples.
+
+![`source-coop`: an account's products, one product, then as `--json`](docs/demos/tour.svg)
 
 **Contents**
 
@@ -120,16 +122,7 @@ The session stays on the server (see [File fallback](#file-fallback)). `source-c
 source-coop auth status
 ```
 
-```
-Environment    https://data.source.coop
-Login          logged in
-Account        Demo User (demo-user)
-Profile        https://source.coop/demo-user
-Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12 (in 29 days)
-ID token       expires 2026-10-13T18:00:00Z (in 1 hour)
-Access token   for https://source.coop, expires 2026-10-13T18:00:00Z (in 1 hour)
-Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)
-```
+![`auth status`, then `--json`](docs/demos/auth-status.svg)
 
 `auth status` shows:
 
@@ -175,6 +168,8 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 `auth logout` does not revoke tokens at the identity provider.
 
+![`auth logout --json`, then `auth status` and `creds` signed out](docs/demos/auth-logout.svg)
+
 <!-- group: Get data -->
 
 ## Reading data with AWS tools
@@ -202,6 +197,8 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
    ```
 
 When the credentials expire, `source-coop creds` gets new ones with the session. Run `source-coop auth login` again only if this fails, for example because the refresh token expired or was revoked.
+
+![`aws s3 ls` through `credential_process`, then `creds --format env`](docs/demos/aws.svg)
 
 ### Output formats
 
@@ -290,6 +287,10 @@ On a terminal, `list` shows the products in your pager and gets more pages as yo
 
 ![`product list`: a table, a search, then `--json`](docs/demos/product-list.svg)
 
+`list -i` and `view -i` show products full screen. [Browsing with `-i`](#browsing-with--i) lists the keys.
+
+![`product list -i`: open a product, go back, filter with `/`](docs/demos/product-browse.svg)
+
 ### Create
 
 ```bash
@@ -360,20 +361,11 @@ Without a terminal, `delete` needs `--yes`.
 
 `source-coop member` manages the members of an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`). `source-coop invitation` answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.
 
-```bash
-source-coop member list my-org                    # members and open invitations
-source-coop member list my-org/my-data --json     # the members of a product, as JSON
-source-coop member list my-org --state invited    # only open invitations
-source-coop member list my-org -i                 # move through the members full screen
-source-coop member view my-org alice              # one member; -i for its screen
-source-coop member invite my-org alice bob --role maintainers
-source-coop member invite my-org/my-data -A people.txt --role read_data
-source-coop member invite my-org                  # asks who to invite, and the role
-source-coop member edit my-org alice --role owners
-source-coop member edit my-org -i                 # select a member, then a role
-source-coop member revoke my-org alice            # also withdraws an open invitation
-source-coop member leave my-org                   # end your own membership
-```
+**Roles**, from most to least access: `owners`, `maintainers`, `write_data`, `read_data`.
+
+- Only owners can make a member an owner, or change or revoke an owner.
+- Owners and maintainers can manage the other roles.
+- A product's member list shows only the product's own members. The organization's members can also use its products, and show in the organization's list.
 
 With [shell completion](#shell-completion), TAB shows:
 
@@ -382,34 +374,21 @@ With [shell completion](#shell-completion), TAB shows:
 - For `invite`: the organization's members who are not yet members of the product.
 - For `invitation accept`, `reject` and `member leave`: your invitations and memberships.
 
-**Roles**, from most to least access: `owners`, `maintainers`, `write_data`, `read_data`.
-
-- Only owners can make a member an owner, or change or revoke an owner.
-- Owners and maintainers can manage the other roles.
-- A product's member list shows only the product's own members. The organization's members can also use its products, and show in the organization's list.
-
-**`invite`** takes account IDs as arguments.
-
-- `--accounts-file PATH` (`-A`, `-` for stdin) adds one ID from each line. It skips empty lines and lines that start with `#`.
-- `--from-file` reads `account_id` and `role` from a JSON object.
-- Each account gets its own invitation. If the API refuses one, the CLI shows the error and sends the others. Then the command fails.
-- At a terminal, `invite` asks for the missing accounts and role, and then asks you to confirm. The default role is `read_data`. It shows `owners` only if you can give that role. ← goes back one question.
-- If invitations fail, the CLI saves the ones not sent as a draft. The next `invite` to the same place offers them again.
-- If you invite a service account of the product's owner, it becomes a member at once. Its role must be `read_data` or `write_data`.
-
-**`edit`** without `--role` asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.
-
-**`revoke`** asks you to confirm. For your own membership, you must also type the organization or product name.
-
-**`leave`** always asks you to type the name, because only an owner or maintainer can add you again.
-
-Without a terminal, `revoke` and `leave` need `--yes`.
-
 With `--json`, these commands print the memberships as the API gives them: `membership_id`, `account_id`, `membership_account_id`, `product_id` (for a product), `role`, `state` and `state_changed`. `invite --json` prints an array of the new memberships.
 
 `create` and `delete` are other names for `invite` and `revoke`.
 
-![`member list`, `invite`, `edit` and `revoke`](docs/demos/members.svg)
+### List and view
+
+```bash
+source-coop member list my-org                    # members and open invitations
+source-coop member list my-org/my-data --json     # the members of a product, as JSON
+source-coop member list my-org --state invited    # only open invitations
+source-coop member list my-org -i                 # move through the members full screen
+source-coop member view my-org alice              # one member; -i for its screen
+```
+
+![`member list` and `view`, then `--json`](docs/demos/member-list.svg)
 
 `member list -i` uses the same keys as `product list -i`. On a member's screen:
 
@@ -418,6 +397,51 @@ With `--json`, these commands print the memberships as the API gives them: `memb
 - `b` opens their profile.
 
 ![`member list -i`: open a member and change their role](docs/demos/member-browse.svg)
+
+### Invite
+
+```bash
+source-coop member invite my-org alice bob --role maintainers
+source-coop member invite my-org/my-data -A people.txt --role read_data
+source-coop member invite my-org                  # asks who to invite, and the role
+```
+
+`invite` takes account IDs as arguments.
+
+- `--accounts-file PATH` (`-A`, `-` for stdin) adds one ID from each line. It skips empty lines and lines that start with `#`.
+- `--from-file` reads `account_id` and `role` from a JSON object.
+- Each account gets its own invitation. If the API refuses one, the CLI shows the error and sends the others. Then the command fails.
+- At a terminal, `invite` asks for the missing accounts and role, and then asks you to confirm. The default role is `read_data`. It shows `owners` only if you can give that role. ← goes back one question.
+- If invitations fail, the CLI saves the ones not sent as a draft. The next `invite` to the same place offers them again.
+- If you invite a service account of the product's owner, it becomes a member at once. Its role must be `read_data` or `write_data`.
+
+![`member invite` with prompts, then from flags with `--json`](docs/demos/member-invite.svg)
+
+### Edit
+
+```bash
+source-coop member edit my-org alice --role owners
+source-coop member edit my-org -i                 # select a member, then a role
+```
+
+Without `--role`, `edit` asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.
+
+![`member edit`: pick a role, then `--role` with `--json`](docs/demos/member-edit.svg)
+
+### Revoke and leave
+
+```bash
+source-coop member revoke my-org alice            # also withdraws an open invitation
+source-coop member leave my-org                   # end your own membership
+```
+
+`revoke` asks you to confirm. For your own membership, you must also type the organization or product name.
+
+`leave` always asks you to type the name, because only an owner or maintainer can add you again.
+
+Without a terminal, `revoke` and `leave` need `--yes`.
+
+![`member revoke` an invitation, then `member leave` with the name typed wrong](docs/demos/member-revoke.svg)
 
 ### Your invitations
 
@@ -441,49 +465,72 @@ A service account's ID is the owner's ID, then `--`, then its own name: `my-org-
 
 `source-coop service-account` shows a service account as the web UI does: what it is, how it signs in, and the products it can use.
 
+### List and view
+
 ```bash
 source-coop service-account list my-org             # my-org's service accounts (yours, with no owner)
 source-coop service-account list my-org --no-pager  # print directly, not in the pager
 source-coop service-account list my-org -i          # move through them full screen (keys as for products)
 source-coop service-account view my-org--nightly-sync          # --json adds `trusts`, `keys` and `memberships`
 source-coop service-account view my-org--nightly-sync -w       # open its page in the browser
+```
+
+![`service-account list`: an owner's service accounts, then as `--json`](docs/demos/service-account-list.svg)
+
+`view` shows who the service account is, how it signs in and the products it can reach. `--json` adds `trusts`, `keys` and `memberships`.
+
+![`service-account view`: who it is, how it signs in, what it can reach; `--json` adds `trusts` and `memberships`](docs/demos/service-account-view.svg)
+
+`list -i` uses the same keys as `product list -i`. On a service account's screen, `e` edits it and `d` deletes it.
+
+![`service-account list -i`: open one, go back, delete one from its screen](docs/demos/service-account-picker.svg)
+
+### Create
+
+```bash
 source-coop service-account create                  # asks for all values, as the web form does
 source-coop service-account create my-org--nightly-sync --name "Nightly sync" \
     --github my-org/data --branch main --access my-org/my-data=write
-source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
-source-coop service-account edit my-org--nightly-sync            # a form of its name and products
-source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
-source-coop service-account delete my-org--nightly-sync           # asks you to type its ID
 ```
 
-![`service-account list`: an owner's service accounts, then as `--json`](docs/demos/service-account/list.svg)
-
-![`service-account view`: who it is, how it signs in, what it can reach; `--json` adds `trusts` and `memberships`](docs/demos/service-account/view.svg)
-
-**`create`** takes values as flags, as a JSON object with `--from-file`, or both:
+`create` takes values as flags, as a JSON object with `--from-file`, or both:
 
 - Flags: `--name`, one `--github` workflow, a `--key` with `--expires` and `--out`, and `--access` (one or more).
 - JSON uses the API's fields: `name`, `local_id`, `github_subjects`, `key`, `grants`.
 
 At a terminal, `create` asks for the missing values: the owner, the name, the ID (made from the name), workflows and an API key, and products. Then it shows all values, with the condition that each workflow must match, and asks you to confirm.
 
+![`service-account create` with prompts](docs/demos/service-account-create.svg)
+
 If `create` issues a key, it gives you the key as `sign-in add` does. But stdout gets the account's ID, not the key. To keep the key, use `--out` or `--json`.
 
 `create` and `edit` print the service account's ID on stdout. Thus `id=$(source-coop service-account create …)` works. Going back, drafts, the sign-in check and `--yes` work as for products.
 
-![`service-account create` with prompts](docs/demos/service-account/create.svg)
+![`service-account create` from flags, with `--json`](docs/demos/service-account-create-flags.svg)
 
-![`service-account create` from flags, with `--json`](docs/demos/service-account/create-flags.svg)
+### Edit
 
-**`edit --disable`** stops all sign-ins as the service account. It keeps its sign-ins and products. `--enable` lets its workflows and its keys that are not revoked sign in again.
+```bash
+source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
+source-coop service-account edit my-org--nightly-sync            # a form of its name and products
+source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+```
 
-**`delete`** removes the service account, its sign-ins and its access to products. Type its ID to confirm, or use `--yes`.
+`--disable` stops all sign-ins as the service account. It keeps its sign-ins and products. `--enable` lets its workflows and its keys that are not revoked sign in again.
 
-![`service-account edit`: `--disable`, `--enable`, then a rename in the edit form](docs/demos/service-account/edit.svg)
+With no flags, `edit` opens a form of its name and products (see [Access to products](#access-to-products)).
 
-![`service-account delete`: typed confirmation, then `--yes --json`](docs/demos/service-account/delete.svg)
+![`service-account edit`: `--disable`, `--enable`, then a rename in the edit form](docs/demos/service-account-edit.svg)
 
-![`service-account list -i`: open one, go back, delete one from its screen](docs/demos/service-account/picker.svg)
+### Delete
+
+```bash
+source-coop service-account delete my-org--nightly-sync           # asks you to type its ID
+```
+
+`delete` removes the service account, its sign-ins and its access to products. Type its ID to confirm, or use `--yes`.
+
+![`service-account delete`: typed confirmation, then `--yes --json`](docs/demos/service-account-delete.svg)
 
 ### Access to products
 
@@ -508,7 +555,7 @@ With no flags, `edit` opens a full-screen form with **Name**, then the products 
 
 `--disable` and `--enable` are flags only.
 
-![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account/access.svg)
+![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account-access.svg)
 
 ## Service account sign-ins
 
@@ -532,7 +579,7 @@ The CLI asks GitHub how the repository's tokens name it, as the web UI does. Som
 
 At a terminal, without these flags, `sign-in add` asks for the repository and the runs to trust. Then it shows the condition and asks you to confirm.
 
-![`sign-in add` with prompts and from flags, `sign-in remove -i`, `sign-in revoke-key`](docs/demos/service-account/sign-in.svg)
+![`sign-in add` with prompts and from flags, `sign-in remove -i`, `sign-in revoke-key`](docs/demos/service-account-sign-in.svg)
 
 **API keys** are for places without GitHub's tokens, such as a cron job on a cluster.
 
@@ -557,7 +604,7 @@ The CLI shows a key one time only, when it issues the key:
 
 At a terminal, without flags, `sign-in add` asks if you want a workflow or a key. `sign-in edit -i` and `sign-in remove -i` let you select one.
 
-![API keys: `sign-in add --key --out`, `sign-in edit -i`, and revoking one with `sign-in remove`](docs/demos/service-account/keys.svg)
+![`sign-in add --key --out`, `sign-in edit -i` and `sign-in remove`: issue an API key, give it a new expiry, then revoke it](docs/demos/service-account-keys.svg)
 
 If a key leaks, anyone with the key can revoke it, without signing in. The command reads the key from stdin, so the key is not in your shell history:
 
@@ -577,7 +624,7 @@ source-coop service-account usage my-org--nightly-sync --key   # the AWS_* varia
 
 At a terminal, without `--subject` or `--key`, `usage` asks which sign-in to show.
 
-![`service-account usage`: pick a sign-in for its workflow, then `--key`](docs/demos/service-account/usage.svg)
+![`service-account usage`: pick a sign-in for its workflow, then `--key`](docs/demos/service-account-usage.svg)
 
 <!-- group: How commands work -->
 
@@ -590,9 +637,9 @@ At a terminal, commands that change data ask for the values that you do not give
 - **Go back.** To go back to the previous question, press ↑ in a text question (or ← at the start of the line), or ← in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.
 - **Review.** After it asks a question, the command shows what it will send and asks you to confirm. ← goes back.
 - **Long text.** Type a description on one line, or press Ctrl+E to write it in your editor (`$VISUAL` or `$EDITOR`). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press Enter on the empty line to keep it.
-- **Errors.** If the API refuses a value, the CLI shows the reason and asks for that value again.
+- **Errors.** If the API refuses a value that you typed (HTTP 400), the CLI shows the reason and asks for that value again.
 - **Cancel.** Press Esc (or `q` in a list). The CLI shows "Cancelled; nothing was changed." and exits with code 1. When you must type a name to confirm, Enter on an empty line also cancels. Ctrl+C stops at once, with exit code 130.
-- **Drafts.** If the send fails (for example, no connection, an expired session or a server error), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with `--from-file`. After a successful send, the CLI deletes the draft.
+- **Drafts.** If the send fails in another way (for example, the ID is taken, there is no connection, the session has expired or the server fails), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with `--from-file`. After a successful send, the CLI deletes the draft.
 
 Drafts are in your OS's application state folder:
 
@@ -603,6 +650,8 @@ Drafts are in your OS's application state folder:
 | Windows | `%LocalAppData%\source-coop\drafts` |
 
 The CLI does not ask questions if stdin or stderr is not a terminal, or if `SOURCE_PROMPT_DISABLED` is set. It sends the values that it has, and the API tells you which ones are missing. Then delete, revoke and leave need `--yes`.
+
+![Prompts: a refused ID asked again, a draft kept after a failure, then Esc](docs/demos/prompts.svg)
 
 ## Browsing with `-i`
 
@@ -649,6 +698,8 @@ TAB then completes commands, flags, flag values and record names:
 
 - `source-coop product view my-org/<TAB>` shows the products of `my-org`. Before the `/`, it shows the accounts that you are a member of.
 - `source-coop service-account view my<TAB>` shows full service account IDs, such as `my-org--nightly-sync`. It does not complete the ID of a new service account for `create`.
+
+![Shell completion: TAB lists products and service accounts from the API](docs/demos/completion.svg)
 
 How completion works:
 
@@ -715,7 +766,7 @@ All commands use the same exit codes:
 | 5 | Not found (HTTP 404) |
 | 130 | Interrupted (Ctrl+C) |
 
-![Errors, `--json` and exit codes, without a terminal, and `-F -`](docs/demos/scripting.svg)
+![Without a terminal: errors, `--json`, exit codes and `-F -`](docs/demos/scripting.svg)
 
 ### Use the API without signing in
 
@@ -728,6 +779,8 @@ If `SOURCE_TOKEN` is set, the CLI sends it to the API instead of the session's a
 ```bash
 curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/api/v1/...
 ```
+
+![`auth token`: the session's access token, for `curl`](docs/demos/auth-token.svg)
 
 To send a request through the CLI, see [Any API request](#any-api-request).
 

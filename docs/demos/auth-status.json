@@ -1,0 +1,14 @@
+{
+ "duration": 12.261,
+ "steps": [
+  {
+   "time": 0.757,
+   "label": "$ source-coop auth status"
+  },
+  {
+   "time": 4.991,
+   "label": "$ source-coop auth status --json | jq -c '.login | {state, account: .account.account_id}'"
+  }
+ ],
+ "keys": []
+}

@@ -29,6 +29,9 @@ class Session:
 
     def __init__(self, title, env, cwd):
         self.title, self.events, self.text, self.seen = title, [], "", 0
+        # The run's throwaway HOME, for a demo to put files in before it starts,
+        # and the stub's two URLs: the site and API, and the data proxy.
+        self.home, self.stub_url, self.proxy_url = cwd, env["SOURCE_API_URL"], env["SOURCE_PROXY_URL"]
         # Steps for the docs player: each command run, and each prompt a key
         # answers, labelled with what was on screen and the keys pressed.
         self.steps, self.pending, self.quiet = [], None, False
@@ -134,13 +137,22 @@ class Session:
                 self.keys.append({"t": time.time() - self.t0, "key": name})
             self.send(keys)
 
+    def disguises(self):
+        """What the recording shows in place of the run's own URLs and paths:
+        production's names, so the stub's ports and the temp HOME don't
+        distract. Nothing reaches production; the names are only drawn."""
+        names = {self.stub_url: "https://source.coop", self.proxy_url: "https://data.source.coop"}
+        for home in {self.home, os.path.realpath(self.home)}:
+            names[home] = "~"
+        return names
+
     def finish(self, path):
         """Wait for the last command, then save the cast and close the shell."""
         self.prompt()
         self.pause(2.5)
         with self.lock:
             self.events.append([round(time.time() - self.t0, 6), "o", ""])
-            kept = list(self.events)
+            kept = disguise(list(self.events), self.disguises())
         self.send("exit\r")
         os.waitpid(self.pid, 0)
         header = {"version": 2, "width": COLS, "height": ROWS, "timestamp": int(self.t0),
@@ -160,7 +172,8 @@ class Session:
                 at, prev = at + min(e - prev, 2.5), e
             return at + min(max(t - prev, 0), 2.5)
         steps = [{"time": round(capped(s["t"]), 3),
-                  "label": " · ".join(filter(None, [s["label"], " ".join(s["did"])]))} for s in self.steps]
+                  "label": disguise([[0, "o", " · ".join(filter(None, [s["label"], " ".join(s["did"])]))]],
+                                    self.disguises())[0][2]} for s in self.steps]
         with open(path.removesuffix(".cast") + ".json", "w") as f:
             keys = [{"time": round(capped(k["t"]), 3), "key": k["key"]} for k in self.keys]
             json.dump({"duration": round(capped(times[-1]), 3), "steps": steps, "keys": keys}, f, ensure_ascii=False, indent=1)
@@ -179,6 +192,26 @@ def prompt_line(text, m):
     line = text[a:b if b != -1 else len(text)].replace("\r", " ")
     line = re.split(r" ›| \[|  +(?=\S)", line.strip(" ?✔›>\t"))[0]
     return " ".join(line.split())[:60]
+
+
+def disguise(events, names):
+    """`events` with each of `names` replaced. A name split across two reads
+    is still caught: a tail that could start one waits for the next event."""
+    keys = sorted(names, key=len, reverse=True)
+    out, carry = [], ""
+    for t, kind, text in events:
+        text = carry + text
+        carry = next((text[-n:] for n in range(min(len(text), max(map(len, keys)) - 1), 0, -1)
+                      if any(k.startswith(text[-n:]) for k in keys)), "")
+        text = text[:len(text) - len(carry)]
+        for k in keys:
+            text = text.replace(k, names[k])
+        out.append([t, kind, text])
+    if carry:
+        for k in keys:
+            carry = carry.replace(k, names[k])
+        out[-1][2] += carry
+    return out
 
 
 def after_visible(text, start, count):
@@ -211,12 +244,16 @@ def wait_for(port):
 
 def record(name, title, fn, bin_dir, out):
     here = os.path.dirname(os.path.abspath(__file__))
-    port = free_port()
-    stub = subprocess.Popen([sys.executable, "-I", os.path.join(here, "stub.py"), str(port)])
+    # Two stubs, as production has two hosts: the site and API, and the data
+    # proxy (S3 listings). Each is drawn in the recording under its real name.
+    port, proxy_port = free_port(), free_port()
+    stubs = [subprocess.Popen([sys.executable, "-I", os.path.join(here, "stub.py"), str(p)])
+             for p in (port, proxy_port)]
     home = tempfile.mkdtemp(prefix="source-coop-demo-")
-    stub_url = f"http://127.0.0.1:{port}"
+    stub_url, proxy_url = f"http://127.0.0.1:{port}", f"http://127.0.0.1:{proxy_port}"
     try:
         wait_for(port)
+        wait_for(proxy_port)
         env = {"PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}", "HOME": home,
                "TERM": "xterm-256color", "LANG": "en_US.UTF-8", "SOURCE_TOKEN": "demo",
                "SOURCE_API_URL": stub_url,
@@ -225,7 +262,7 @@ def record(name, title, fn, bin_dir, out):
                # demos away from the real login. ponytail: a demo that saves a session
                # or credentials still leaves an entry for 127.0.0.1:PORT in the
                # keyring; switching the keyring off would need a setting in the CLI.
-               "SOURCE_PROXY_URL": stub_url,
+               "SOURCE_PROXY_URL": proxy_url,
                # The pager would wait for a key on a list taller than the screen.
                "SOURCE_PAGER": "cat",
                "BASH_SILENCE_DEPRECATION_WARNING": "1",
@@ -236,8 +273,9 @@ def record(name, title, fn, bin_dir, out):
         session.finish(path)
         return path
     finally:
-        stub.kill()
-        stub.wait()
+        for stub in stubs:
+            stub.kill()
+            stub.wait()
         shutil.rmtree(home, ignore_errors=True)
 
 
