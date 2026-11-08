@@ -1,0 +1,75 @@
+{
+ "duration": 24.63,
+ "steps": [
+  {
+   "time": 0.756,
+   "label": "$ source-coop product edit demo-org/demo-data"
+  },
+  {
+   "time": 3.39,
+   "label": "The edit form · Enter"
+  },
+  {
+   "time": 5.255,
+   "label": "Title · \" (2026)\" Enter"
+  },
+  {
+   "time": 7.254,
+   "label": "Title changed · ↓×2 Enter"
+  },
+  {
+   "time": 9.466,
+   "label": "Visibility · ↑ Enter"
+  },
+  {
+   "time": 11.476,
+   "label": "Visibility changed · s"
+  },
+  {
+   "time": 13.438,
+   "label": "Save these changes · Enter"
+  },
+  {
+   "time": 16.64,
+   "label": "$ source-coop product edit demo-org/demo-data --visibility unlisted --json | jq -c '{title, visibility}'"
+  }
+ ],
+ "keys": [
+  {
+   "time": 5.2,
+   "key": "Enter"
+  },
+  {
+   "time": 7.199,
+   "key": "Enter"
+  },
+  {
+   "time": 8.462,
+   "key": "↓"
+  },
+  {
+   "time": 8.863,
+   "key": "↓"
+  },
+  {
+   "time": 9.466,
+   "key": "Enter"
+  },
+  {
+   "time": 10.87,
+   "key": "↑"
+  },
+  {
+   "time": 11.475,
+   "key": "Enter"
+  },
+  {
+   "time": 13.386,
+   "key": "s"
+  },
+  {
+   "time": 15.887,
+   "key": "Enter"
+  }
+ ]
+}

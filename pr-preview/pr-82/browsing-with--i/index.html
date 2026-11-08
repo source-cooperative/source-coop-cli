@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Browsing with -i · source-coop CLI</title>
+<meta name="docs-version" content="pr-82">
+<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-page" content="browsing-with--i/">
+<meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
+<script>
+  // The theme before the first paint: this tab's choice, or the system's.
+  (function () {
+    var t = null;
+    try { t = sessionStorage.getItem("theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+<script src="../assets/player.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="../">
+      <img class="logo logo-ink" src="../assets/logo-ink.svg" alt="Source Cooperative" width="97" height="26">
+      <img class="logo logo-bone" src="../assets/logo-bone.svg" alt="Source Cooperative" width="97" height="26">
+      <span>CLI guide</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="search">
+      <input type="search" id="search" placeholder="Search" aria-label="Search the guide" aria-controls="search-results" autocomplete="off" spellcheck="false">
+      <div class="search-results" id="search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+    </div>
+    <div class="version">
+      <button class="version-button" type="button" aria-expanded="false" aria-controls="versions" disabled>
+        <span class="version-name">pr-82</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="version-menu" id="versions" hidden></div>
+    </div>
+    <a class="top-link" href="https://github.com/source-cooperative/source-coop-cli">GitHub</a>
+    <button class="theme" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark">
+      <svg class="icon-moon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="icon-sun" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="old-version" role="status" hidden></div>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <details open>
+      <summary>Contents</summary>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/" aria-current="page">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+    </details>
+  </nav>
+  <main id="main">
+<h1 id="browsing-with--i">Browsing with <code>-i</code></h1>
+<p><code>-i</code> (<code>--interactive</code>) is available where a command names or lists records:</p>
+<ul>
+<li><code>list -i</code> shows the records full screen.</li>
+<li><code>view -i</code> shows the screen of one record.</li>
+<li><code>edit</code>, <code>delete</code>, <code>revoke</code> and the other commands let you select the record if you do not name it.</li>
+</ul>
+<p><code>-i</code> uses the full terminal. When you exit, the terminal is as before. Results show as a notice on the screen.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Key</th>
+<th>In a list</th>
+<th>On a record</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>↑ ↓ (<code>k</code> <code>j</code>), PgUp PgDn, Home End</td>
+<td>move</td>
+<td></td>
+</tr>
+<tr>
+<td>→ Enter (<code>l</code>)</td>
+<td>open the record</td>
+<td></td>
+</tr>
+<tr>
+<td>← Esc (<code>h</code> <code>q</code>)</td>
+<td>exit (in search results: go back to the full list)</td>
+<td>go back to the list</td>
+</tr>
+<tr>
+<td><code>/</code></td>
+<td>filter the loaded records by text, with the number of matches (Esc clears the filter). In all public products, Enter searches the server, and ← exits the results.</td>
+<td></td>
+</tr>
+<tr>
+<td><code>b</code></td>
+<td>open in the browser</td>
+<td>open in the browser</td>
+</tr>
+<tr>
+<td><code>e</code></td>
+<td></td>
+<td>edit (for a member: change the role)</td>
+</tr>
+<tr>
+<td><code>d</code></td>
+<td></td>
+<td>delete (for a member: revoke)</td>
+</tr>
+<tr>
+<td><code>a</code> <code>r</code></td>
+<td></td>
+<td>accept or reject (an invitation)</td>
+</tr>
+</tbody>
+</table></div>
+<p>To edit or delete, you must open the record first. Thus a wrong key in a list changes nothing. The shortcuts do the same as the commands, with the same questions. Lists get more records as you move down.</p>
+<figure class="demo" data-demo="product-browse"><noscript><img src="../demos/product-browse.svg" alt="product list -i: open a product, go back, filter with /"></noscript><figcaption><code>product list -i</code>: open a product, go back, filter with <code>/</code></figcaption></figure>
+
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../prompts/" rel="prev"><span>Previous</span>Prompts</a><a class="pager-next" href="../shell-completion/" rel="next"><span>Next</span>Shell completion</a></nav>
+  </main>
+</div>
+<footer class="bottom">
+  <div class="bottom-inner">
+    <span>Source Cooperative (a Radiant Earth initiative)</span>
+    <a href="https://source.coop">source.coop</a>
+    <a href="https://github.com/source-cooperative/source-coop-cli/edit/main/README.md">Edit this guide on GitHub</a>
+    <span>Demos use made-up records on a local stand-in for the API.</span>
+  </div>
+</footer>
+</body>
+</html>

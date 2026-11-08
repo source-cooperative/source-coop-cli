@@ -1,0 +1,51 @@
+{
+ "duration": 23.447,
+ "steps": [
+  {
+   "time": 0.76,
+   "label": "$ eval \"$(source-coop completions bash)\""
+  },
+  {
+   "time": 3.297,
+   "label": "$ · \"source-coop product view demo-org/\" Tab×2 \"cl\" Tab Enter"
+  },
+  {
+   "time": 12.243,
+   "label": "$ · \"source-coop service-account view demo\" Tab Tab×2 \u0003"
+  }
+ ],
+ "keys": [
+  {
+   "time": 6.647,
+   "key": "Tab"
+  },
+  {
+   "time": 7.05,
+   "key": "Tab"
+  },
+  {
+   "time": 10.075,
+   "key": "Tab"
+  },
+  {
+   "time": 12.183,
+   "key": "Enter"
+  },
+  {
+   "time": 16.787,
+   "key": "Tab"
+  },
+  {
+   "time": 18.007,
+   "key": "Tab"
+  },
+  {
+   "time": 18.416,
+   "key": "Tab"
+  },
+  {
+   "time": 20.947,
+   "key": "\u0003"
+  }
+ ]
+}
