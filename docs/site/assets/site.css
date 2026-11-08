@@ -141,8 +141,8 @@ pre code { font-size: inherit; }
 /* Highlighting, from Pygments' classes (build.py). Quiet, like the rest. */
 pre .c, pre .c1, pre .ch, pre .cm { color: var(--muted); font-style: italic; }
 pre .s, pre .s1, pre .s2, pre .se, pre .si, pre .sh, pre .sb, pre .dl { color: var(--code-string); }
-pre .k, pre .kn, pre .nb, pre .nt, pre .na { color: var(--code-keyword); }
-pre .nv, pre .m, pre .mi, pre .mf, pre .kc { color: var(--code-value); }
+pre .k, pre .kn, pre .nb, pre .nt, pre .nf { color: var(--code-keyword); }
+pre .nv, pre .na, pre .m, pre .mi, pre .mf, pre .kc { color: var(--code-value); }
 .table-wrap { overflow-x: auto; margin: 0 0 16px; }
 table { border-collapse: collapse; font-size: 14px; line-height: 1.45; }
 th, td { text-align: left; vertical-align: top; padding: 8px 12px; border-bottom: 1px solid var(--line); }

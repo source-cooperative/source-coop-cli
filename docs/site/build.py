@@ -14,19 +14,40 @@ from markdown_it import MarkdownIt
 from pygments import highlight
 from pygments.formatters import HtmlFormatter
 from pygments.lexers import get_lexer_by_name
+from pygments.filter import simplefilter
+from pygments.token import Comment, Name, Text
 from pygments.util import ClassNotFound
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = "https://github.com/source-cooperative/source-coop-cli"
 
 
+@simplefilter
+def commands(self, lexer, stream, options):
+    """Pygments' bash lexer leaves commands and flags as plain text, and the
+    README's blocks are mostly those. Mark each command's first word, and
+    each word starting with `-`, so they can be coloured too."""
+    start = True
+    for t, v in stream:
+        if v.isspace():
+            start = start or "\n" in v
+        elif t is Text:
+            t, start = (Name.Attribute if v.startswith("-") else Name.Function if start else t), False
+        else:
+            start = v in ("|", "||", "&&", ";", "$(") or (t in Comment and v.endswith("\n"))
+        yield t, v
+
+
 def code(text, lang, attrs):
     """A fenced block's tokens as Pygments' classes, which site.css colours.
     An unknown or missing language is left plain (markdown-it escapes it)."""
     try:
-        return highlight(text, get_lexer_by_name(lang), HtmlFormatter(nowrap=True))
+        lexer = get_lexer_by_name(lang)
     except ClassNotFound:
         return ""
+    if lexer.name == "Bash":
+        lexer.add_filter(commands())
+    return highlight(text, lexer, HtmlFormatter(nowrap=True))
 
 
 md = MarkdownIt("commonmark", {"html": True, "highlight": code}).enable("table")
