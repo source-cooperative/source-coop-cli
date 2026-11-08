@@ -61,7 +61,7 @@ jobs:
         if: github.event.action != 'closed'
         run: |
           if [ -n "$PR" ]; then version="pr-$PR"; elif [ "${{ github.event_name }}" = push ]; then version=next; else version="$TAG"; fi
-          uv run --with markdown-it-py python docs/site/build.py --out "$RUNNER_TEMP/site" --version "$version"
+          uv run --with markdown-it-py --with pygments python docs/site/build.py --out "$RUNNER_TEMP/site" --version "$version"
       - name: Check out gh-pages
         run: |
           git fetch origin gh-pages && git worktree add "$RUNNER_TEMP/pages" origin/gh-pages \
@@ -104,4 +104,4 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
-      - run: uv run --with markdown-it-py python docs/site/build.py --out "$RUNNER_TEMP/site" --version "pr-${{ github.event.pull_request.number }}"
+      - run: uv run --with markdown-it-py --with pygments python docs/site/build.py --out "$RUNNER_TEMP/site" --version "pr-${{ github.event.pull_request.number }}"
