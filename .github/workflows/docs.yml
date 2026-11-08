@@ -42,10 +42,13 @@ jobs:
         if: github.event.action != 'closed'
         with:
           ref: ${{ inputs.tag || github.event.release.tag_name || github.ref }}
+      # A closed PR needs only publish.py: take it from the default branch.
+      # Not a sparse checkout: the gh-pages worktree below would inherit it,
+      # and the preview to remove would never be on disk.
       - uses: actions/checkout@v4
         if: github.event.action == 'closed'
         with:
-          sparse-checkout: docs/site
+          ref: ${{ github.event.repository.default_branch }}
       - uses: astral-sh/setup-uv@v6
       - name: Build the site
         if: github.event.action != 'closed'
