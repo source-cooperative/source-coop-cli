@@ -330,12 +330,12 @@ source-coop product edit -i                                    # select one of y
 
 With no flags, `edit` opens a full-screen form of the title, description and visibility:
 
-- ↑/↓ moves between the fields.
-- Enter changes the selected field, starting from its current value. Esc keeps the value.
+- <kbd>↑</kbd> <kbd>↓</kbd> moves between the fields.
+- <kbd>Enter</kbd> changes the selected field, starting from its current value. <kbd>Esc</kbd> keeps the value.
 - The form shows only the visibilities that the data connection allows.
 - A changed field shows its old value.
-- `s`, or Enter on *Save changes*, shows the changes and asks you to confirm. ← goes back to the form.
-- Esc or ← on the form cancels. If you changed a field, the form asks first.
+- <kbd>s</kbd>, or <kbd>Enter</kbd> on *Save changes*, shows the changes and asks you to confirm. <kbd>←</kbd> goes back to the form.
+- <kbd>Esc</kbd> or <kbd>←</kbd> on the form cancels. If you changed a field, the form asks first.
 
 ![`product edit`: the edit form, then a flag](docs/demos/product-edit.svg)
 
@@ -411,7 +411,7 @@ source-coop member invite my-org                  # asks who to invite, and the 
 - `--accounts-file PATH` (`-A`, `-` for stdin) adds one ID from each line. It skips empty lines and lines that start with `#`.
 - `--from-file` reads `account_id` and `role` from a JSON object.
 - Each account gets its own invitation. If the API refuses one, the CLI shows the error and sends the others. Then the command fails.
-- At a terminal, `invite` asks for the missing accounts and role, and then asks you to confirm. The default role is `read_data`. It shows `owners` only if you can give that role. ← goes back one question.
+- At a terminal, `invite` asks for the missing accounts and role, and then asks you to confirm. The default role is `read_data`. It shows `owners` only if you can give that role. <kbd>←</kbd> goes back one question.
 - If invitations fail, the CLI saves the ones not sent as a draft. The next `invite` to the same place offers them again.
 - If you invite a service account of the product's owner, it becomes a member at once. Its role must be `read_data` or `write_data`.
 
@@ -547,11 +547,11 @@ If the product already has that role, or has no access to remove, nothing change
 
 With no flags, `edit` opens a full-screen form with **Name**, then the products under **Can reach**, each with its role:
 
-- ↑/↓ moves. Enter changes the selected row: the name, or the access to a product (Read, Read and write, or No access).
+- <kbd>↑</kbd> <kbd>↓</kbd> moves. <kbd>Enter</kbd> changes the selected row: the name, or the access to a product (Read, Read and write, or No access).
 - *Grant a product…* adds one of the owner's other products.
 - A changed row shows its old value.
-- `s`, or Enter on *Save changes*, shows the changes and asks you to confirm. ← goes back to the form.
-- Esc or ← on the form cancels. If you changed a row, the form asks first.
+- <kbd>s</kbd>, or <kbd>Enter</kbd> on *Save changes*, shows the changes and asks you to confirm. <kbd>←</kbd> goes back to the form.
+- <kbd>Esc</kbd> or <kbd>←</kbd> on the form cancels. If you changed a row, the form asks first.
 
 `--disable` and `--enable` are flags only.
 
@@ -598,7 +598,7 @@ The CLI shows a key one time only, when it issues the key:
 - `--out PATH` writes the key to a new file that only you can read. AWS tools read the key from a file.
 - If a file is already at that path, the CLI does not overwrite it. It shows the key. It also shows the key if it cannot write the file.
 - When piped, stdout gets only the key.
-- On a terminal, the CLI asks for a file name. Press Enter to show the key instead.
+- On a terminal, the CLI asks for a file name. Press <kbd>Enter</kbd> to show the key instead.
 
 `view` lists each key by its label and its last six characters, such as `key:a1B2c3`. `sign-in edit` and `sign-in remove` use this name. `view` also shows when the key was last used and when it expires. It shows revoked and expired keys dimmed. You cannot restore a revoked key.
 
@@ -634,11 +634,11 @@ At a terminal, commands that change data ask for the values that you do not give
 
 - **Priority.** Flags take priority over `--from-file PATH` (`-F`, `-` for stdin). The file takes priority over prompts. The CLI asks only for the missing values.
 - **Sign-in check.** Before the first question, `create`, `edit` and `delete` make sure that you are signed in.
-- **Go back.** To go back to the previous question, press ↑ in a text question (or ← at the start of the line), or ← in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.
-- **Review.** After it asks a question, the command shows what it will send and asks you to confirm. ← goes back.
-- **Long text.** Type a description on one line, or press Ctrl+E to write it in your editor (`$VISUAL` or `$EDITOR`). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press Enter on the empty line to keep it.
+- **Go back.** To go back to the previous question, press <kbd>↑</kbd> in a text question (or <kbd>←</kbd> at the start of the line), or <kbd>←</kbd> in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.
+- **Review.** After it asks a question, the command shows what it will send and asks you to confirm. <kbd>←</kbd> goes back.
+- **Long text.** Type a description on one line, or press <kbd>Ctrl</kbd>+<kbd>E</kbd> to write it in your editor (`$VISUAL` or `$EDITOR`). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press <kbd>Enter</kbd> on the empty line to keep it.
 - **Errors.** If the API refuses a value that you typed (HTTP 400), the CLI shows the reason and asks for that value again.
-- **Cancel.** Press Esc (or `q` in a list). The CLI shows "Cancelled; nothing was changed." and exits with code 1. When you must type a name to confirm, Enter on an empty line also cancels. Ctrl+C stops at once, with exit code 130.
+- **Cancel.** Press <kbd>Esc</kbd> (or <kbd>q</kbd> in a list). The CLI shows "Cancelled; nothing was changed." and exits with code 1. When you must type a name to confirm, <kbd>Enter</kbd> on an empty line also cancels. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops at once, with exit code 130.
 - **Drafts.** If the send fails in another way (for example, the ID is taken, there is no connection, the session has expired or the server fails), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with `--from-file`. After a successful send, the CLI deletes the draft.
 
 Drafts are in your OS's application state folder:
@@ -665,14 +665,14 @@ The CLI does not ask questions if stdin or stderr is not a terminal, or if `SOUR
 
 | Key | In a list | On a record |
 |-----|-----------|-------------|
-| ↑ ↓ (`k` `j`), PgUp PgDn, Home End | move | |
-| → Enter (`l`) | open the record | |
-| ← Esc (`h` `q`) | exit (in search results: go back to the full list) | go back to the list |
-| `/` | filter the loaded records by text, with the number of matches (Esc clears the filter). In all public products, Enter searches the server, and ← exits the results. | |
-| `b` | open in the browser | open in the browser |
-| `e` | | edit (for a member: change the role) |
-| `d` | | delete (for a member: revoke) |
-| `a` `r` | | accept or reject (an invitation) |
+| <kbd>↑</kbd> <kbd>↓</kbd> or <kbd>k</kbd> <kbd>j</kbd>, <kbd>PgUp</kbd> <kbd>PgDn</kbd>, <kbd>Home</kbd> <kbd>End</kbd> | move | |
+| <kbd>→</kbd> <kbd>Enter</kbd> or <kbd>l</kbd> | open the record | |
+| <kbd>←</kbd> <kbd>Esc</kbd> or <kbd>h</kbd> <kbd>q</kbd> | exit (in search results: go back to the full list) | go back to the list |
+| <kbd>/</kbd> | filter the loaded records by text, with the number of matches (<kbd>Esc</kbd> clears the filter). In all public products, <kbd>Enter</kbd> searches the server, and <kbd>←</kbd> exits the results. | |
+| <kbd>b</kbd> | open in the browser | open in the browser |
+| <kbd>e</kbd> | | edit (for a member: change the role) |
+| <kbd>d</kbd> | | delete (for a member: revoke) |
+| <kbd>a</kbd> <kbd>r</kbd> | | accept or reject (an invitation) |
 
 To edit or delete, you must open the record first. Thus a wrong key in a list changes nothing. The shortcuts do the same as the commands, with the same questions. Lists get more records as you move down.
 
@@ -764,7 +764,7 @@ All commands use the same exit codes:
 | 3 | The API refused the input (HTTP 400, 409, 422). Correct the named fields and try again. |
 | 4 | Not signed in, or not allowed (HTTP 401, 403) |
 | 5 | Not found (HTTP 404) |
-| 130 | Interrupted (Ctrl+C) |
+| 130 | Interrupted (<kbd>Ctrl</kbd>+<kbd>C</kbd>) |
 
 ![Without a terminal: errors, `--json`, exit codes and `-F -`](docs/demos/scripting.svg)
 
@@ -829,7 +829,7 @@ The CLI has no configuration file. Flags and environment variables set all value
 | `SOURCE_REFRESH_TOKEN_LIFETIME` | | `30d` | The refresh-token lifetime that `auth status` assumes, for example `720h` or `14d` |
 | `SOURCE_PROMPT_DISABLED` | | | If set to any value, the CLI never asks questions |
 | `SOURCE_PAGER`, `PAGER` | `--no-pager` | `less -FRX` | The pager for lists on a terminal |
-| `VISUAL`, `EDITOR` | | | The editor that Ctrl+E opens for long text |
+| `VISUAL`, `EDITOR` | | | The editor that <kbd>Ctrl</kbd>+<kbd>E</kbd> opens for long text |
 | `GH_TOKEN`, `GITHUB_TOKEN` | | | Lets the CLI ask GitHub about the workflows of a private repository |
 | `NO_COLOR`, `CLICOLOR=0` | | | No color, also on a terminal |
 
