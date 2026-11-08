@@ -58,11 +58,14 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li><a href="../">Overview</a></li><li><a href="../install/" aria-current="page">Install</a><ul><li><a href="#from-github-releases-recommended">From GitHub Releases (recommended)</a></li><li><a href="#homebrew-macos--linux">Homebrew (macOS / Linux)</a></li><li><a href="#from-source">From source</a></li><li><a href="#shell-completion">Shell completion</a></li></ul></li><li><a href="../quick-start/">Quick start</a></li><li><a href="../signing-in/">Signing in</a></li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../oidc-provider-setup/">OIDC provider setup</a></li></ul>
+      <ul><li><a href="../">Overview</a></li><li><a href="../install/" aria-current="page">Install</a><ul><li><a href="#homebrew-macos--linux">Homebrew (macOS / Linux)</a></li><li><a href="#from-github-releases-recommended">From GitHub Releases (recommended)</a></li><li><a href="#from-source">From source</a></li><li><a href="#shell-completion">Shell completion</a></li></ul></li><li><a href="../quick-start/">Quick start</a></li><li><a href="../signing-in/">Signing in</a></li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../oidc-provider-setup/">OIDC provider setup</a></li></ul>
     </details>
   </nav>
   <main id="main">
 <h1 id="install">Install</h1>
+<h3 id="homebrew-macos--linux">Homebrew (macOS / Linux)</h3>
+<pre><code class="language-bash">brew install source-cooperative/tap/source-coop
+</code></pre>
 <h3 id="from-github-releases-recommended">From GitHub Releases (recommended)</h3>
 <p><strong>macOS / Linux:</strong></p>
 <pre><code class="language-bash">curl --proto '=https' --tlsv1.2 -LsSf \
@@ -70,9 +73,6 @@
 </code></pre>
 <p><strong>Windows PowerShell:</strong></p>
 <pre><code class="language-powershell">powershell -ExecutionPolicy ByPass -c &quot;irm https://github.com/source-cooperative/source-coop-cli/releases/latest/download/source-coop-cli-installer.ps1 | iex&quot;
-</code></pre>
-<h3 id="homebrew-macos--linux">Homebrew (macOS / Linux)</h3>
-<pre><code class="language-bash">brew install source-cooperative/tap/source-coop
 </code></pre>
 <h3 id="from-source">From source</h3>
 <pre><code class="language-bash">cargo install --git https://github.com/source-cooperative/source-coop-cli
