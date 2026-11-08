@@ -104,7 +104,7 @@ source-coop member invite my-org                  # asks who to invite, and the 
 <li><code>--accounts-file PATH</code> (<code>-A</code>, <code>-</code> for stdin) adds one ID from each line. It skips empty lines and lines that start with <code>#</code>.</li>
 <li><code>--from-file</code> reads <code>account_id</code> and <code>role</code> from a JSON object.</li>
 <li>Each account gets its own invitation. If the API refuses one, the CLI shows the error and sends the others. Then the command fails.</li>
-<li>At a terminal, <code>invite</code> asks for the missing accounts and role, and then asks you to confirm. The default role is <code>read_data</code>. It shows <code>owners</code> only if you can give that role. ← goes back one question.</li>
+<li>At a terminal, <code>invite</code> asks for the missing accounts and role, and then asks you to confirm. The default role is <code>read_data</code>. It shows <code>owners</code> only if you can give that role. <kbd>←</kbd> goes back one question.</li>
 <li>If invitations fail, the CLI saves the ones not sent as a draft. The next <code>invite</code> to the same place offers them again.</li>
 <li>If you invite a service account of the product's owner, it becomes a member at once. Its role must be <code>read_data</code> or <code>write_data</code>.</li>
 </ul>

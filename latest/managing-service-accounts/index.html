@@ -117,11 +117,11 @@ source-coop service-account edit my-org--nightly-sync --disable   # --enable let
 <p>If the product already has that role, or has no access to remove, nothing changes. Thus you can run an edit two times safely.</p>
 <p>With no flags, <code>edit</code> opens a full-screen form with <strong>Name</strong>, then the products under <strong>Can reach</strong>, each with its role:</p>
 <ul>
-<li>↑/↓ moves. Enter changes the selected row: the name, or the access to a product (Read, Read and write, or No access).</li>
+<li><kbd>↑</kbd> <kbd>↓</kbd> moves. <kbd>Enter</kbd> changes the selected row: the name, or the access to a product (Read, Read and write, or No access).</li>
 <li><em>Grant a product…</em> adds one of the owner's other products.</li>
 <li>A changed row shows its old value.</li>
-<li><code>s</code>, or Enter on <em>Save changes</em>, shows the changes and asks you to confirm. ← goes back to the form.</li>
-<li>Esc or ← on the form cancels. If you changed a row, the form asks first.</li>
+<li><kbd>s</kbd>, or <kbd>Enter</kbd> on <em>Save changes</em>, shows the changes and asks you to confirm. <kbd>←</kbd> goes back to the form.</li>
+<li><kbd>Esc</kbd> or <kbd>←</kbd> on the form cancels. If you changed a row, the form asks first.</li>
 </ul>
 <p><code>--disable</code> and <code>--enable</code> are flags only.</p>
 <figure class="demo" data-demo="service-account-access"><noscript><img src="../demos/service-account-access.svg" alt="service-account edit --access, then the edit form: take a product away, grant another"></noscript><figcaption><code>service-account edit --access</code>, then the edit form: take a product away, grant another</figcaption></figure>

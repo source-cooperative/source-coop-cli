@@ -67,11 +67,11 @@
 <ul>
 <li><strong>Priority.</strong> Flags take priority over <code>--from-file PATH</code> (<code>-F</code>, <code>-</code> for stdin). The file takes priority over prompts. The CLI asks only for the missing values.</li>
 <li><strong>Sign-in check.</strong> Before the first question, <code>create</code>, <code>edit</code> and <code>delete</code> make sure that you are signed in.</li>
-<li><strong>Go back.</strong> To go back to the previous question, press ↑ in a text question (or ← at the start of the line), or ← in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.</li>
-<li><strong>Review.</strong> After it asks a question, the command shows what it will send and asks you to confirm. ← goes back.</li>
-<li><strong>Long text.</strong> Type a description on one line, or press Ctrl+E to write it in your editor (<code>$VISUAL</code> or <code>$EDITOR</code>). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press Enter on the empty line to keep it.</li>
+<li><strong>Go back.</strong> To go back to the previous question, press <kbd>↑</kbd> in a text question (or <kbd>←</kbd> at the start of the line), or <kbd>←</kbd> in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.</li>
+<li><strong>Review.</strong> After it asks a question, the command shows what it will send and asks you to confirm. <kbd>←</kbd> goes back.</li>
+<li><strong>Long text.</strong> Type a description on one line, or press <kbd>Ctrl</kbd>+<kbd>E</kbd> to write it in your editor (<code>$VISUAL</code> or <code>$EDITOR</code>). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press <kbd>Enter</kbd> on the empty line to keep it.</li>
 <li><strong>Errors.</strong> If the API refuses a value that you typed (HTTP 400), the CLI shows the reason and asks for that value again.</li>
-<li><strong>Cancel.</strong> Press Esc (or <code>q</code> in a list). The CLI shows &quot;Cancelled; nothing was changed.&quot; and exits with code 1. When you must type a name to confirm, Enter on an empty line also cancels. Ctrl+C stops at once, with exit code 130.</li>
+<li><strong>Cancel.</strong> Press <kbd>Esc</kbd> (or <kbd>q</kbd> in a list). The CLI shows &quot;Cancelled; nothing was changed.&quot; and exits with code 1. When you must type a name to confirm, <kbd>Enter</kbd> on an empty line also cancels. <kbd>Ctrl</kbd>+<kbd>C</kbd> stops at once, with exit code 130.</li>
 <li><strong>Drafts.</strong> If the send fails in another way (for example, the ID is taken, there is no connection, the session has expired or the server fails), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with <code>--from-file</code>. After a successful send, the CLI deletes the draft.</li>
 </ul>
 <p>Drafts are in your OS's application state folder:</p>
