@@ -20,10 +20,17 @@ The demos in this guide use a stand-in for the API with made-up records (`demo-o
 ### Quick start
 
 ```bash
-source-coop auth login                        # sign in through your browser, once
-source-coop product list my-org               # an account's products
-source-coop product create                    # asks for each value a new product needs
-aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS profile (below)
+# sign in through your browser, once
+source-coop auth login
+
+# an account's products
+source-coop product list my-org
+
+# asks for each value a new product needs
+source-coop product create
+
+# after you add the AWS profile (below)
+aws s3 ls s3://my-org/my-data --profile source-coop
 ```
 
 `source-coop --help` lists the commands. `source-coop <command> --help` lists the flags of a command, with examples.
@@ -157,9 +164,14 @@ source-coop auth status --json | jq -r .login.refresh_token.issued_at
 `auth logout` removes the session of one environment and the credentials of one role. It removes them from the keyring and from the [file fallback](#file-fallback).
 
 ```bash
+# the default environment and role
 source-coop auth logout
+
+# another environment and role
 source-coop auth logout --proxy-url https://data.staging.source.coop --role-arn reader-role
-source-coop auth logout --json   # {"proxy_url": …, "role_arn": …, "removed": {"session": true, "credentials": true}}
+
+# {"proxy_url": …, "role_arn": …, "removed": {"session": true, "credentials": true}}
+source-coop auth logout --json
 ```
 
 It uses `--proxy-url` (`SOURCE_PROXY_URL`) and `--role-arn` (`SOURCE_ROLE_ARN`), as `creds` does.
@@ -241,7 +253,10 @@ aws_session_token = ...
 The CLI keeps the credentials of each role separately:
 
 ```bash
+# credentials for a read-only role
 source-coop auth login --role-arn reader-role
+
+# credentials for an admin role, kept separately
 source-coop auth login --role-arn admin-role
 ```
 
@@ -266,16 +281,35 @@ endpoint_url = https://data.source.coop
 ### List and view
 
 ```bash
-source-coop product list                      # public products
-source-coop product list my-org --json        # the products of one account, as JSON
-source-coop product list --format table       # one row for each product; tab-separated when piped
-source-coop product list -q climate           # search titles, descriptions and IDs
-source-coop product list --tags zarr,climate --featured   # featured products with all these tags
-source-coop product list -L 100               # up to 100 (default 30, or all in the pager)
-source-coop product list my-org -i            # move through them full screen (see "Browsing with -i")
-source-coop product view my-org/my-product    # one product
-source-coop product view my-org/my-product -w # open its page in the browser
-source-coop product view my-org/my-product -i # its screen, with shortcuts; with no name, select one first
+# public products
+source-coop product list
+
+# the products of one account, as JSON
+source-coop product list my-org --json
+
+# one row for each product; tab-separated when piped
+source-coop product list --format table
+
+# search titles, descriptions and IDs
+source-coop product list -q climate
+
+# featured products with all these tags
+source-coop product list --tags zarr,climate --featured
+
+# up to 100 (default 30, or all in the pager)
+source-coop product list -L 100
+
+# move through them full screen (see "Browsing with -i")
+source-coop product list my-org -i
+
+# one product
+source-coop product view my-org/my-product
+
+# open its page in the browser
+source-coop product view my-org/my-product -w
+
+# its screen, with shortcuts; with no name, select one first
+source-coop product view my-org/my-product -i
 ```
 
 `list` has two formats:
@@ -294,10 +328,17 @@ On a terminal, `list` shows the products in your pager and gets more pages as yo
 ### Create
 
 ```bash
-source-coop product create                    # asks for all values
-source-coop product create my-org/my-product  # asks for the other values
+# asks for all values
+source-coop product create
+
+# asks for the other values
+source-coop product create my-org/my-product
+
+# all values from flags
 source-coop product create my-org/my-product -t "My product" -d "What's in it" \
     --visibility public --data-connection my-connection
+
+# values from JSON on stdin
 echo '{"title": "My product"}' | source-coop product create my-org/my-product -F -
 ```
 
@@ -319,11 +360,20 @@ You cannot change a product's data connection after you create it. For how to go
 ### Edit
 
 ```bash
-source-coop product edit my-org/my-product                     # a form of its fields
+# a form of its fields
+source-coop product edit my-org/my-product
+
+# change one field
 source-coop product edit my-org/my-product --visibility unlisted
+
+# change one field and print the result as JSON
 source-coop product edit my-org/my-product -d "New description" --json
-source-coop product edit my-org/my-product --disable           # --enable makes it active again (admins only)
-source-coop product edit -i                                    # select one of your account's products
+
+# --enable makes it active again (admins only)
+source-coop product edit my-org/my-product --disable
+
+# select one of your account's products
+source-coop product edit -i
 ```
 
 `edit` uses the same values as `create`, but not the data connection. Give them as flags or with `--from-file`. `--disable` and `--enable` are flags only. `edit` prints the product's URL on stdout.
@@ -342,10 +392,17 @@ With no flags, `edit` opens a full-screen form of the title, description and vis
 ### Delete
 
 ```bash
-source-coop product delete my-org/my-product                  # asks you to type the name
-source-coop product delete my-org/my-product --preserve-data  # keep its objects in storage
-source-coop product delete my-org/my-product --yes --json     # no questions, for scripts
-source-coop product delete -i                                 # select one of your account's products
+# asks you to type the name
+source-coop product delete my-org/my-product
+
+# keep its objects in storage
+source-coop product delete my-org/my-product --preserve-data
+
+# no questions, for scripts
+source-coop product delete my-org/my-product --yes --json
+
+# select one of your account's products
+source-coop product delete -i
 ```
 
 `delete` asks two questions:
@@ -381,11 +438,20 @@ With `--json`, these commands print the memberships as the API gives them: `memb
 ### List and view
 
 ```bash
-source-coop member list my-org                    # members and open invitations
-source-coop member list my-org/my-data --json     # the members of a product, as JSON
-source-coop member list my-org --state invited    # only open invitations
-source-coop member list my-org -i                 # move through the members full screen
-source-coop member view my-org alice              # one member; -i for its screen
+# members and open invitations
+source-coop member list my-org
+
+# the members of a product, as JSON
+source-coop member list my-org/my-data --json
+
+# only open invitations
+source-coop member list my-org --state invited
+
+# move through the members full screen
+source-coop member list my-org -i
+
+# one member; -i for its screen
+source-coop member view my-org alice
 ```
 
 ![`member list` and `view`, then `--json`](docs/demos/member-list.svg)
@@ -401,9 +467,14 @@ source-coop member view my-org alice              # one member; -i for its scree
 ### Invite
 
 ```bash
+# invite two accounts to an organization
 source-coop member invite my-org alice bob --role maintainers
+
+# invite each account listed in a file to a product
 source-coop member invite my-org/my-data -A people.txt --role read_data
-source-coop member invite my-org                  # asks who to invite, and the role
+
+# asks who to invite, and the role
+source-coop member invite my-org
 ```
 
 `invite` takes account IDs as arguments.
@@ -420,8 +491,11 @@ source-coop member invite my-org                  # asks who to invite, and the 
 ### Edit
 
 ```bash
+# give a member another role
 source-coop member edit my-org alice --role owners
-source-coop member edit my-org -i                 # select a member, then a role
+
+# select a member, then a role
+source-coop member edit my-org -i
 ```
 
 Without `--role`, `edit` asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.
@@ -431,8 +505,11 @@ Without `--role`, `edit` asks for a role, starting from the current one. You can
 ### Revoke and leave
 
 ```bash
-source-coop member revoke my-org alice            # also withdraws an open invitation
-source-coop member leave my-org                   # end your own membership
+# also withdraws an open invitation
+source-coop member revoke my-org alice
+
+# end your own membership
+source-coop member leave my-org
 ```
 
 `revoke` asks you to confirm. For your own membership, you must also type the organization or product name.
@@ -446,11 +523,20 @@ Without a terminal, `revoke` and `leave` need `--yes`.
 ### Your invitations
 
 ```bash
-source-coop invitation list                       # invitations that wait for your answer
-source-coop invitation list -i                    # open one, then accept (a) or reject (r) it
+# invitations that wait for your answer
+source-coop invitation list
+
+# open one, then accept (a) or reject (r) it
+source-coop invitation list -i
+
+# accept an invitation to a product
 source-coop invitation accept my-org/my-data
+
+# reject an invitation to an organization
 source-coop invitation reject my-org
-source-coop invitation accept -i                  # select an invitation
+
+# select an invitation
+source-coop invitation accept -i
 ```
 
 When you accept, you become a member with the role of the invitation. With `--json`, the command prints the membership after the change.
@@ -468,11 +554,20 @@ A service account's ID is the owner's ID, then `--`, then its own name: `my-org-
 ### List and view
 
 ```bash
-source-coop service-account list my-org             # my-org's service accounts (yours, with no owner)
-source-coop service-account list my-org --no-pager  # print directly, not in the pager
-source-coop service-account list my-org -i          # move through them full screen (keys as for products)
-source-coop service-account view my-org--nightly-sync          # --json adds `trusts`, `keys` and `memberships`
-source-coop service-account view my-org--nightly-sync -w       # open its page in the browser
+# my-org's service accounts (yours, with no owner)
+source-coop service-account list my-org
+
+# print directly, not in the pager
+source-coop service-account list my-org --no-pager
+
+# move through them full screen (keys as for products)
+source-coop service-account list my-org -i
+
+# --json adds `trusts`, `keys` and `memberships`
+source-coop service-account view my-org--nightly-sync
+
+# open its page in the browser
+source-coop service-account view my-org--nightly-sync -w
 ```
 
 ![`service-account list`: an owner's service accounts, then as `--json`](docs/demos/service-account-list.svg)
@@ -488,7 +583,10 @@ source-coop service-account view my-org--nightly-sync -w       # open its page i
 ### Create
 
 ```bash
-source-coop service-account create                  # asks for all values, as the web form does
+# asks for all values, as the web form does
+source-coop service-account create
+
+# all values from flags
 source-coop service-account create my-org--nightly-sync --name "Nightly sync" \
     --github my-org/data --branch main --access my-org/my-data=write
 ```
@@ -511,9 +609,14 @@ If `create` issues a key, it gives you the key as `sign-in add` does. But stdout
 ### Edit
 
 ```bash
+# rename it
 source-coop service-account edit my-org--nightly-sync --name "Nightly sync"
-source-coop service-account edit my-org--nightly-sync            # a form of its name and products
-source-coop service-account edit my-org--nightly-sync --disable   # --enable lets it sign in again
+
+# a form of its name and products
+source-coop service-account edit my-org--nightly-sync
+
+# --enable lets it sign in again
+source-coop service-account edit my-org--nightly-sync --disable
 ```
 
 `--disable` stops all sign-ins as the service account. It keeps its sign-ins and products. `--enable` lets its workflows and its keys that are not revoked sign in again.
@@ -525,7 +628,8 @@ With no flags, `edit` opens a form of its name and products (see [Access to prod
 ### Delete
 
 ```bash
-source-coop service-account delete my-org--nightly-sync           # asks you to type its ID
+# asks you to type its ID
+source-coop service-account delete my-org--nightly-sync
 ```
 
 `delete` removes the service account, its sign-ins and its access to products. Type its ID to confirm, or use `--yes`.
@@ -565,11 +669,20 @@ A service account signs in in one of two ways:
 - **An API key**, where GitHub is not available.
 
 ```bash
+# trust runs on a branch
 source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --branch main
+
+# trust runs in a GitHub environment
 source-coop service-account sign-in add my-org--nightly-sync --github my-org/data --environment production
+
+# trust a subject as it is
 source-coop service-account sign-in add my-org--nightly-sync --subject repo:my-org/data:ref:refs/tags/v1
+
+# remove a trust by its subject
 source-coop service-account sign-in remove my-org--nightly-sync repo:my-org/data:ref:refs/heads/main
-source-coop service-account sign-in remove my-org--nightly-sync -i   # select a sign-in
+
+# select a sign-in
+source-coop service-account sign-in remove my-org--nightly-sync -i
 ```
 
 - `--github OWNER/REPO` with `--branch`, `--tag` or `--environment` makes the subject that GitHub's tokens contain, such as `repo:OWNER/REPO:ref:refs/heads/main`.
@@ -587,10 +700,17 @@ At a terminal, without these flags, `sign-in add` asks for the repository and th
 - A key expires after 30 days, 90 days (default), one year, never, or on a date (at midnight UTC).
 
 ```bash
+# issue a key that expires in a year, and save it to a file
 source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job" --expires 1y --out ~/.source-coop/nightly.key
-key=$(source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job")   # piped: only the key on stdout
-source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never      # a new expiry, from now
-source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3                    # revoke it; asks you to type key:a1B2c3
+
+# piped: only the key on stdout
+key=$(source-coop service-account sign-in add my-org--nightly-sync --key "HPC cron job")
+
+# a new expiry, from now
+source-coop service-account sign-in edit my-org--nightly-sync key:a1B2c3 --expires never
+
+# revoke it; asks you to type key:a1B2c3
+source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3
 ```
 
 The CLI shows a key one time only, when it issues the key:
@@ -617,9 +737,12 @@ source-coop service-account sign-in revoke-key < leaked-key-file
 Workflows and scripts sign in with standard AWS tools, not with this CLI. `usage` prints what they need, as the web UI does:
 
 ```bash
+# a workflow that uses aws-actions/configure-aws-credentials
 source-coop service-account usage my-org--nightly-sync --subject repo:my-org/data:ref:refs/heads/main \
-    > .github/workflows/source-coop.yml   # a workflow that uses aws-actions/configure-aws-credentials
-source-coop service-account usage my-org--nightly-sync --key   # the AWS_* variables for a key in a file
+    > .github/workflows/source-coop.yml
+
+# the AWS_* variables for a key in a file
+source-coop service-account usage my-org--nightly-sync --key
 ```
 
 At a terminal, without `--subject` or `--key`, `usage` asks which sign-in to show.
@@ -794,10 +917,17 @@ To send a request through the CLI, see [Any API request](#any-api-request).
 `source-coop api` sends a request to `/api/v1` as you, and prints the response. Use it for what the other commands do not do.
 
 ```bash
+# GET, with a query parameter
 source-coop api products/my-org -q limit=5
+
+# POST, with fields from flags
 source-coop api products/my-org -f product_id=new -f title="New" -f description="" \
   -f visibility=public -f data_connection_id=my-connection
+
+# PATCH, with fields from a file and a flag (the flag wins)
 source-coop api products/my-org/new -X PATCH -F changes.json -f title="Renamed"
+
+# PATCH, with the body from stdin
 echo '{"title": "Renamed", "tags": ["a"]}' | source-coop api products/my-org/new -X PATCH -F -
 ```
 
@@ -847,7 +977,10 @@ To set up the OAuth2 client for another deployment of source.coop, see [CONTRIBU
 Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:
 
 ```bash
+# sign in to production
 source-coop auth login
+
+# sign in to staging, in a subshell
 ( source .env.staging && source-coop auth login )
 ```
 
