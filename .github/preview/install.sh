@@ -6,6 +6,9 @@
 #
 #   curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/NAME/install.sh | sh
 #
+# A pre-release built with both features also has source-coop-NAME-staging:
+# add `-s -- staging` after `sh` for that one.
+#
 # SOURCE_COOP_PREVIEW_DIR  where to install it (default: ~/.local/bin)
 # SOURCE_COOP_PREVIEW_URL  where the builds are (default: the preview's pre-release)
 set -eu
@@ -13,7 +16,8 @@ set -eu
 # The preview: set by the workflow when it publishes this script.
 name=staging
 
-command="source-coop-$name"
+# An argument picks a second build on the same pre-release: source-coop-NAME-ARG.
+command="source-coop-$name${1:+-$1}"
 dir="${SOURCE_COOP_PREVIEW_DIR:-$HOME/.local/bin}"
 url="${SOURCE_COOP_PREVIEW_URL:-https://github.com/source-cooperative/source-coop-cli/releases/download/$name}"
 

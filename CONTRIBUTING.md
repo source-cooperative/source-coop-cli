@@ -12,11 +12,12 @@ To let the team try a branch without building it, run the *Preview build* workfl
 gh workflow run "Preview build" -f ref=my-branch                                        # staging, as source-coop-staging
 gh workflow run "Preview build" -f ref=my-branch -f name=search-ui                      # its own preview, source-coop-search-ui
 gh workflow run "Preview build" -f ref=my-branch -f name=prod-check -f features=production
+gh workflow run "Preview build" -f ref=my-branch -f name=search-ui -f features=both     # source-coop-search-ui and source-coop-search-ui-staging
 ```
 
 - **`ref`:** the branch, tag or commit to build. It's pinned to one commit when the run starts.
 - **`name`** (default `staging`): the preview's pre-release tag, and the command it installs, `source-coop-NAME`. Use up to 40 lowercase letters, digits and hyphens, not starting with a digit or with `v` and a digit, so it can't be taken for a version.
-- **`features`** (a choice, default `staging`): the Cargo features to build with. `staging` signs in to `auth.staging.source.coop` and calls `staging.source.coop` and `data.staging.source.coop` by default. `production` is the release's own defaults.
+- **`features`** (a choice, default `staging`): the Cargo features to build with. `staging` signs in to `auth.staging.source.coop` and calls `staging.source.coop` and `data.staging.source.coop` by default. `production` is the release's own defaults. `both` puts a production build, `source-coop-NAME`, and a staging one, `source-coop-NAME-staging`, on the same pre-release.
 
 It builds for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64). Each run replaces the preview's binaries on its pre-release, whose title and notes name the branch, commit and features. Send the install line from those notes, which for the default preview is:
 
@@ -24,7 +25,14 @@ It builds for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64). Each
 curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/staging/install.sh | sh
 ```
 
-Running it again updates the preview.
+Running it again updates the preview. For a `both` preview, that line installs the production build; add `-s -- staging` after `sh` for the staging one.
+
+**Every push to main is published as the `next` preview** (the *Main previews* workflow): `source-coop-next` is the next release as it stands, and `source-coop-next-staging` is the same commit calling staging. Its docs go to <https://source-cooperative.github.io/source-coop-cli/next/>, listed as `next` in the version menu; `latest/` stays the newest release.
+
+```bash
+curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/next/install.sh | sh                  # source-coop-next
+curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/next/install.sh | sh -s -- staging    # source-coop-next-staging
+```
 
 - **It sits beside the production CLI.** It installs as `source-coop-NAME` in `~/.local/bin` (set `SOURCE_COOP_PREVIEW_DIR` for elsewhere). Previews with different names sit side by side. A staging build keeps its own login: run `source-coop-staging auth login` once.
 - **On macOS, each new build asks once for your password** to read its login from the keychain. Choose **Always Allow**.

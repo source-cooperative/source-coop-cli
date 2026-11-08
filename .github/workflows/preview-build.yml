@@ -3,13 +3,20 @@ name: Preview build
 # Builds a branch for team members to install and test without building it
 # themselves: as `source-coop-NAME`, with the features chosen (`staging` signs
 # in to and calls source.coop's staging environment), so it sits beside a
-# production `source-coop`. Each run replaces the binaries on a pre-release
+# production `source-coop`. With `both`, one pre-release carries a production
+# build, `source-coop-NAME`, and a staging one, `source-coop-NAME-staging`. Each run replaces the binaries on a pre-release
 # tagged NAME, which is never "Latest": the release installers and Homebrew
 # keep the real release, and neither the Release nor the Docs workflow runs
 # for it. CONTRIBUTING.md says how to use it.
 #
-# On a PR that changes this file or the install script, it only builds.
+# Main previews calls it after each push to main, for the `next` preview. On a PR that changes this file or the install script, it
+# only builds.
 on:
+  workflow_call:
+    inputs:
+      ref: { type: string, required: true }
+      name: { type: string, required: true }
+      features: { type: string, required: true }
   workflow_dispatch:
     inputs:
       ref:
@@ -23,7 +30,7 @@ on:
       features:
         description: "Cargo features to build with (Cargo.toml's [features])"
         type: choice
-        options: [staging, production]
+        options: [staging, production, both]
         default: staging
   pull_request:
     paths: [".github/workflows/preview-build.yml", ".github/preview/install.sh"]
@@ -39,7 +46,7 @@ env:
 # A preview publishes one run at a time, never cancelled half-way; previews
 # with other names don't wait. A PR's builds have a group of their own.
 concurrency:
-  group: preview-build-${{ github.event_name == 'workflow_dispatch' && format('publish-{0}', inputs.name) || github.ref }}
+  group: preview-build-${{ github.event_name != 'pull_request' && format('publish-{0}', inputs.name) || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -68,17 +75,24 @@ jobs:
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build ${{ matrix.target }}
+    name: Build ${{ matrix.platform.target }} (${{ matrix.features }})
     needs: resolve
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.platform.os }}
     strategy:
       fail-fast: false
       matrix:
-        include:
+        platform:
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-apple-darwin, os: macos-latest }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
+        # `both` is a production build and a staging one.
+        features: ${{ fromJSON(inputs.features == 'both' && '["production","staging"]' || format('["{0}"]', inputs.features || 'staging')) }}
+    env:
+      TARGET: ${{ matrix.platform.target }}
+      # The command it installs as: a staging build beside a production one
+      # is source-coop-NAME-staging.
+      COMMAND: source-coop-${{ inputs.name || 'staging' }}${{ inputs.features == 'both' && matrix.features == 'staging' && '-staging' || '' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -89,25 +103,25 @@ jobs:
       - uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.platform.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: preview-${{ matrix.target }}-${{ env.FEATURES }}
-      - run: cargo build --release --locked --features "$FEATURES" --target ${{ matrix.target }}
+          key: preview-${{ matrix.platform.target }}-${{ matrix.features }}
+      - run: cargo build --release --locked --features ${{ matrix.features }} --target "$TARGET"
       - name: Package
         run: |
           mkdir pack
-          cp "target/${{ matrix.target }}/release/source-coop" "pack/source-coop-$NAME"
-          tar -C pack -czf "source-coop-$NAME-${{ matrix.target }}.tar.gz" "source-coop-$NAME"
+          cp "target/$TARGET/release/source-coop" "pack/$COMMAND"
+          tar -C pack -czf "$COMMAND-$TARGET.tar.gz" "$COMMAND"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.target }}
-          path: source-coop-${{ env.NAME }}-${{ matrix.target }}.tar.gz
+          name: ${{ env.COMMAND }}-${{ env.TARGET }}
+          path: ${{ env.COMMAND }}-${{ env.TARGET }}.tar.gz
 
   publish:
     name: Publish the preview
     needs: [resolve, build]
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,7 +146,19 @@ jobs:
           sed "s/^name=staging\$/name=$NAME/" .github/preview/install.sh > dist/install.sh
           grep -q "^name=$NAME\$" dist/install.sh
           install="curl -LsSf https://github.com/$GITHUB_REPOSITORY/releases/download/$NAME/install.sh | sh"
-          cat > notes.md <<EOF
+          if [ "$FEATURES" = both ]; then
+            cat > notes.md <<EOF
+          **A preview for testing, not a release.** Built from \`$REF\` at $SHA, twice: with production's defaults as \`source-coop-$NAME\`, and with \`--features staging\` as \`source-coop-$NAME-staging\`. Each run of *Preview build* named \`$NAME\` replaces it.
+
+          Install or update either (macOS or Linux), beside the production \`source-coop\`:
+
+          \`\`\`bash
+          $install                 # source-coop-$NAME
+          $install -s -- staging   # source-coop-$NAME-staging
+          \`\`\`
+          EOF
+          else
+            cat > notes.md <<EOF
           **A preview for testing, not a release.** Built from \`$REF\` at $SHA with \`--features $FEATURES\`. Each run of *Preview build* named \`$NAME\` replaces it.
 
           Install or update \`source-coop-$NAME\` (macOS or Linux), beside the production \`source-coop\`:
@@ -141,6 +167,7 @@ jobs:
           $install
           \`\`\`
           EOF
+          fi
           # A new release each time, with its tag on this commit, so the date
           # and commit shown are this build's. A tag left by a failed run goes
           # too, or the new release would keep it.
