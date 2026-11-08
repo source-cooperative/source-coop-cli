@@ -78,7 +78,7 @@
   // its title rank first.
   var box = document.getElementById("search"), results = document.getElementById("search-results");
   var css = document.querySelector('link[href$="assets/site.css"]');
-  var root = css ? css.getAttribute("href").replace("assets/site.css", "") : "";
+  var pageRoot = css ? css.getAttribute("href").replace("assets/site.css", "") : "";
   var index = null;
   var esc = function (s) { return s.replace(/[&<>"]/g, function (c) { return "&#" + c.charCodeAt(0) + ";"; }); };
   function excerpt(text, words) {
@@ -94,7 +94,7 @@
     var words = box.value.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) { results.hidden = true; return; }
     if (!index) {
-      fetch(root + "search.json").then(function (r) { return r.json(); }).then(function (got) { index = got; search(); });
+      fetch(pageRoot + "search.json").then(function (r) { return r.json(); }).then(function (got) { index = got; search(); });
       return;
     }
     var found = index.map(function (e) {
@@ -108,7 +108,7 @@
     }).filter(Boolean).sort(function (a, b) { return b.score - a.score; }).slice(0, 8);
     results.innerHTML = found.length ? found.map(function (f) {
       var e = f.e;
-      return '<a href="' + root + (e.page ? e.page + "/" : "") + "#" + e.id + '"><b>' + esc(e.title) + "</b>" +
+      return '<a href="' + pageRoot + (e.page ? e.page + "/" : "") + "#" + e.id + '"><b>' + esc(e.title) + "</b>" +
         (e.title !== e.section ? "<small>" + esc(e.section) + "</small>" : "") +
         (e.text ? "<span>" + excerpt(e.text, words) + "</span>" : "") + "</a>";
     }).join("") : "<p>No sections match.</p>";
