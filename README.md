@@ -15,7 +15,7 @@ All commands work the same way:
 
 This guide is also a website, with a page for each section and docs for each release: <https://source-cooperative.github.io/source-coop-cli/>.
 
-The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`), and a made-up session where they show you signed in. Their `http://127.0.0.1:…` URLs are local.
+The demos in this guide use a stand-in for the API with made-up records (`demo-org`, `demo-user`), and a made-up session where they show you signed in. They show production's addresses (`source.coop`, `data.source.coop`), but `demo-org` and `demo-user` don't exist there.
 
 ### Quick start
 

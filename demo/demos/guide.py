@@ -26,11 +26,11 @@ def signed_in(s):
     `auth login` would have, so sign-in demos need no browser or keyring: the
     keyring has nothing for the stub's environment, so the CLI reads these
     files. Everything is fresh, so commands only read them."""
-    url, now = urlparse(s.stub_url), int(time.time())
+    url, now = urlparse(s.proxy_url), int(time.time())
     cache = "Library/Caches" if sys.platform == "darwin" else ".cache"
     env = os.path.join(s.home, cache, "source-coop", "env", url.hostname, str(url.port))
     os.makedirs(os.path.join(env, "credentials"))
-    session = {"proxy_url": s.stub_url, "client_id": "demo-client", "token_endpoint": f"{s.stub_url}/oauth2/token",
+    session = {"proxy_url": s.proxy_url, "client_id": "demo-client", "token_endpoint": f"{s.stub_url}/oauth2/token",
                "audience": s.stub_url, "refresh_token": "demo-refresh-token",
                "id_token": jwt(sub="demo-user", exp=now + 3600),
                "access_token": jwt(sub="demo-user", aud=s.stub_url, exp=now + 3600),
@@ -38,14 +38,14 @@ def signed_in(s):
                "refresh_token_issued_at": now - 3 * 3600}
     expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now + 5400))
     creds = {"access_key_id": "ASIADEMOEXAMPLE00001", "secret_access_key": "demo/secret/not-a-real-key",
-             "session_token": "demo-session-token", "expiration": expires, "sts": {"proxy_url": s.stub_url}}
+             "session_token": "demo-session-token", "expiration": expires, "sts": {"proxy_url": s.proxy_url}}
     for path, value in ((os.path.join(env, "session.json"), session),
                         (os.path.join(env, "credentials", "_default.json"), creds)):
         with open(path, "w") as f:
             json.dump(value, f)
     os.makedirs(os.path.join(s.home, ".aws"))
     with open(os.path.join(s.home, ".aws", "config"), "w") as f:
-        f.write(f"[profile source-coop]\ncredential_process = source-coop creds\nendpoint_url = {s.stub_url}\n")
+        f.write(f"[profile source-coop]\ncredential_process = source-coop creds\nendpoint_url = {s.proxy_url}\n")
 
 
 def tour(s):

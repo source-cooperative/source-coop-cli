@@ -1,20 +1,20 @@
 {
- "duration": 26.905,
+ "duration": 26.271,
  "steps": [
   {
-   "time": 0.754,
+   "time": 0.755,
    "label": "$ cat ~/.aws/config"
   },
   {
-   "time": 4.644,
+   "time": 4.605,
    "label": "$ aws s3 ls s3://demo-org/demo-data/ --profile source-coop"
   },
   {
-   "time": 12.769,
+   "time": 12.597,
    "label": "$ aws s3 ls s3://demo-org/demo-data/readings/ --profile source-coop --human-readable"
   },
   {
-   "time": 22.306,
+   "time": 21.777,
    "label": "$ source-coop creds --format env"
   }
  ],
