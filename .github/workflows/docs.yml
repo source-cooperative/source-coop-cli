@@ -31,8 +31,11 @@ jobs:
   publish:
     name: Publish to gh-pages
     runs-on: ubuntu-latest
-    # A fork's PR can't push here: it gets the build check only.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # A fork's PR can't push here: it gets the build check only. A release
+    # whose tag isn't a version (a preview build's) has no docs.
+    if: >-
+      (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+      (github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v'))
     env:
       PR: ${{ github.event.pull_request.number }}
       TAG: ${{ inputs.tag || github.event.release.tag_name }}

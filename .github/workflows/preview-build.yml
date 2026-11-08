@@ -1,0 +1,155 @@
+name: Preview build
+
+# Builds a branch for team members to install and test without building it
+# themselves: as `source-coop-NAME`, with the features chosen (`staging` signs
+# in to and calls source.coop's staging environment), so it sits beside a
+# production `source-coop`. Each run replaces the binaries on a pre-release
+# tagged NAME, which is never "Latest": the release installers and Homebrew
+# keep the real release, and neither the Release nor the Docs workflow runs
+# for it. CONTRIBUTING.md says how to use it.
+#
+# On a PR that changes this file or the install script, it only builds.
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch, tag or commit to build"
+        required: true
+        default: main
+      name:
+        description: "Name of the preview: its pre-release's tag, and the command it installs (source-coop-NAME)"
+        required: true
+        default: staging
+      features:
+        description: "Cargo features to build with (Cargo.toml's [features])"
+        type: choice
+        options: [staging, production]
+        default: staging
+  pull_request:
+    paths: [".github/workflows/preview-build.yml", "preview/install.sh"]
+
+permissions:
+  contents: read
+
+env:
+  # A PR's build-only run has no inputs: it builds the default preview.
+  NAME: ${{ inputs.name || 'staging' }}
+  FEATURES: ${{ inputs.features || 'staging' }}
+
+# A preview publishes one run at a time, never cancelled half-way; previews
+# with other names don't wait. A PR's builds have a group of their own.
+concurrency:
+  group: preview-build-${{ github.event_name == 'workflow_dispatch' && format('publish-{0}', inputs.name) || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  # The commit `ref` names now, so every build and the release are of that one
+  # commit, even if the branch moves while they run. The name is checked here,
+  # before anything is built.
+  resolve:
+    name: Resolve the commit
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - name: Check the name
+        run: |
+          # A tag and a command name: lowercase letters, digits and hyphens.
+          # Never a version (v1.2.3), which release tooling would take for a
+          # real release.
+          if ! printf '%s' "$NAME" | grep -Eq '^[a-z0-9][a-z0-9-]{0,39}$' || printf '%s' "$NAME" | grep -Eq '^v?[0-9]'; then
+            echo "::error::The name \"$NAME\" won't do: use up to 40 lowercase letters, digits and hyphens, not starting with a digit, or with v and a digit (v1)."
+            exit 1
+          fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.target }}
+    needs: resolve
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.resolve.outputs.sha }}
+      - name: Linux libraries for the keyring
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -q && sudo apt-get install -yq libdbus-1-dev pkg-config
+      - uses: dtolnay/rust-toolchain@v1
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: preview-${{ matrix.target }}-${{ env.FEATURES }}
+      - run: cargo build --release --locked --features "$FEATURES" --target ${{ matrix.target }}
+      - name: Package
+        run: |
+          mkdir pack
+          cp "target/${{ matrix.target }}/release/source-coop" "pack/source-coop-$NAME"
+          tar -C pack -czf "source-coop-$NAME-${{ matrix.target }}.tar.gz" "source-coop-$NAME"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: source-coop-${{ env.NAME }}-${{ matrix.target }}.tar.gz
+
+  publish:
+    name: Publish the preview
+    needs: [resolve, build]
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REF: ${{ inputs.ref }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+    steps:
+      # The installer comes from this workflow's commit, not the built one:
+      # a branch or tag from before it has none, and everyone downloads it.
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: preview/install.sh
+          sparse-checkout-cone-mode: false
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Replace the preview's pre-release
+        run: |
+          # This preview's installer: the same script, with its name set.
+          sed "s/^name=staging\$/name=$NAME/" preview/install.sh > dist/install.sh
+          grep -q "^name=$NAME\$" dist/install.sh
+          install="curl -LsSf https://github.com/$GITHUB_REPOSITORY/releases/download/$NAME/install.sh | sh"
+          cat > notes.md <<EOF
+          **A preview for testing, not a release.** Built from \`$REF\` at $SHA with \`--features $FEATURES\`. Each run of *Preview build* named \`$NAME\` replaces it.
+
+          Install or update \`source-coop-$NAME\` (macOS or Linux), beside the production \`source-coop\`:
+
+          \`\`\`bash
+          $install
+          \`\`\`
+          EOF
+          # A new release each time, with its tag on this commit, so the date
+          # and commit shown are this build's. A tag left by a failed run goes
+          # too, or the new release would keep it.
+          if gh release view "$NAME" >/dev/null 2>&1; then
+            gh release delete "$NAME" --yes --cleanup-tag
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$NAME" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$NAME"
+          fi
+          gh release create "$NAME" dist/* --target "$SHA" --prerelease --latest=false \
+            --title "Preview $NAME (not a release): $REF at ${SHA:0:7}, $FEATURES" --notes-file notes.md
+          echo "Published. To install: $install" >> "$GITHUB_STEP_SUMMARY"
