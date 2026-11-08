@@ -86,7 +86,7 @@ def prompts(s):
     s.run("source-coop product create")
     s.see("Account"); s.key(DOWN); s.enter()
     s.see("Product ID"); s.type("Sea Ice"); s.enter()
-    s.see("Title"); s.pause(0.8); s.type("Sea Ice"); s.enter()
+    s.see("Title"); s.pause(1.2); s.enter()   # the default, made from the ID
     s.see("Description"); s.pause(0.6); s.enter()
     s.see("Data connection"); s.pause(0.8); s.enter()
     s.see("Visibility"); s.pause(0.8); s.enter()
