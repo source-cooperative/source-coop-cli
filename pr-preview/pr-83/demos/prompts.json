@@ -1,166 +1,166 @@
 {
- "duration": 44.801,
+ "duration": 43.535,
  "steps": [
   {
-   "time": 0.752,
+   "time": 0.755,
    "label": "$ source-coop product create"
   },
   {
-   "time": 2.633,
+   "time": 2.581,
    "label": "Account · ↓ Enter"
   },
   {
-   "time": 3.695,
+   "time": 3.645,
    "label": "Product ID · \"Sea Ice\" Enter"
   },
   {
-   "time": 5.101,
-   "label": "Title · \"Sea Ice\" Enter"
-  },
-  {
-   "time": 7.297,
-   "label": "Description · Enter"
-  },
-  {
-   "time": 8.553,
-   "label": "Data connection · Enter"
-  },
-  {
-   "time": 10.014,
-   "label": "Visibility · Enter"
-  },
-  {
-   "time": 11.475,
-   "label": "Create this product · Enter"
-  },
-  {
-   "time": 13.639,
-   "label": "The API refused the ID, so it's asked again · ⌫×7 \"sea-ice\" Enter"
-  },
-  {
-   "time": 22.391,
-   "label": "$ clear; source-coop product create demo-org/climate-grid"
-  },
-  {
-   "time": 25.813,
+   "time": 5.05,
    "label": "Title · Enter"
   },
   {
-   "time": 27.291,
+   "time": 6.912,
    "label": "Description · Enter"
   },
   {
-   "time": 28.557,
+   "time": 8.172,
    "label": "Data connection · Enter"
   },
   {
-   "time": 30.034,
+   "time": 9.635,
    "label": "Visibility · Enter"
   },
   {
-   "time": 31.511,
+   "time": 11.106,
    "label": "Create this product · Enter"
   },
   {
-   "time": 35.632,
+   "time": 13.271,
+   "label": "The API refused the ID, so it's asked again · ⌫×7 \"sea-ice\" Enter"
+  },
+  {
+   "time": 21.994,
+   "label": "$ clear; source-coop product create demo-org/climate-grid"
+  },
+  {
+   "time": 25.262,
+   "label": "Title · Enter"
+  },
+  {
+   "time": 26.727,
+   "label": "Description · Enter"
+  },
+  {
+   "time": 27.989,
+   "label": "Data connection · Enter"
+  },
+  {
+   "time": 29.451,
+   "label": "Visibility · Enter"
+  },
+  {
+   "time": 30.905,
+   "label": "Create this product · Enter"
+  },
+  {
+   "time": 35.021,
    "label": "$ clear; source-coop product create"
   },
   {
-   "time": 38.449,
+   "time": 37.184,
    "label": "Account · Esc"
   },
   {
-   "time": 41.113,
+   "time": 39.85,
    "label": "$ echo \"exit $?\""
   }
  ],
  "keys": [
   {
-   "time": 3.039,
+   "time": 2.986,
    "key": "↓"
   },
   {
-   "time": 3.642,
+   "time": 3.591,
    "key": "Enter"
   },
   {
-   "time": 5.046,
+   "time": 4.997,
    "key": "Enter"
   },
   {
-   "time": 7.241,
+   "time": 6.856,
    "key": "Enter"
   },
   {
-   "time": 8.502,
+   "time": 8.116,
    "key": "Enter"
   },
   {
-   "time": 9.96,
+   "time": 9.58,
    "key": "Enter"
   },
   {
-   "time": 11.423,
+   "time": 11.04,
    "key": "Enter"
   },
   {
-   "time": 13.587,
+   "time": 13.216,
    "key": "Enter"
   },
   {
-   "time": 16.092,
+   "time": 15.721,
    "key": "⌫"
   },
   {
-   "time": 16.493,
+   "time": 16.125,
    "key": "⌫"
   },
   {
-   "time": 16.896,
+   "time": 16.527,
    "key": "⌫"
   },
   {
-   "time": 17.298,
+   "time": 16.927,
    "key": "⌫"
   },
   {
-   "time": 17.7,
+   "time": 17.331,
    "key": "⌫"
   },
   {
-   "time": 18.102,
+   "time": 17.736,
    "key": "⌫"
   },
   {
-   "time": 18.503,
+   "time": 18.141,
    "key": "⌫"
   },
   {
-   "time": 19.878,
+   "time": 19.486,
    "key": "Enter"
   },
   {
-   "time": 27.231,
+   "time": 26.671,
    "key": "Enter"
   },
   {
-   "time": 28.505,
+   "time": 27.933,
    "key": "Enter"
   },
   {
-   "time": 29.977,
+   "time": 29.397,
    "key": "Enter"
   },
   {
-   "time": 31.454,
+   "time": 30.854,
    "key": "Enter"
   },
   {
-   "time": 33.126,
+   "time": 32.515,
    "key": "Enter"
   },
   {
-   "time": 40.358,
+   "time": 39.094,
    "key": "Esc"
   }
  ]
