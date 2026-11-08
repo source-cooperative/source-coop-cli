@@ -54,7 +54,9 @@ pub async fn assume_role(
         eprintln!("[verbose] GET {redacted_url}");
     }
 
-    let resp = reqwest::get(url.as_str())
+    let resp = crate::api::http()
+        .get(url.as_str())
+        .send()
         .await
         .map_err(|e| format!("STS request failed: {e}"))?;
 
