@@ -1,0 +1,43 @@
+{
+ "duration": 19.821,
+ "steps": [
+  {
+   "time": 0.76,
+   "label": "$ source-coop member invite demo-org"
+  },
+  {
+   "time": 3.089,
+   "label": "Account IDs · \"alan-demo katherine-demo\" Enter"
+  },
+  {
+   "time": 5.37,
+   "label": "Role · ↑ Enter"
+  },
+  {
+   "time": 7.454,
+   "label": "Invite · Enter"
+  },
+  {
+   "time": 10.656,
+   "label": "$ source-coop member invite demo-org/demo-data ada-demo --role read_data --json | jq -c '.[] | {account_id, role, state}'"
+  }
+ ],
+ "keys": [
+  {
+   "time": 5.311,
+   "key": "Enter"
+  },
+  {
+   "time": 6.784,
+   "key": "↑"
+  },
+  {
+   "time": 7.394,
+   "key": "Enter"
+  },
+  {
+   "time": 9.895,
+   "key": "Enter"
+  }
+ ]
+}
