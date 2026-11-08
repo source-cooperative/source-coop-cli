@@ -32,18 +32,30 @@ def plain(inline):
     return re.sub(r"[`*_]|\[([^\]]*)\]\([^)]*\)", lambda m: m[1] or "", inline)
 
 
+GROUP = re.compile(r"^<!-- group: (.+) -->$")
+
+
 def split(readme):
-    """The README's sections: (heading or None for the intro, markdown)."""
-    sections, current, lines, fence = [], None, [], False
+    """The README's sections: (heading or None for the intro, markdown, group).
+    A `<!-- group: NAME -->` line starts a group: the sections after it, up to
+    the next, are listed under NAME in the sidebar. GitHub doesn't show it."""
+    sections, current, lines, fence, group, starts = [], None, [], False, None, None
     for line in readme.splitlines():
         if line.startswith("```"):
             fence = not fence
+        if not fence and GROUP.match(line):
+            starts = GROUP.match(line)[1]
+            if current is None and not sections and not "".join(lines).strip():
+                group, starts = starts, None    # the intro's own group
+            continue
         if not fence and line.startswith("## "):
-            sections.append((current, "\n".join(lines)))
+            sections.append((current, "\n".join(lines), group))
             current, lines = line[3:].strip(), []
+            if starts:
+                group, starts = starts, None
         else:
             lines.append(line)
-    sections.append((current, "\n".join(lines)))
+    sections.append((current, "\n".join(lines), group))
     return sections
 
 
@@ -71,7 +83,10 @@ def render(text, anchors, page, ids):
         for c in (t.children or []):
             if c.type == "link_open":
                 href = c.attrGet("href") or ""
-                if href.startswith("#") and anchors.get(href[1:]) not in (None, page):
+                if re.match(r"^[\w./-]+\.md(#.*)?$", href):
+                    # A file in the repository, as GitHub shows it.
+                    c.attrSet("href", f"{REPO}/blob/main/{href}")
+                elif href.startswith("#") and anchors.get(href[1:]) not in (None, page):
                     target = anchors[href[1:]]
                     c.attrSet("href", "{root}" + (f"{target}/" if target else "") + (href if href[1:] != target else ""))
     out = md.renderer.render(tokens, md.options, {})
@@ -101,7 +116,7 @@ def main():
     sections = split(demo_figures(open(args.readme).read()))
     # Every heading's anchor, and the page that holds it, as GitHub numbers them.
     seen, anchors, ids, pages = {}, {}, [], []
-    for heading, text in sections:
+    for heading, text, group in sections:
         name = slug(plain(heading), seen) if heading else ""
         if heading:
             anchors[name] = name
@@ -112,7 +127,7 @@ def main():
             mine.append(a)
             if level == "###":
                 subs.append((h, a))
-        pages.append({"slug": name, "heading": heading, "text": text, "ids": mine, "subs": subs})
+        pages.append({"slug": name, "heading": heading, "text": text, "ids": mine, "subs": subs, "group": group})
 
     template = open(os.path.join(HERE, "page.html")).read()
     index = []
@@ -125,8 +140,11 @@ def main():
         if page["heading"]:
             body = body.replace("<h2", "<h1", 1).replace("</h2>", "</h1>", 1)
         index += search_entries(body, page["slug"], plain(page["heading"]) if page["heading"] else "Overview")
-        nav = []
+        nav, shown_group = [], None
         for q in pages:
+            if q["group"] and q["group"] != shown_group:
+                nav.append(f'<li class="group">{html.escape(q["group"])}</li>')
+                shown_group = q["group"]
             title = md.renderInline(q["heading"]) if q["heading"] else "Overview"
             current = ' aria-current="page"' if q is page else ""
             nav.append(f'<li><a href="{root}{q["slug"] + "/" if q["slug"] else ""}"{current}>{title}</a>')
