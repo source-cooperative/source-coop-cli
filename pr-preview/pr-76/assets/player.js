@@ -115,7 +115,8 @@
           var li = el('<li><button type="button"><span class="t"></span><span class="l"></span></button></li>');
           li.querySelector(".t").textContent = fmt(s.time);
           li.querySelector(".l").textContent = s.label;
-          li.firstChild.addEventListener("click", function () { seek(s.time + 0.01); play(); });
+          // A jump keeps the demo as it was: playing on from the step, or paused there.
+          li.firstChild.addEventListener("click", function () { seek(s.time + 0.01); });
           list.appendChild(li);
           rows.push(li.firstChild);
           var tick = el('<div class="tick" aria-hidden="true"></div>');
