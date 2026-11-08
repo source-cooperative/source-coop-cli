@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Scripts and AI agents · source-coop CLI</title>
+<meta name="docs-version" content="next">
+<meta name="docs-base" content="/source-coop-cli/">
+<meta name="docs-page" content="scripts-and-ai-agents/">
+<meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
+<script>
+  // The theme before the first paint: this tab's choice, or the system's.
+  (function () {
+    var t = null;
+    try { t = sessionStorage.getItem("theme"); } catch (e) {}
+    if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    document.documentElement.dataset.theme = t;
+  })();
+</script>
+<link rel="icon" href="../assets/icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
+<script src="../assets/site.js" defer></script>
+<script src="../assets/player.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to the content</a>
+<header class="top">
+  <div class="top-inner">
+    <a class="brand" href="../">
+      <img class="logo logo-ink" src="../assets/logo-ink.svg" alt="Source Cooperative" width="97" height="26">
+      <img class="logo logo-bone" src="../assets/logo-bone.svg" alt="Source Cooperative" width="97" height="26">
+      <span>CLI guide</span>
+    </a>
+    <div class="spacer"></div>
+    <div class="search">
+      <input type="search" id="search" placeholder="Search" aria-label="Search the guide" aria-controls="search-results" autocomplete="off" spellcheck="false">
+      <div class="search-results" id="search-results" role="region" aria-label="Search results" aria-live="polite" hidden></div>
+    </div>
+    <div class="version">
+      <button class="version-button" type="button" aria-expanded="false" aria-controls="versions" disabled>
+        <span class="version-name">next</span>
+        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </button>
+      <div class="version-menu" id="versions" hidden></div>
+    </div>
+    <a class="top-link" href="https://github.com/source-cooperative/source-coop-cli">GitHub</a>
+    <button class="theme" type="button" aria-label="Dark mode" aria-pressed="false" title="Switch to dark">
+      <svg class="icon-moon" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+      <svg class="icon-sun" aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+    </button>
+  </div>
+</header>
+<div class="old-version" role="status" hidden></div>
+<div class="layout">
+  <nav class="toc" aria-label="Guide">
+    <details open>
+      <summary>Contents</summary>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/" aria-current="page">Scripts and AI agents</a><ul><li><a href="#output">Output</a></li><li><a href="#json">JSON</a></li><li><a href="#exit-codes">Exit codes</a></li><li><a href="#use-the-api-without-signing-in">Use the API without signing in</a></li><li><a href="#use-your-session-with-other-tools">Use your session with other tools</a></li></ul></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+    </details>
+  </nav>
+  <main id="main">
+<h1 id="scripts-and-ai-agents">Scripts and AI agents</h1>
+<p><code>source-coop --help</code> ends with a summary of this section. The <code>--help</code> of each command shows its flags and examples. Thus an AI agent can learn the CLI from the CLI.</p>
+<h3 id="output">Output</h3>
+<ul>
+<li><strong>Data goes to stdout. Messages go to stderr.</strong> Thus <code>url=$(source-coop product create ...)</code> works.</li>
+<li><strong>On a terminal, output is for people.</strong> It has color, unless <code>NO_COLOR</code> is set or <code>CLICOLOR=0</code>. Lists show in your pager: <code>$SOURCE_PAGER</code>, <code>$PAGER</code>, then <code>less -FRX</code>. <code>--no-pager</code> or <code>SOURCE_PAGER=cat</code> prints directly.</li>
+<li><strong>When piped, output is plain</strong>, with no pager.</li>
+<li><strong><code>-v</code> (<code>--verbose</code>)</strong> prints the HTTP requests and responses on stderr.</li>
+</ul>
+<h3 id="json">JSON</h3>
+<p>These commands accept <code>--json</code>:</p>
+<ul>
+<li><code>auth status</code> and <code>auth logout</code>.</li>
+<li><code>product list</code>, <code>view</code>, <code>create</code>, <code>edit</code> and <code>delete</code>.</li>
+<li>All <code>member</code> and <code>invitation</code> commands.</li>
+<li><code>service-account list</code>, <code>view</code>, <code>create</code>, <code>edit</code> and <code>delete</code>, and <code>sign-in add</code>, <code>edit</code> and <code>remove</code>.</li>
+</ul>
+<p>Commands that change data print the record after the change. <code>service-account edit --json</code> prints the account as <code>view --json</code> does.</p>
+<p>With <code>--json</code>:</p>
+<ul>
+<li>stdout contains one JSON document and nothing else. Notes and progress go to stderr.</li>
+<li>Field names are the API's. Times are RFC 3339.</li>
+<li>New fields can be added. Fields are not renamed or removed.</li>
+</ul>
+<p>These commands do not accept <code>--json</code>, because their output is already for machines: <code>creds</code> (<code>--format</code>), <code>auth token</code> (a token), <code>api</code> (the API's response), <code>completions</code> (a shell script) and <code>service-account usage</code> (a workflow or shell exports). <code>auth login</code> does not accept it either, because it uses the browser. Use <code>auth status --json</code> after it.</p>
+<p>With <code>--json</code>, an error is also JSON, on stderr. If the error came from the API, it contains the data of the API's <a href="https://www.rfc-editor.org/rfc/rfc9457">RFC 9457</a> problem:</p>
+<ul>
+<li><code>code</code> and <code>status</code>.</li>
+<li><code>type</code>: a URL to a page that explains the error and what to do.</li>
+<li><code>request_id</code>: give it if you report the error.</li>
+<li><code>field_errors</code>: if the API refused the input, the fields to correct, by path (<code>metadata.title</code>).</li>
+</ul>
+<pre><code class="language-json">{&quot;error&quot;: {&quot;code&quot;: &quot;invalid&quot;, &quot;message&quot;: &quot;…&quot;, &quot;status&quot;: 400, &quot;field_errors&quot;: {&quot;title&quot;: [&quot;…&quot;]}, &quot;type&quot;: &quot;https://source.coop/api/problems/invalid&quot;, &quot;request_id&quot;: &quot;…&quot;}}
+</code></pre>
+<h3 id="exit-codes">Exit codes</h3>
+<p>All commands use the same exit codes:</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Code</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>Success</td>
+</tr>
+<tr>
+<td>1</td>
+<td>Other failure, including a cancelled prompt</td>
+</tr>
+<tr>
+<td>2</td>
+<td>Incorrect command-line usage</td>
+</tr>
+<tr>
+<td>3</td>
+<td>The API refused the input (HTTP 400, 409, 422). Correct the named fields and try again.</td>
+</tr>
+<tr>
+<td>4</td>
+<td>Not signed in, or not allowed (HTTP 401, 403)</td>
+</tr>
+<tr>
+<td>5</td>
+<td>Not found (HTTP 404)</td>
+</tr>
+<tr>
+<td>130</td>
+<td>Interrupted (<kbd>Ctrl</kbd>+<kbd>C</kbd>)</td>
+</tr>
+</tbody>
+</table></div>
+<figure class="demo" data-demo="scripting"><noscript><img src="../demos/scripting.svg" alt="Without a terminal: errors, --json, exit codes and -F -"></noscript><figcaption>Without a terminal: errors, <code>--json</code>, exit codes and <code>-F -</code></figcaption></figure>
+<h3 id="use-the-api-without-signing-in">Use the API without signing in</h3>
+<p>If <code>SOURCE_TOKEN</code> is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without <code>auth login</code>.</p>
+<h3 id="use-your-session-with-other-tools">Use your session with other tools</h3>
+<p><code>auth token</code> prints the session's access token for the source.coop API. If the token has expired, it renews it first.</p>
+<pre><code class="language-bash">curl -H &quot;Authorization: Bearer $(source-coop auth token)&quot; https://source.coop/api/v1/...
+</code></pre>
+<figure class="demo" data-demo="auth-token"><noscript><img src="../demos/auth-token.svg" alt="auth token: the session&#x27;s access token, for curl"></noscript><figcaption><code>auth token</code>: the session's access token, for <code>curl</code></figcaption></figure>
+<p>To send a request through the CLI, see <a href="../any-api-request/">Any API request</a>.</p>
+
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../shell-completion/" rel="prev"><span>Previous</span>Shell completion</a><a class="pager-next" href="../any-api-request/" rel="next"><span>Next</span>Any API request</a></nav>
+  </main>
+</div>
+<footer class="bottom">
+  <div class="bottom-inner">
+    <span>Source Cooperative (a Radiant Earth initiative)</span>
+    <a href="https://source.coop">source.coop</a>
+    <a href="https://github.com/source-cooperative/source-coop-cli/edit/main/README.md">Edit this guide on GitHub</a>
+    <span>Demos use made-up records on a local stand-in for the API.</span>
+  </div>
+</footer>
+</body>
+</html>
