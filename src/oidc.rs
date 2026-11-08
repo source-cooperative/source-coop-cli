@@ -24,7 +24,9 @@ pub async fn discover(issuer: &str, verbose: bool) -> Result<OidcEndpoints, Stri
         eprintln!("[verbose] GET {discovery_url}");
     }
 
-    let resp = reqwest::get(&discovery_url)
+    let resp = crate::api::http()
+        .get(&discovery_url)
+        .send()
         .await
         .map_err(|e| format!("Failed to fetch OIDC discovery document: {e}"))?;
 
@@ -278,8 +280,7 @@ async fn token_request(
         eprintln!("[verbose] POST {token_endpoint}");
     }
 
-    let client = reqwest::Client::new();
-    let resp = client
+    let resp = crate::api::http()
         .post(token_endpoint)
         .form(form)
         .send()

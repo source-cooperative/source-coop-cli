@@ -223,6 +223,20 @@ impl ApiError {
     }
 }
 
+/// The User-Agent sent to source.coop, so the server can tell CLI traffic,
+/// and its version, from browsers and curl.
+pub const USER_AGENT: &str = concat!("source-coop-cli/", env!("CARGO_PKG_VERSION"));
+
+/// An HTTP client for source.coop (the API, the sign-in server and the data
+/// proxy's STS), sending [`USER_AGENT`].
+pub fn http() -> reqwest::Client {
+    reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .build()
+        // The same TLS setup failure `reqwest::Client::new()` panics on.
+        .expect("HTTP client")
+}
+
 pub struct Client {
     base: url::Url,
     token: Option<String>,
@@ -239,7 +253,7 @@ impl Client {
         Ok(Client {
             base,
             token: token.filter(|t| !t.trim().is_empty()),
-            http: reqwest::Client::new(),
+            http: http(),
             verbose,
         })
     }
@@ -385,6 +399,21 @@ mod tests {
         assert!(c.resolve("../../whoami").is_err());
         assert!(c.resolve("products/../../../admin").is_err());
         assert!(c.resolve("products/../whoami").is_ok());
+    }
+
+    #[tokio::test]
+    async fn sends_the_clis_user_agent() {
+        use wiremock::{matchers, Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(matchers::header("user-agent", USER_AGENT))
+            .respond_with(ResponseTemplate::new(200).set_body_string("{}"))
+            .mount(&server)
+            .await;
+        let c = Client::new(&server.uri(), None, false).unwrap();
+        c.get::<serde_json::Value>(c.url(&["whoami"]))
+            .await
+            .unwrap();
+        assert!(USER_AGENT.starts_with("source-coop-cli/"));
     }
 
     #[tokio::test]
