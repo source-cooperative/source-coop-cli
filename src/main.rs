@@ -150,6 +150,7 @@ Set up, in your shell's startup file:
   ~/.bashrc                     eval \"$(source-coop completions bash)\"
   ~/.zshrc, after compinit      eval \"$(source-coop completions zsh)\"
   ~/.config/fish/config.fish    source-coop completions fish | source
+  ~/.config/elvish/rc.elv       eval (source-coop completions elvish | slurp)
   $PROFILE (PowerShell)         source-coop completions powershell | Out-String | Invoke-Expression";
 
 #[derive(Parser)]
