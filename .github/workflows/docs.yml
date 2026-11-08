@@ -1,8 +1,8 @@
 name: Docs
 
 # Builds the docs site from README.md and keeps every published copy on the
-# gh-pages branch: each release's docs (and latest/), and a preview for each
-# open PR that changes the docs. Releases publish when GitHub publishes them:
+# gh-pages branch: each release's docs (and latest/), main's as next/, and a
+# preview for each open PR that changes the docs. Releases publish when GitHub publishes them:
 # release-please's bot creates them, so the event reaches this workflow.
 # GitHub Pages serves that branch, deploying each push to it by itself
 # (Settings → Pages: deploy from gh-pages, /). docs/site/publish.py says how
@@ -10,6 +10,8 @@ name: Docs
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
   pull_request:
     types: [opened, reopened, synchronize, closed]
     paths: ["README.md", "docs/**", "!docs/recorder/**", ".github/workflows/docs*.yml"]
@@ -57,7 +59,7 @@ jobs:
       - name: Build the site
         if: github.event.action != 'closed'
         run: |
-          if [ -n "$PR" ]; then version="pr-$PR"; else version="$TAG"; fi
+          if [ -n "$PR" ]; then version="pr-$PR"; elif [ "${{ github.event_name }}" = push ]; then version=next; else version="$TAG"; fi
           uv run --with markdown-it-py python docs/site/build.py --out "$RUNNER_TEMP/site" --version "$version"
       - name: Check out gh-pages
         run: |
@@ -65,7 +67,10 @@ jobs:
             || git worktree add --orphan -b gh-pages "$RUNNER_TEMP/pages"
       - name: Update gh-pages
         run: |
-          if [ "${{ github.event_name }}" != pull_request ]; then
+          if [ "${{ github.event_name }}" = push ]; then
+            python3 docs/site/publish.py "$RUNNER_TEMP/pages" next --site "$RUNNER_TEMP/site"
+            message="docs: publish next at ${{ github.sha }}"
+          elif [ "${{ github.event_name }}" != pull_request ]; then
             python3 docs/site/publish.py "$RUNNER_TEMP/pages" release "$TAG" --site "$RUNNER_TEMP/site"
             message="docs: publish $TAG"
           elif [ "${{ github.event.action }}" = closed ]; then

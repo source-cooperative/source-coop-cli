@@ -1,0 +1,16 @@
+name: Main previews
+
+# After each push to main, publishes it as the `next` preview (see Preview
+# build): source-coop-next with production's defaults, the next release, and
+# source-coop-next-staging calling source.coop's staging environment.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  next:
+    uses: ./.github/workflows/preview-build.yml
+    with: { ref: main, name: next, features: both }
