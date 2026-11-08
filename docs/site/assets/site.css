@@ -158,7 +158,7 @@ figure.demo figcaption code { color: var(--fg); }
 .player button { font: inherit; color: inherit; background: transparent; border: 0; cursor: pointer; padding: 0; }
 .player :focus-visible { outline: 2px solid var(--bone); outline-offset: -2px; }
 .player-view { position: relative; display: flex; }
-.player-screen { position: relative; flex: 1 1 auto; min-width: 0; cursor: pointer; aspect-ratio: var(--ratio, 1240 / 798); }
+.player-screen { position: relative; flex: 1 1 auto; min-width: 0; cursor: pointer; -webkit-user-select: none; user-select: none; aspect-ratio: var(--ratio, 1240 / 798); }
 .player-screen svg { display: block; width: 100%; height: auto; }
 .player-screen.poster > svg { opacity: 0.35; }
 .player-poster { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
@@ -193,6 +193,9 @@ figure.demo figcaption code { color: var(--fg); }
 .player-steps li button:hover { background: rgba(239, 235, 234, 0.1); }
 .player-steps li button[aria-current="step"] { background: var(--bone); color: var(--ink); font-weight: 600; }
 .player-steps .t { font: 12px var(--mono); min-width: 32px; opacity: 0.8; flex: none; }
+/* Copying (player.js): the rows a drag picks, and the note once copied. */
+.player .pick { position: absolute; left: 0; right: 0; background: rgba(239, 235, 234, 0.16); border-left: 3px solid var(--bone); pointer-events: none; }
+.player .toast { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); font: 600 13px var(--sans); color: var(--ink); background: var(--bone); border-radius: 6px; padding: 6px 12px; pointer-events: none; z-index: 3; white-space: nowrap; }
 /* The key overlay (player.js keycaps): a keycap in Bone, bottom right of the terminal. */
 .keycast { position: absolute; right: 16px; bottom: 16px; pointer-events: none; z-index: 1; }
 .keycast kbd { display: block; font: 700 15px/1 var(--mono); color: var(--ink); background: var(--bone); border: 1px solid rgba(18, 26, 27, 0.3); border-bottom-width: 3px; border-radius: 6px; padding: 7px 10px 6px; min-width: 1.4em; text-align: center; box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45); white-space: nowrap; }

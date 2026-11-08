@@ -216,14 +216,88 @@
 
       poster.querySelector("button").addEventListener("click", function () { play(); toggle.focus(); });
       toggle.addEventListener("click", function () { playing ? pause() : play(); });
-      // A click on the demo plays or pauses it, unless it ended a drag that
-      // selected some of its text.
+      // A click on the demo plays or pauses it; a drag copies lines instead.
+      var dragged = false;
       screen.addEventListener("click", function (e) {
         if (e.target.closest("button")) return;
-        var picked = window.getSelection();
-        if (picked && !picked.isCollapsed && screen.contains(picked.anchorNode)) return;
+        if (dragged) { dragged = false; return; }
         playing ? pause() : play();
       });
+
+      // Copying: the browser can't select the recording's text sensibly (each
+      // run of text is its own element), so a drag over the demo picks whole
+      // rows, and letting go copies them as the screen shows them then.
+      var inner = film.g.closest("svg"), strip = film.g.firstElementChild;
+      var size = parseFloat(inner.querySelector("[font-size]").getAttribute("font-size")), rowH = size * 1.3;
+      function rowsShowing() {
+        // The frame showing, then its lines: a <use> of a shared symbol (a line
+        // seen in several frames) or <text> written into the frame (a line seen
+        // once, like a prompt being answered), placed by row and column.
+        var x = -parseFloat((film.g.getAttribute("transform") || "").replace(/^translate\(/, "")) || 0;
+        var shown = [].find.call(strip.children, function (f) { return Math.abs(parseFloat(f.getAttribute("x") || 0) - x) < 0.5; });
+        var pieces = {}, rows = {};
+        function add(row, t) {
+          (pieces[row] = pieces[row] || []).push([Math.round(parseFloat(t.getAttribute("x") || 0) / 1.002), t.textContent]);
+        }
+        if (shown) [].forEach.call(shown.children, function (c) {
+          if (c.tagName === "use") {
+            var sym = inner.querySelector(c.getAttribute("href") || c.getAttribute("xlink:href"));
+            var row = Math.round(parseFloat(c.getAttribute("y") || 0) / rowH);
+            if (sym) [].forEach.call(sym.querySelectorAll("text"), function (t) { add(row, t); });
+          } else if (c.tagName === "text") {
+            add(Math.round((parseFloat(c.getAttribute("y") || size) - size) / rowH), c);
+          }
+        });
+        Object.keys(pieces).forEach(function (r) {
+          var line = "";
+          pieces[r].sort(function (a, b) { return a[0] - b[0]; }).forEach(function (p) {
+            while (line.length < p[0]) line += " ";
+            line += p[1];
+          });
+          rows[r] = line.replace(/\s+$/, "");
+        });
+        return rows;
+      }
+      function rowAt(y) {
+        return Math.max(0, Math.floor(new DOMPoint(0, y).matrixTransform(inner.getScreenCTM().inverse()).y / rowH));
+      }
+      function rowTop(r) {
+        return new DOMPoint(0, r * rowH).matrixTransform(inner.getScreenCTM()).y - screen.getBoundingClientRect().top;
+      }
+      var from = null, pick = null;
+      function unpick() { if (pick) { pick.remove(); pick = null; } from = null; }
+      screen.addEventListener("pointerdown", function (e) {
+        if (e.button !== 0 || e.pointerType === "touch" || e.target.closest("button")) return;
+        from = { y: e.clientY, row: rowAt(e.clientY) };
+        dragged = false;
+      });
+      window.addEventListener("pointermove", function (e) {
+        if (!from || (!dragged && Math.abs(e.clientY - from.y) < 4)) return;
+        dragged = true;
+        if (!pick) { pick = el('<div class="pick" aria-hidden="true"></div>'); screen.appendChild(pick); }
+        var lo = Math.min(from.row, rowAt(e.clientY)), hi = Math.max(from.row, rowAt(e.clientY));
+        pick.style.top = rowTop(lo) + "px";
+        pick.style.height = (rowTop(hi + 1) - rowTop(lo)) + "px";
+      });
+      window.addEventListener("pointerup", function (e) {
+        if (!from) return;
+        var a = from.row, b = rowAt(e.clientY), rows = rowsShowing(), lines = [];
+        if (!dragged) { unpick(); return; }
+        for (var r = Math.min(a, b); r <= Math.max(a, b); r++) if (rows[r] !== undefined) lines.push(rows[r]);
+        var text = lines.join("\n");
+        function note(msg) {
+          var t = el('<div class="toast" role="status"></div>');
+          t.textContent = msg;
+          screen.appendChild(t);
+          setTimeout(function () { t.remove(); unpick(); }, 1400);
+        }
+        from = null;
+        if (!text) { unpick(); return; }
+        var copied = navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject();
+        copied.then(function () { note("Copied " + lines.length + (lines.length === 1 ? " line" : " lines")); },
+                    function () { note("Couldn't copy: your browser didn't allow it"); });
+      });
+      window.addEventListener("pointercancel", unpick);
       range.addEventListener("input", function () { seek(parseFloat(range.value)); });
       show();
     }
