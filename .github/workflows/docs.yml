@@ -4,8 +4,9 @@ name: Docs
 # gh-pages branch: each release's docs (and latest/), and a preview for each
 # open PR that changes the docs. Releases publish when GitHub publishes them:
 # release-please's bot creates them, so the event reaches this workflow.
-# "Docs deploy" then sends that branch to GitHub Pages. docs/site/publish.py
-# says how the branch is laid out.
+# GitHub Pages serves that branch, deploying each push to it by itself
+# (Settings → Pages: deploy from gh-pages, /). docs/site/publish.py says how
+# the branch is laid out.
 on:
   release:
     types: [published]
@@ -87,7 +88,7 @@ jobs:
         run: |
           body="**Docs preview:** $PREVIEW_URL
 
-          Built from ${{ github.event.pull_request.head.sha }}. It goes live a minute or two after the *Docs deploy* run, and is removed when the PR closes."
+          Built from ${{ github.event.pull_request.head.sha }}. It goes live a minute or two after this run, once GitHub Pages deploys it, and is removed when the PR closes."
           gh pr comment "$PR" --repo "${{ github.repository }}" --edit-last --create-if-none --body "$body"
 
   check:
