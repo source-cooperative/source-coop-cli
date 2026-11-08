@@ -13,8 +13,8 @@ It needs Python 3.10 or later on macOS or Linux, and Node.js for `npx`, which fe
 
 ## What's here
 
-- `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`.
-- `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys and memberships. Add what a new demo needs here.
+- `stub.py` serves `fixtures.json` under `/api/v1` from memory. What a demo creates, edits or deletes, the commands after it see. Every demo starts from a fresh copy. It answers what the CLI asks, in the API's shapes, and checks nothing: it is for demos, not tests, which use `wiremock`. Outside `/api/v1` it stands in for the data proxy's S3 listing (ListObjectsV2 of the fixtures' `objects`), so `aws s3 ls` works against it.
+- `fixtures.json` holds the records: the signed-in `demo-user`, who owns the organization `demo-org`, with its products, data connections, service accounts, trusts, API keys, memberships and the objects in its bucket. Add what a new demo needs here.
 - `check_stub.py` makes a request to each of the stub's routes and validates the answers against the API's OpenAPI spec on staging. CI runs it on PRs that change `demo/`. Run it yourself after changing the stub or fixtures: `uv run --with jsonschema python demo/check_stub.py` (or `pip install jsonschema` first). When a demo needs a new route, add a request for it to `requests()`.
 - `record.py` runs bash in a pseudo-terminal at 80×28 and types each demo's commands like a person. It records with real timing, capping idle time at 2.5s. The recording ends at the last prompt, and each is rendered as an animated SVG beside its cast, with its steps in a JSON file of the same name. The docs site's player marks the steps on its track and lists them: each command run, and each prompt that a key answers. The file also lists each key pressed (`key`, `enter`), which the player shows in the terminal's corner as the demo plays.
 - `demos/` holds the scripts for the demos the README shows, which are kept in `docs/demos/` (below).
@@ -46,7 +46,9 @@ Write one demo for each command or flow the PR changes, showing what changed: pr
 
 Wait with `see` before every keypress that answers a prompt. That prompt and the keys that answer it make one step in the docs player, labelled with the text you waited for when it's plain words, or else with the line it matched. Name a step yourself with `s.see("Landsat", step="The list")` when neither says what's on screen, as on an `-i` screen. Run each command after the first with `s.prompt()` in between, so it waits for the one before. If a `see` never matches, recording stops and prints the end of the screen.
 
-Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` and `SOURCE_PROXY_URL` pointing at the stub, `SOURCE_PAGER=cat` and a throwaway `HOME`. The proxy URL gives the run an environment of its own: the CLI keys its keyring entries and cache files by environment, so it can't read or remove the real login session, and drafts land in the throwaway `HOME`. A demo that saves a session or credentials still writes an entry for that environment (`127.0.0.1:PORT`) to the OS keyring, so leave sign-in out of demos. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
+Each session gets `SOURCE_TOKEN=demo`, `SOURCE_API_URL` and `SOURCE_PROXY_URL` pointing at the stub, `SOURCE_PAGER=cat` and a throwaway `HOME`. The proxy URL gives the run an environment of its own: the CLI keys its keyring entries and cache files by environment, so it can't read or remove the real login session, and drafts land in the throwaway `HOME`. A demo that saves a session or credentials still writes an entry for that environment (`127.0.0.1:PORT`) to the OS keyring, so leave sign-in out of demos.
+
+To show a signed-in CLI (`auth status`, `auth token`, `creds`, `aws`), call `signed_in(s)` from `demos/guide.py` first. It writes a made-up session, role credentials and an `~/.aws/config` profile into the run's `HOME`, where `s.home` and `s.stub_url` say. The keyring has nothing for the stub's environment, so the CLI reads those files, and as everything in them is fresh, it only reads: nothing reaches the keyring. Don't let such a demo refresh or sign in. The one thing that does reach the network is the CLI's own lookups elsewhere, such as a GitHub repository's subject claim. Use a public repository for those, like `source-cooperative/source.coop`.
 
 ## In the README
 
@@ -55,8 +57,8 @@ The README embeds animated SVGs from `docs/demos/`, the only recordings git keep
 ```bash
 cargo build
 python3 -I demo/record.py demo/demos/guide.py --out docs/demos product-create
-python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos/service-account keys
-rm docs/demos/*.cast docs/demos/service-account/*.cast    # keep the .svg and .json
+python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos service-account-keys
+rm docs/demos/*.cast    # keep the .svg and .json
 ```
 
 A new demo needs a line in the script's `DEMOS` and an image in the README. Each SVG is one to four hundred kilobytes, and every re-recording adds another copy to git's history, so re-record what changed rather than everything.

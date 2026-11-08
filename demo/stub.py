@@ -5,6 +5,9 @@ demo creates, edits or deletes is seen by the commands after it, and gone
 when the stub stops. It answers only what the CLI asks, in the API's shapes;
 it checks nothing, so it is no substitute for the API in tests.
 
+Outside /api/v1 it is the data proxy, for `aws s3 ls`: a ListObjectsV2 of
+fixtures.json's `objects`, signatures unchecked.
+
     python3 -I demo/stub.py PORT [FIXTURES]
 """
 
@@ -12,6 +15,7 @@ import copy, json, os, re, secrets, string, sys, uuid
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from xml.sax.saxutils import escape
 
 GITHUB = "https://token.actions.githubusercontent.com"
 here = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +24,7 @@ accounts = {a["account_id"]: a for a in data["accounts"]}
 products, trusts, memberships = data["products"], data["trusts"], data["memberships"]
 connections = data["data_connections"]
 keys = data.get("keys", [])
+objects = data.get("objects", [])
 me = data["whoami"]["account"]["account_id"]
 
 
@@ -79,6 +84,9 @@ def handle(method, path, q, body):
         return 200, page([with_account(p) for p in found])
     if r := re.fullmatch(r"/products/([^/]+)", path):
         if method == "POST":
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,}", body.get("product_id") or ""):
+                return error(400, "invalid", "The request is invalid",
+                             {"product_id": "use lowercase letters, numbers and hyphens"})
             if find_product(r[1], body.get("product_id")):
                 return error(409, "conflict", "A product with that ID exists", {"product_id": "is taken"})
             c = body.get("data_connection_id", "demo-s3")
@@ -189,6 +197,32 @@ def handle(method, path, q, body):
     return error(404, "not_found", f"The demo stub has no {method} {path}")
 
 
+def list_objects(bucket, q):
+    """S3's ListObjectsV2 of `objects` in `bucket`, folded at the delimiter."""
+    prefix, delim = q.get("prefix", ""), q.get("delimiter", "")
+    files, folders = [], []
+    for o in objects:
+        if o["bucket"] != bucket or not o["key"].startswith(prefix):
+            continue
+        rest = o["key"][len(prefix):]
+        if delim and delim in rest:
+            folder = prefix + rest.split(delim)[0] + delim
+            if folder not in folders:
+                folders.append(folder)
+        else:
+            files.append(o)
+    tag = lambda name, text: f"<{name}>{escape(str(text))}</{name}>"
+    body = "".join(
+        "<Contents>" + tag("Key", o["key"]) + tag("LastModified", o["last_modified"]) + tag("ETag", '"0"')
+        + tag("Size", o["size"]) + tag("StorageClass", "STANDARD") + "</Contents>" for o in files)
+    body += "".join("<CommonPrefixes>" + tag("Prefix", f) + "</CommonPrefixes>" for f in folders)
+    return ('<?xml version="1.0" encoding="UTF-8"?>'
+            '<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
+            + tag("Name", bucket) + tag("Prefix", prefix) + tag("Delimiter", delim)
+            + tag("KeyCount", len(files) + len(folders)) + tag("MaxKeys", 1000)
+            + tag("IsTruncated", "false") + body + "</ListBucketResult>")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -196,6 +230,14 @@ class Handler(BaseHTTPRequestHandler):
     def answer(self, method):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if not url.path.startswith("/api/v1"):
+            raw = list_objects(url.path.strip("/").split("/")[0], q).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/xml")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         n = int(self.headers.get("Content-Length") or 0)
         body = json.loads(self.rfile.read(n) or b"{}")
         status, out = handle(method, url.path.removeprefix("/api/v1"), q, body)

@@ -45,6 +45,7 @@ def requests(fx):
         ("GET", f"/products/{product['account_id']}/{product['product_id']}", None),
         ("GET", "/products/demo-org/no-such-product", None),  # a 404 problem
         ("POST", f"/products/{product['account_id']}", {"product_id": product["product_id"]}),  # a 409 problem
+        ("POST", f"/products/{product['account_id']}", {"product_id": "Not An ID"}),  # a 400 problem
         ("GET", "/data-connections", None),
         ("GET", f"/accounts/{service['account_id']}", None),
         ("GET", f"/accounts/{owner}/service-accounts", None),

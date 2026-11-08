@@ -29,6 +29,8 @@ class Session:
 
     def __init__(self, title, env, cwd):
         self.title, self.events, self.text, self.seen = title, [], "", 0
+        # The run's throwaway HOME, for a demo to put files in before it starts.
+        self.home, self.stub_url = cwd, env["SOURCE_API_URL"]
         # Steps for the docs player: each command run, and each prompt a key
         # answers, labelled with what was on screen and the keys pressed.
         self.steps, self.pending, self.quiet = [], None, False

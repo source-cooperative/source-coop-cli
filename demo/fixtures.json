@@ -419,5 +419,31 @@
       "revoked_at": "2026-03-05T09:12:00Z",
       "revoked_via": "github"
     }
+  ],
+  "objects": [
+    {
+      "bucket": "demo-org",
+      "key": "demo-data/README.md",
+      "size": 2048,
+      "last_modified": "2026-09-14T08:30:00Z"
+    },
+    {
+      "bucket": "demo-org",
+      "key": "demo-data/stations.parquet",
+      "size": 18874368,
+      "last_modified": "2026-09-14T08:30:00Z"
+    },
+    {
+      "bucket": "demo-org",
+      "key": "demo-data/readings/2026-08.parquet",
+      "size": 52428800,
+      "last_modified": "2026-09-14T08:30:00Z"
+    },
+    {
+      "bucket": "demo-org",
+      "key": "demo-data/readings/2026-09.parquet",
+      "size": 50331648,
+      "last_modified": "2026-09-14T08:30:00Z"
+    }
   ]
 }

@@ -1,6 +1,6 @@
 """Demos of `source-coop service-account`, against demo/stub.py's fixtures:
 
-    python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos/service-account [NAME ...]
+    python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos [NAME ...]
 
 The README embeds them from there.
 
@@ -138,15 +138,15 @@ def usage(s):
 
 
 DEMOS = {
-    "list": ("`service-account list`: an owner's service accounts, then as `--json`", list_accounts),
-    "view": ("`service-account view`: who it is, signs in with, can reach; `--json` adds `trusts` and `memberships`", view),
-    "create": ("`service-account create` with prompts: owner, name, ID, a GitHub workflow (checked with GitHub), an API key, a product grant, review, then saving the key", create),
-    "create-flags": ("`service-account create` from flags, `--json`", create_flags),
-    "picker": ("`service-account list -i`: open a record, go back, delete one from its screen", browse),
-    "edit": ("`service-account edit`: `--disable` and `--enable` (with the web UI's explanations), then a rename in the edit form", edit),
-    "delete": ("`service-account delete`: typed confirmation, then `--yes --json`", delete),
-    "sign-in": ("`service-account sign-in add` with prompts (a workflow) and from flags, `sign-in remove -i`, `sign-in revoke-key`", sign_in),
-    "keys": ("`service-account view` with API keys, `sign-in add --key --out`, `sign-in edit -i` (a new expiry) and `sign-in remove key:HINT` (revoke, typed back)", keys),
-    "access": ("`service-account edit --access`, then the edit form: take a product away, grant another, review and save", access),
-    "usage": ("`service-account usage`: pick a sign-in for its workflow, then `--key`", usage),
+    "service-account-list": ("`service-account list`: an owner's service accounts, then as `--json`", list_accounts),
+    "service-account-view": ("`service-account view`: who it is, signs in with, can reach; `--json` adds `trusts` and `memberships`", view),
+    "service-account-create": ("`service-account create` with prompts: owner, name, ID, a GitHub workflow (checked with GitHub), an API key, a product grant, review, then saving the key", create),
+    "service-account-create-flags": ("`service-account create` from flags, `--json`", create_flags),
+    "service-account-picker": ("`service-account list -i`: open a record, go back, delete one from its screen", browse),
+    "service-account-edit": ("`service-account edit`: `--disable` and `--enable` (with the web UI's explanations), then a rename in the edit form", edit),
+    "service-account-delete": ("`service-account delete`: typed confirmation, then `--yes --json`", delete),
+    "service-account-sign-in": ("`service-account sign-in add` with prompts (a workflow) and from flags, `sign-in remove -i`, `sign-in revoke-key`", sign_in),
+    "service-account-keys": ("`sign-in add --key --out`, `sign-in edit -i` and `sign-in remove`: issue an API key, give it a new expiry, then revoke it", keys),
+    "service-account-access": ("`service-account edit --access`, then the edit form: take a product away, grant another, review and save", access),
+    "service-account-usage": ("`service-account usage`: pick a sign-in for its workflow, then `--key`", usage),
 }
