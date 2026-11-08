@@ -9,6 +9,7 @@ How this CLI behaves, so every command behaves the same way. Each rule names the
 - **Commands and flags:** new ones get an example. Changed or removed ones are changed or removed there too.
 - **Behaviour:** prompts, keys, output formats and defaults.
 - **Files and environment variables** it reads or writes.
+- **Demos:** the README embeds recordings from `docs/demos/`, made by `demo/demos/guide.py` and `demo/demos/service-accounts.py`. When a change alters what one shows, update its script and re-record it (`demo/README.md` says how).
 
 Before committing, read the README sections your change touches and fix anything now untrue, including text written before your change. The README isn't a changelog: describe how the CLI works now, not what changed. `every_command_is_in_the_readme` in `src/main.rs` fails if a command is missing from it, but it can't tell whether the description is right. That part is on you.
 
@@ -126,9 +127,9 @@ A reviewer should see what a change is like to use without building it. A PR tha
 
 Record with `demo/`: `demo/README.md` says how to write a demo, record it and get it into the PR.
 
-- **Write the demo script for your change:** one per PR, in `demo/scripts/` (git ignores it). None are kept and none are waiting to be updated: you know what your change does, so script that. Grow `demo/stub.py` and `demo/fixtures.json` with what your demos need, and commit those.
+- **Write the demo script for your change:** one per PR, in `demo/scripts/` (git ignores it). You know what your change does, so script that. The only kept scripts are the README's, in `demo/demos/`: re-record those your change affects, but don't add PR demos to them. Grow `demo/stub.py` and `demo/fixtures.json` with what your demos need, and commit those.
 - **One demo per command or flow,** each with a bold title. Show the interactive paths: prompts, ← back, the review, and `-i` screens with their keys. Show the failure paths too: a refusal, a typed confirmation typed wrong, and an exit code (`; echo "exit $?"`). Pipe `--json` through `jq -c` to keep it short.
-- **Attach each as an SVG.** Paste what `record.py` prints into the description and create or edit the PR with `--attach` for each SVG: `gh` uploads them and points the markdown at the uploads. `demo/README.md` has the command. Use the SVGs `record.py` writes, not svg-term's own: GitHub's CSP stops those animating when opened directly. Don't commit them, and don't host them elsewhere.
+- **Attach each as an SVG.** Paste what `record.py` prints into the description and create or edit the PR with `--attach` for each SVG: `gh` uploads them and points the markdown at the uploads. `demo/README.md` has the command. Use the SVGs `record.py` writes, not svg-term's own: GitHub's CSP stops those animating when opened directly. Don't commit them, and don't host them elsewhere. The README's demos, in `docs/demos/`, are the only SVGs committed.
 - **Say in the PR that the demos run against the stub,** so the `http://127.0.0.1:PORT` URLs in them aren't mistaken for real ones.
 - **Attachments are public:** this repository is public, and so are its PRs. Record only the stub's made-up data, never a real account or token.
 - **Recording is a review pass.** An awkward message, or a screen titled wrongly, is a bug: fix it in the PR and re-record. Check what each recording shows, not only that it finished.

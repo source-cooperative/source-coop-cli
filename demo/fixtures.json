@@ -83,6 +83,66 @@
       "metadata_public": {},
       "created_at": "2025-03-11T08:00:00Z",
       "updated_at": "2026-02-01T08:00:00Z"
+    },
+    {
+      "account_id": "ada-demo",
+      "type": "individual",
+      "name": "Ada Demo",
+      "flags": [],
+      "disabled": false,
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2025-03-01T09:00:00Z",
+      "metadata_public": {}
+    },
+    {
+      "account_id": "grace-demo",
+      "type": "individual",
+      "name": "Grace Demo",
+      "flags": [],
+      "disabled": false,
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2025-03-01T09:00:00Z",
+      "metadata_public": {}
+    },
+    {
+      "account_id": "linus-demo",
+      "type": "individual",
+      "name": "Linus Demo",
+      "flags": [],
+      "disabled": false,
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2025-03-01T09:00:00Z",
+      "metadata_public": {}
+    },
+    {
+      "account_id": "katherine-demo",
+      "type": "individual",
+      "name": "Katherine Demo",
+      "flags": [],
+      "disabled": false,
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2025-03-01T09:00:00Z",
+      "metadata_public": {}
+    },
+    {
+      "account_id": "alan-demo",
+      "type": "individual",
+      "name": "Alan Demo",
+      "flags": [],
+      "disabled": false,
+      "created_at": "2025-03-01T09:00:00Z",
+      "updated_at": "2025-03-01T09:00:00Z",
+      "metadata_public": {}
+    },
+    {
+      "account_id": "partner-org",
+      "type": "organization",
+      "name": "Partner Org",
+      "disabled": false,
+      "flags": [],
+      "created_at": "2025-01-02T09:00:00Z",
+      "updated_at": "2025-01-02T09:00:00Z",
+      "metadata_public": {}
     }
   ],
   "trusts": [
@@ -119,6 +179,64 @@
       "role": "read_data",
       "state": "member",
       "state_changed": "2026-09-02T17:04:11Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000a1",
+      "account_id": "demo-user",
+      "membership_account_id": "demo-org",
+      "role": "owners",
+      "state": "member",
+      "state_changed": "2026-01-05T10:00:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000d1",
+      "account_id": "ada-demo",
+      "membership_account_id": "demo-org",
+      "role": "maintainers",
+      "state": "member",
+      "state_changed": "2026-01-12T10:00:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000d2",
+      "account_id": "grace-demo",
+      "membership_account_id": "demo-org",
+      "role": "write_data",
+      "state": "member",
+      "state_changed": "2026-03-03T15:20:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000d3",
+      "account_id": "linus-demo",
+      "membership_account_id": "demo-org",
+      "role": "read_data",
+      "state": "invited",
+      "state_changed": "2026-10-28T08:45:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000d4",
+      "account_id": "katherine-demo",
+      "membership_account_id": "demo-org",
+      "product_id": "climate-grid",
+      "role": "read_data",
+      "state": "member",
+      "state_changed": "2026-05-19T12:00:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000e1",
+      "account_id": "demo-user",
+      "membership_account_id": "partner-org",
+      "role": "write_data",
+      "state": "invited",
+      "state_changed": "2026-11-01T16:00:00Z"
+    },
+    {
+      "membership_id": "00000000-0000-0000-0000-0000000000e2",
+      "account_id": "demo-user",
+      "membership_account_id": "partner-org",
+      "product_id": "ocean-buoys",
+      "role": "read_data",
+      "state": "invited",
+      "state_changed": "2026-11-03T09:30:00Z"
     }
   ],
   "data_connections": [
@@ -247,6 +365,31 @@
           "demo-s3": {
             "connection_id": "demo-s3",
             "prefix": "demo-user/field-notes/",
+            "is_primary": true
+          }
+        }
+      }
+    },
+    {
+      "account_id": "partner-org",
+      "product_id": "ocean-buoys",
+      "title": "Ocean Buoys",
+      "description": "Hourly readings from moored ocean buoys.",
+      "visibility": "public",
+      "disabled": false,
+      "featured": 0,
+      "created_at": "2026-01-10T12:00:00Z",
+      "updated_at": "2026-10-01T12:00:00Z",
+      "metadata": {
+        "tags": [
+          "ocean",
+          "timeseries"
+        ],
+        "primary_mirror": "demo-s3",
+        "mirrors": {
+          "demo-s3": {
+            "connection_id": "demo-s3",
+            "prefix": "partner-org/ocean-buoys/",
             "is_primary": true
           }
         }

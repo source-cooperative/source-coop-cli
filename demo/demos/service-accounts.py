@@ -1,6 +1,8 @@
 """Demos of `source-coop service-account`, against demo/stub.py's fixtures:
 
-    python3 -I demo/record.py demo/demos/service-accounts.py [NAME ...]
+    python3 -I demo/record.py demo/demos/service-accounts.py --out docs/demos/service-account [NAME ...]
+
+The README embeds them from there.
 
 DOWN, UP, RIGHT, LEFT, ESC and BACKSPACE are given by record.py. The GitHub
 lookups are real: source-cooperative/source.coop is public.
