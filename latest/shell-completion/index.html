@@ -63,14 +63,22 @@
   </nav>
   <main id="main">
 <h1 id="shell-completion">Shell completion</h1>
-<p>Add one of these lines to your shell's startup file:</p>
-<pre><code class="language-bash">eval &quot;$(source-coop completions bash)&quot;          # ~/.bashrc
-eval &quot;$(source-coop completions zsh)&quot;           # ~/.zshrc, after compinit
-source-coop completions fish | source           # ~/.config/fish/config.fish
+<p>Add the line for your shell to its startup file:</p>
+<pre><code class="language-text"># bash: ~/.bashrc
+eval &quot;$(source-coop completions bash)&quot;
+
+# zsh: ~/.zshrc, after compinit
+eval &quot;$(source-coop completions zsh)&quot;
+
+# fish: ~/.config/fish/config.fish
+source-coop completions fish | source
+
+# elvish: ~/.config/elvish/rc.elv
+eval (source-coop completions elvish | slurp)
+
+# PowerShell: $PROFILE
+source-coop completions powershell | Out-String | Invoke-Expression
 </code></pre>
-<pre><code class="language-powershell">source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
-</code></pre>
-<p><code>elvish</code> is also available.</p>
 <p>TAB then completes commands, flags, flag values and record names:</p>
 <ul>
 <li><code>source-coop product view my-org/&lt;TAB&gt;</code> shows the products of <code>my-org</code>. Before the <code>/</code>, it shows the accounts that you are a member of.</li>
