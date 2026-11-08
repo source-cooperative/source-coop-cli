@@ -67,7 +67,7 @@
 <ol>
 <li>
 <p>Sign in once:</p>
-<pre><code class="language-bash">source-coop<span class="w"> </span>auth<span class="w"> </span>login
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 </code></pre>
 </li>
 <li>
@@ -79,7 +79,7 @@
 </li>
 <li>
 <p>Use AWS tools with that profile:</p>
-<pre><code class="language-bash">aws<span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-account/my-product<span class="w"> </span>--profile<span class="w"> </span>source-coop
+<pre><code class="language-bash"><span class="nf">aws</span><span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-account/my-product<span class="w"> </span><span class="na">--profile</span><span class="w"> </span>source-coop
 </code></pre>
 </li>
 </ol>
@@ -88,13 +88,13 @@
 <h3 id="output-formats">Output formats</h3>
 <p><code>creds</code> and <code>auth login</code> print credentials in one of three formats. Select one with <code>--format</code>:</p>
 <p><strong>credential-process</strong> (default): JSON for AWS <code>credential_process</code>.</p>
-<pre><code class="language-bash">source-coop<span class="w"> </span>creds
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>creds
 </code></pre>
 <p><strong>env</strong>: shell <code>export</code> statements. They set <code>AWS_ACCESS_KEY_ID</code>, <code>AWS_SECRET_ACCESS_KEY</code> and <code>AWS_SESSION_TOKEN</code> in your shell.</p>
-<pre><code class="language-bash"><span class="nb">eval</span><span class="w"> </span><span class="k">$(</span>source-coop<span class="w"> </span>creds<span class="w"> </span>--format<span class="w"> </span>env<span class="k">)</span>
+<pre><code class="language-bash"><span class="nb">eval</span><span class="w"> </span><span class="k">$(</span><span class="nf">source-coop</span><span class="w"> </span>creds<span class="w"> </span><span class="na">--format</span><span class="w"> </span>env<span class="k">)</span>
 </code></pre>
 <p><strong>aws-credentials</strong>: an INI profile for <code>~/.aws/credentials</code>. <code>--profile</code> sets the section name.</p>
-<pre><code class="language-bash">source-coop<span class="w"> </span>creds<span class="w"> </span>--format<span class="w"> </span>aws-credentials<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.aws/credentials
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>creds<span class="w"> </span><span class="na">--format</span><span class="w"> </span>aws-credentials<span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.aws/credentials
 </code></pre>
 <pre><code class="language-ini"><span class="k">[source-coop]</span>
 <span class="c1"># expires 2026-07-13T12:00:00Z</span>
@@ -109,10 +109,10 @@
 </blockquote>
 <p>The CLI keeps the credentials of each role separately:</p>
 <pre><code class="language-bash"><span class="c1"># credentials for a read-only role</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span>--role-arn<span class="w"> </span>reader-role
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="na">--role-arn</span><span class="w"> </span>reader-role
 
 <span class="c1"># credentials for an admin role, kept separately</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span>--role-arn<span class="w"> </span>admin-role
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="na">--role-arn</span><span class="w"> </span>admin-role
 </code></pre>
 <p>Use <code>--role-arn</code> with <code>creds</code> to select the role:</p>
 <pre><code class="language-ini"><span class="k">[profile source-coop]</span>

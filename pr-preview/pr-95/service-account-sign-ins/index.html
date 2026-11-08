@@ -69,19 +69,19 @@
 <li><strong>An API key</strong>, where GitHub is not available.</li>
 </ul>
 <pre><code class="language-bash"><span class="c1"># trust runs on a branch</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--github<span class="w"> </span>my-org/data<span class="w"> </span>--branch<span class="w"> </span>main
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--github</span><span class="w"> </span>my-org/data<span class="w"> </span><span class="na">--branch</span><span class="w"> </span>main
 
 <span class="c1"># trust runs in a GitHub environment</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--github<span class="w"> </span>my-org/data<span class="w"> </span>--environment<span class="w"> </span>production
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--github</span><span class="w"> </span>my-org/data<span class="w"> </span><span class="na">--environment</span><span class="w"> </span>production
 
 <span class="c1"># trust a subject as it is</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--subject<span class="w"> </span>repo:my-org/data:ref:refs/tags/v1
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--subject</span><span class="w"> </span>repo:my-org/data:ref:refs/tags/v1
 
 <span class="c1"># remove a trust by its subject</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>repo:my-org/data:ref:refs/heads/main
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>repo:my-org/data:ref:refs/heads/main
 
 <span class="c1"># select a sign-in</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>-i
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">-i</span>
 </code></pre>
 <ul>
 <li><code>--github OWNER/REPO</code> with <code>--branch</code>, <code>--tag</code> or <code>--environment</code> makes the subject that GitHub's tokens contain, such as <code>repo:OWNER/REPO:ref:refs/heads/main</code>.</li>
@@ -96,16 +96,16 @@ source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-i
 <li>A key expires after 30 days, 90 days (default), one year, never, or on a date (at midnight UTC).</li>
 </ul>
 <pre><code class="language-bash"><span class="c1"># issue a key that expires in a year, and save it to a file</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--key<span class="w"> </span><span class="s2">"HPC cron job"</span><span class="w"> </span>--expires<span class="w"> </span>1y<span class="w"> </span>--out<span class="w"> </span>~/.source-coop/nightly.key
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--key</span><span class="w"> </span><span class="s2">"HPC cron job"</span><span class="w"> </span><span class="na">--expires</span><span class="w"> </span>1y<span class="w"> </span><span class="na">--out</span><span class="w"> </span>~/.source-coop/nightly.key
 
 <span class="c1"># piped: only the key on stdout</span>
-<span class="nv">key</span><span class="o">=</span><span class="k">$(</span>source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--key<span class="w"> </span><span class="s2">"HPC cron job"</span><span class="k">)</span>
+<span class="nv">key</span><span class="o">=</span><span class="k">$(</span><span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>add<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--key</span><span class="w"> </span><span class="s2">"HPC cron job"</span><span class="k">)</span>
 
 <span class="c1"># a new expiry, from now</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>edit<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>key:a1B2c3<span class="w"> </span>--expires<span class="w"> </span>never
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>edit<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>key:a1B2c3<span class="w"> </span><span class="na">--expires</span><span class="w"> </span>never
 
 <span class="c1"># revoke it; asks you to type key:a1B2c3</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>key:a1B2c3
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>remove<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>key:a1B2c3
 </code></pre>
 <p>The CLI shows a key one time only, when it issues the key:</p>
 <ul>
@@ -118,16 +118,16 @@ source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-i
 <p>At a terminal, without flags, <code>sign-in add</code> asks if you want a workflow or a key. <code>sign-in edit -i</code> and <code>sign-in remove -i</code> let you select one.</p>
 <figure class="demo" data-demo="service-account-keys"><noscript><img src="../demos/service-account-keys.svg" alt="sign-in add --key --out, sign-in edit -i and sign-in remove: issue an API key, give it a new expiry, then revoke it"></noscript><figcaption><code>sign-in add --key --out</code>, <code>sign-in edit -i</code> and <code>sign-in remove</code>: issue an API key, give it a new expiry, then revoke it</figcaption></figure>
 <p>If a key leaks, anyone with the key can revoke it, without signing in. The command reads the key from stdin, so the key is not in your shell history:</p>
-<pre><code class="language-bash">source-coop<span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>revoke-key<span class="w"> </span>&lt;<span class="w"> </span>leaked-key-file
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>sign-in<span class="w"> </span>revoke-key<span class="w"> </span>&lt;<span class="w"> </span>leaked-key-file
 </code></pre>
 <h3 id="use-a-service-account">Use a service account</h3>
 <p>Workflows and scripts sign in with standard AWS tools, not with this CLI. <code>usage</code> prints what they need, as the web UI does:</p>
 <pre><code class="language-bash"><span class="c1"># a workflow that uses aws-actions/configure-aws-credentials</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>usage<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--subject<span class="w"> </span>repo:my-org/data:ref:refs/heads/main<span class="w"> </span><span class="se">\</span>
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>usage<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--subject</span><span class="w"> </span>repo:my-org/data:ref:refs/heads/main<span class="w"> </span><span class="se">\</span>
 <span class="w">    </span>&gt;<span class="w"> </span>.github/workflows/source-coop.yml
 
 <span class="c1"># the AWS_* variables for a key in a file</span>
-source-coop<span class="w"> </span>service-account<span class="w"> </span>usage<span class="w"> </span>my-org--nightly-sync<span class="w"> </span>--key
+<span class="nf">source-coop</span><span class="w"> </span>service-account<span class="w"> </span>usage<span class="w"> </span>my-org--nightly-sync<span class="w"> </span><span class="na">--key</span>
 </code></pre>
 <p>At a terminal, without <code>--subject</code> or <code>--key</code>, <code>usage</code> asks which sign-in to show.</p>
 <figure class="demo" data-demo="service-account-usage"><noscript><img src="../demos/service-account-usage.svg" alt="service-account usage: pick a sign-in for its workflow, then --key"></noscript><figcaption><code>service-account usage</code>: pick a sign-in for its workflow, then <code>--key</code></figcaption></figure>

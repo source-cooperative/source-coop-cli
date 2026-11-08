@@ -159,10 +159,10 @@
 <h3 id="multiple-environments-for-example-staging">Multiple environments (for example, staging)</h3>
 <p>Each proxy host is a different environment, with its own session and credentials. Thus you can be signed in to production and staging at the same time:</p>
 <pre><code class="language-bash"><span class="c1"># sign in to production</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span>login
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 
 <span class="c1"># sign in to staging, in a subshell</span>
-<span class="o">(</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span>.env.staging<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>source-coop<span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="o">)</span>
+<span class="o">(</span><span class="w"> </span><span class="nb">source</span><span class="w"> </span>.env.staging<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="o">)</span>
 </code></pre>
 <ul>
 <li><code>--proxy-url</code> (or <code>SOURCE_PROXY_URL</code>) selects the environment for all commands. The default is production.</li>

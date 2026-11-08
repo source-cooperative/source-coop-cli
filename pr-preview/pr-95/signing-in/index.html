@@ -64,7 +64,7 @@
   <main id="main">
 <h1 id="signing-in">Signing in</h1>
 <h3 id="sign-in">Sign in</h3>
-<pre><code class="language-bash">source-coop<span class="w"> </span>auth<span class="w"> </span>login
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 </code></pre>
 <p>This opens your browser. After you sign in, the CLI keeps the session in your OS keyring, or in a <a href="../credential-storage/#file-fallback">file</a> if there is no keyring. The old name, <code>source-coop login</code>, also works.</p>
 <p>One session is used for all commands:</p>
@@ -83,12 +83,12 @@
 <ol>
 <li>
 <p>Connect with a port forward. Any free port is satisfactory; this example uses <code>8400</code>:</p>
-<pre><code class="language-bash">ssh<span class="w"> </span>-L<span class="w"> </span><span class="m">8400</span>:127.0.0.1:8400<span class="w"> </span>user@server
+<pre><code class="language-bash"><span class="nf">ssh</span><span class="w"> </span><span class="na">-L</span><span class="w"> </span><span class="m">8400</span>:127.0.0.1:8400<span class="w"> </span>user@server
 </code></pre>
 </li>
 <li>
 <p>On the server, sign in on the forwarded port:</p>
-<pre><code class="language-bash">source-coop<span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span>--port<span class="w"> </span><span class="m">8400</span>
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login<span class="w"> </span><span class="na">--port</span><span class="w"> </span><span class="m">8400</span>
 </code></pre>
 </li>
 <li>
@@ -97,7 +97,7 @@
 </ol>
 <p>The session stays on the server (see <a href="../credential-storage/#file-fallback">File fallback</a>). <code>source-coop creds</code> renews the credentials there without a browser.</p>
 <h3 id="see-your-sign-in-status">See your sign-in status</h3>
-<pre><code class="language-bash">source-coop<span class="w"> </span>auth<span class="w"> </span>status
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>status
 </code></pre>
 <figure class="demo" data-demo="auth-status"><noscript><img src="../demos/auth-status.svg" alt="auth status, then --json"></noscript><figcaption><code>auth status</code>, then <code>--json</code></figcaption></figure>
 <p><code>auth status</code> shows:</p>
@@ -120,19 +120,19 @@
 <li>The account includes its <code>profile_url</code>.</li>
 <li>If the provider gave no refresh-token expiry, <code>estimated_lapse_at</code> and the <code>assumed_lifetime</code> it uses are included.</li>
 </ul>
-<pre><code class="language-bash">source-coop<span class="w"> </span>auth<span class="w"> </span>status<span class="w"> </span>--json<span class="w"> </span><span class="p">|</span><span class="w"> </span>jq<span class="w"> </span>-r<span class="w"> </span>.login.refresh_token.issued_at
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>status<span class="w"> </span><span class="na">--json</span><span class="w"> </span><span class="p">|</span><span class="w"> </span><span class="nf">jq</span><span class="w"> </span><span class="na">-r</span><span class="w"> </span>.login.refresh_token.issued_at
 </code></pre>
 <p><code>auth status</code> shows one environment and one role, because the keyring cannot list its entries. To see others, use <code>--proxy-url</code> and <code>--role-arn</code> (or <code>SOURCE_PROXY_URL</code> and <code>SOURCE_ROLE_ARN</code>).</p>
 <h3 id="sign-out">Sign out</h3>
 <p><code>auth logout</code> removes the session of one environment and the credentials of one role. It removes them from the keyring and from the <a href="../credential-storage/#file-fallback">file fallback</a>.</p>
 <pre><code class="language-bash"><span class="c1"># the default environment and role</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span>
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span>
 
 <span class="c1"># another environment and role</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span><span class="w"> </span>--proxy-url<span class="w"> </span>https://data.staging.source.coop<span class="w"> </span>--role-arn<span class="w"> </span>reader-role
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span><span class="w"> </span><span class="na">--proxy-url</span><span class="w"> </span>https://data.staging.source.coop<span class="w"> </span><span class="na">--role-arn</span><span class="w"> </span>reader-role
 
 <span class="c1"># {"proxy_url": …, "role_arn": …, "removed": {"session": true, "credentials": true}}</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span><span class="w"> </span>--json
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span><span class="w"> </span><span class="na">--json</span>
 </code></pre>
 <p>It uses <code>--proxy-url</code> (<code>SOURCE_PROXY_URL</code>) and <code>--role-arn</code> (<code>SOURCE_ROLE_ARN</code>), as <code>creds</code> does.</p>
 <p>The keyring cannot list its entries, so the credentials of other roles stay. You can use them until they expire, but the CLI cannot renew them without the session. To remove them now, run <code>auth logout --role-arn &lt;role&gt;</code> for each role.</p>

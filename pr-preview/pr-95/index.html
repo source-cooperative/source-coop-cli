@@ -78,16 +78,16 @@
 <p>The demos in this guide use a stand-in for the API with made-up records (<code>demo-org</code>, <code>demo-user</code>), and a made-up session where they show you signed in. They show production's addresses (<code>source.coop</code>, <code>data.source.coop</code>), but <code>demo-org</code> and <code>demo-user</code> don't exist there.</p>
 <h3 id="quick-start">Quick start</h3>
 <pre><code class="language-bash"><span class="c1"># sign in through your browser, once</span>
-source-coop<span class="w"> </span>auth<span class="w"> </span>login
+<span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>login
 
 <span class="c1"># an account's products</span>
-source-coop<span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span>my-org
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list<span class="w"> </span>my-org
 
 <span class="c1"># asks for each value a new product needs</span>
-source-coop<span class="w"> </span>product<span class="w"> </span>create
+<span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>create
 
 <span class="c1"># after you add the AWS profile (below)</span>
-aws<span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-org/my-data<span class="w"> </span>--profile<span class="w"> </span>source-coop
+<span class="nf">aws</span><span class="w"> </span>s3<span class="w"> </span>ls<span class="w"> </span>s3://my-org/my-data<span class="w"> </span><span class="na">--profile</span><span class="w"> </span>source-coop
 </code></pre>
 <p><code>source-coop --help</code> lists the commands. <code>source-coop &lt;command&gt; --help</code> lists the flags of a command, with examples.</p>
 <figure class="demo" data-demo="tour"><noscript><img src="demos/tour.svg" alt="source-coop: an account&#x27;s products, one product, then as --json"></noscript><figcaption><code>source-coop</code>: an account's products, one product, then as <code>--json</code></figcaption></figure>

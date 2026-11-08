@@ -141,7 +141,7 @@
 <p>If <code>SOURCE_TOKEN</code> is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without <code>auth login</code>.</p>
 <h3 id="use-your-session-with-other-tools">Use your session with other tools</h3>
 <p><code>auth token</code> prints the session's access token for the source.coop API. If the token has expired, it renews it first.</p>
-<pre><code class="language-bash">curl<span class="w"> </span>-H<span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="k">$(</span>source-coop<span class="w"> </span>auth<span class="w"> </span>token<span class="k">)</span><span class="s2">"</span><span class="w"> </span>https://source.coop/api/v1/...
+<pre><code class="language-bash"><span class="nf">curl</span><span class="w"> </span><span class="na">-H</span><span class="w"> </span><span class="s2">"Authorization: Bearer </span><span class="k">$(</span><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span>token<span class="k">)</span><span class="s2">"</span><span class="w"> </span>https://source.coop/api/v1/...
 </code></pre>
 <figure class="demo" data-demo="auth-token"><noscript><img src="../demos/auth-token.svg" alt="auth token: the session&#x27;s access token, for curl"></noscript><figcaption><code>auth token</code>: the session's access token, for <code>curl</code></figcaption></figure>
 <p>To send a request through the CLI, see <a href="../any-api-request/">Any API request</a>.</p>
