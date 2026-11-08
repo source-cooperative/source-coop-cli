@@ -70,9 +70,9 @@
 <li><strong>Go back.</strong> To go back to the previous question, press ↑ in a text question (or ← at the start of the line), or ← in a list. The previous answer stays as the start value. Later answers stay. The CLI skips questions that a flag or file answered.</li>
 <li><strong>Review.</strong> After it asks a question, the command shows what it will send and asks you to confirm. ← goes back.</li>
 <li><strong>Long text.</strong> Type a description on one line, or press Ctrl+E to write it in your editor (<code>$VISUAL</code> or <code>$EDITOR</code>). A one-line description shows in the line for you to edit. An empty line removes it. A longer description is not shown in the line. Press Enter on the empty line to keep it.</li>
-<li><strong>Errors.</strong> If the API refuses a value, the CLI shows the reason and asks for that value again.</li>
+<li><strong>Errors.</strong> If the API refuses a value that you typed (HTTP 400), the CLI shows the reason and asks for that value again.</li>
 <li><strong>Cancel.</strong> Press Esc (or <code>q</code> in a list). The CLI shows &quot;Cancelled; nothing was changed.&quot; and exits with code 1. When you must type a name to confirm, Enter on an empty line also cancels. Ctrl+C stops at once, with exit code 130.</li>
-<li><strong>Drafts.</strong> If the send fails (for example, no connection, an expired session or a server error), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with <code>--from-file</code>. After a successful send, the CLI deletes the draft.</li>
+<li><strong>Drafts.</strong> If the send fails in another way (for example, the ID is taken, there is no connection, the session has expired or the server fails), the CLI saves your answers as a draft. Run the same command again to use them. Flags take priority over the draft. You can also give the draft file with <code>--from-file</code>. After a successful send, the CLI deletes the draft.</li>
 </ul>
 <p>Drafts are in your OS's application state folder:</p>
 <div class="table-wrap"><table>
@@ -98,6 +98,7 @@
 </tbody>
 </table></div>
 <p>The CLI does not ask questions if stdin or stderr is not a terminal, or if <code>SOURCE_PROMPT_DISABLED</code> is set. It sends the values that it has, and the API tells you which ones are missing. Then delete, revoke and leave need <code>--yes</code>.</p>
+<figure class="demo" data-demo="prompts"><noscript><img src="../demos/prompts.svg" alt="Prompts: a refused ID asked again, a draft kept after a failure, then Esc"></noscript><figcaption>Prompts: a refused ID asked again, a draft kept after a failure, then Esc</figcaption></figure>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../service-account-sign-ins/" rel="prev"><span>Previous</span>Service account sign-ins</a><a class="pager-next" href="../browsing-with--i/" rel="next"><span>Next</span>Browsing with <code>-i</code></a></nav>
   </main>

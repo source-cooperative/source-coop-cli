@@ -136,13 +136,14 @@
 </tr>
 </tbody>
 </table></div>
-<figure class="demo" data-demo="scripting"><noscript><img src="../demos/scripting.svg" alt="Errors, --json and exit codes, without a terminal, and -F -"></noscript><figcaption>Errors, <code>--json</code> and exit codes, without a terminal, and <code>-F -</code></figcaption></figure>
+<figure class="demo" data-demo="scripting"><noscript><img src="../demos/scripting.svg" alt="Without a terminal: errors, --json, exit codes and -F -"></noscript><figcaption>Without a terminal: errors, <code>--json</code>, exit codes and <code>-F -</code></figcaption></figure>
 <h3 id="use-the-api-without-signing-in">Use the API without signing in</h3>
 <p>If <code>SOURCE_TOKEN</code> is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without <code>auth login</code>.</p>
 <h3 id="use-your-session-with-other-tools">Use your session with other tools</h3>
 <p><code>auth token</code> prints the session's access token for the source.coop API. If the token has expired, it renews it first.</p>
 <pre><code class="language-bash">curl -H &quot;Authorization: Bearer $(source-coop auth token)&quot; https://source.coop/api/v1/...
 </code></pre>
+<figure class="demo" data-demo="auth-token"><noscript><img src="../demos/auth-token.svg" alt="auth token: the session&#x27;s access token, for curl"></noscript><figcaption><code>auth token</code>: the session's access token, for <code>curl</code></figcaption></figure>
 <p>To send a request through the CLI, see <a href="../any-api-request/">Any API request</a>.</p>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../shell-completion/" rel="prev"><span>Previous</span>Shell completion</a><a class="pager-next" href="../any-api-request/" rel="next"><span>Next</span>Any API request</a></nav>

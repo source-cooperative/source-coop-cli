@@ -75,7 +75,7 @@
 <li><code>--json</code> and the exit codes are stable, for scripts and AI agents.</li>
 </ul>
 <p>This guide is also a website, with a page for each section and docs for each release: <a href="https://source-cooperative.github.io/source-coop-cli/">https://source-cooperative.github.io/source-coop-cli/</a>.</p>
-<p>The demos in this guide use a stand-in for the API with made-up records (<code>demo-org</code>, <code>demo-user</code>). Their <code>http://127.0.0.1:…</code> URLs are local.</p>
+<p>The demos in this guide use a stand-in for the API with made-up records (<code>demo-org</code>, <code>demo-user</code>), and a made-up session where they show you signed in. They show production's addresses (<code>source.coop</code>, <code>data.source.coop</code>), but <code>demo-org</code> and <code>demo-user</code> don't exist there.</p>
 <h3 id="quick-start">Quick start</h3>
 <pre><code class="language-bash">source-coop auth login                        # sign in through your browser, once
 source-coop product list my-org               # an account's products
@@ -83,6 +83,7 @@ source-coop product create                    # asks for each value a new produc
 aws s3 ls s3://my-org/my-data --profile source-coop   # after you add the AWS profile (below)
 </code></pre>
 <p><code>source-coop --help</code> lists the commands. <code>source-coop &lt;command&gt; --help</code> lists the flags of a command, with examples.</p>
+<figure class="demo" data-demo="tour"><noscript><img src="demos/tour.svg" alt="source-coop: an account&#x27;s products, one product, then as --json"></noscript><figcaption><code>source-coop</code>: an account's products, one product, then as <code>--json</code></figcaption></figure>
 <p><strong>Contents</strong></p>
 <ul>
 <li><strong>Get started:</strong> <a href="install/">Install</a>, <a href="signing-in/">Signing in</a></li>

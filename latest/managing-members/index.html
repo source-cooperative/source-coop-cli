@@ -58,25 +58,18 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/" aria-current="page">Managing members</a><ul><li><a href="#your-invitations">Your invitations</a></li></ul></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/" aria-current="page">Managing members</a><ul><li><a href="#list-and-view-1">List and view</a></li><li><a href="#invite">Invite</a></li><li><a href="#edit-1">Edit</a></li><li><a href="#revoke-and-leave">Revoke and leave</a></li><li><a href="#your-invitations">Your invitations</a></li></ul></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
     </details>
   </nav>
   <main id="main">
 <h1 id="managing-members">Managing members</h1>
 <p><code>source-coop member</code> manages the members of an organization (<code>ACCOUNT</code>) or a product (<code>ACCOUNT/PRODUCT</code>). <code>source-coop invitation</code> answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.</p>
-<pre><code class="language-bash">source-coop member list my-org                    # members and open invitations
-source-coop member list my-org/my-data --json     # the members of a product, as JSON
-source-coop member list my-org --state invited    # only open invitations
-source-coop member list my-org -i                 # move through the members full screen
-source-coop member view my-org alice              # one member; -i for its screen
-source-coop member invite my-org alice bob --role maintainers
-source-coop member invite my-org/my-data -A people.txt --role read_data
-source-coop member invite my-org                  # asks who to invite, and the role
-source-coop member edit my-org alice --role owners
-source-coop member edit my-org -i                 # select a member, then a role
-source-coop member revoke my-org alice            # also withdraws an open invitation
-source-coop member leave my-org                   # end your own membership
-</code></pre>
+<p><strong>Roles</strong>, from most to least access: <code>owners</code>, <code>maintainers</code>, <code>write_data</code>, <code>read_data</code>.</p>
+<ul>
+<li>Only owners can make a member an owner, or change or revoke an owner.</li>
+<li>Owners and maintainers can manage the other roles.</li>
+<li>A product's member list shows only the product's own members. The organization's members can also use its products, and show in the organization's list.</li>
+</ul>
 <p>With <a href="../shell-completion/">shell completion</a>, TAB shows:</p>
 <ul>
 <li>For <code>ACCOUNT</code> or <code>ACCOUNT/PRODUCT</code>: your organizations and their products.</li>
@@ -84,13 +77,29 @@ source-coop member leave my-org                   # end your own membership
 <li>For <code>invite</code>: the organization's members who are not yet members of the product.</li>
 <li>For <code>invitation accept</code>, <code>reject</code> and <code>member leave</code>: your invitations and memberships.</li>
 </ul>
-<p><strong>Roles</strong>, from most to least access: <code>owners</code>, <code>maintainers</code>, <code>write_data</code>, <code>read_data</code>.</p>
+<p>With <code>--json</code>, these commands print the memberships as the API gives them: <code>membership_id</code>, <code>account_id</code>, <code>membership_account_id</code>, <code>product_id</code> (for a product), <code>role</code>, <code>state</code> and <code>state_changed</code>. <code>invite --json</code> prints an array of the new memberships.</p>
+<p><code>create</code> and <code>delete</code> are other names for <code>invite</code> and <code>revoke</code>.</p>
+<h3 id="list-and-view-1">List and view</h3>
+<pre><code class="language-bash">source-coop member list my-org                    # members and open invitations
+source-coop member list my-org/my-data --json     # the members of a product, as JSON
+source-coop member list my-org --state invited    # only open invitations
+source-coop member list my-org -i                 # move through the members full screen
+source-coop member view my-org alice              # one member; -i for its screen
+</code></pre>
+<figure class="demo" data-demo="member-list"><noscript><img src="../demos/member-list.svg" alt="member list and view, then --json"></noscript><figcaption><code>member list</code> and <code>view</code>, then <code>--json</code></figcaption></figure>
+<p><code>member list -i</code> uses the same keys as <code>product list -i</code>. On a member's screen:</p>
 <ul>
-<li>Only owners can make a member an owner, or change or revoke an owner.</li>
-<li>Owners and maintainers can manage the other roles.</li>
-<li>A product's member list shows only the product's own members. The organization's members can also use its products, and show in the organization's list.</li>
+<li><code>e</code> changes the role.</li>
+<li><code>d</code> revokes the membership. For an invitation, <code>d</code> withdraws it, and <code>e</code> is not available.</li>
+<li><code>b</code> opens their profile.</li>
 </ul>
-<p><strong><code>invite</code></strong> takes account IDs as arguments.</p>
+<figure class="demo" data-demo="member-browse"><noscript><img src="../demos/member-browse.svg" alt="member list -i: open a member and change their role"></noscript><figcaption><code>member list -i</code>: open a member and change their role</figcaption></figure>
+<h3 id="invite">Invite</h3>
+<pre><code class="language-bash">source-coop member invite my-org alice bob --role maintainers
+source-coop member invite my-org/my-data -A people.txt --role read_data
+source-coop member invite my-org                  # asks who to invite, and the role
+</code></pre>
+<p><code>invite</code> takes account IDs as arguments.</p>
 <ul>
 <li><code>--accounts-file PATH</code> (<code>-A</code>, <code>-</code> for stdin) adds one ID from each line. It skips empty lines and lines that start with <code>#</code>.</li>
 <li><code>--from-file</code> reads <code>account_id</code> and <code>role</code> from a JSON object.</li>
@@ -99,20 +108,21 @@ source-coop member leave my-org                   # end your own membership
 <li>If invitations fail, the CLI saves the ones not sent as a draft. The next <code>invite</code> to the same place offers them again.</li>
 <li>If you invite a service account of the product's owner, it becomes a member at once. Its role must be <code>read_data</code> or <code>write_data</code>.</li>
 </ul>
-<p><strong><code>edit</code></strong> without <code>--role</code> asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.</p>
-<p><strong><code>revoke</code></strong> asks you to confirm. For your own membership, you must also type the organization or product name.</p>
-<p><strong><code>leave</code></strong> always asks you to type the name, because only an owner or maintainer can add you again.</p>
+<figure class="demo" data-demo="member-invite"><noscript><img src="../demos/member-invite.svg" alt="member invite with prompts, then from flags with --json"></noscript><figcaption><code>member invite</code> with prompts, then from flags with <code>--json</code></figcaption></figure>
+<h3 id="edit-1">Edit</h3>
+<pre><code class="language-bash">source-coop member edit my-org alice --role owners
+source-coop member edit my-org -i                 # select a member, then a role
+</code></pre>
+<p>Without <code>--role</code>, <code>edit</code> asks for a role, starting from the current one. You cannot change the role of an invitation. Revoke it and invite again.</p>
+<figure class="demo" data-demo="member-edit"><noscript><img src="../demos/member-edit.svg" alt="member edit: pick a role, then --role with --json"></noscript><figcaption><code>member edit</code>: pick a role, then <code>--role</code> with <code>--json</code></figcaption></figure>
+<h3 id="revoke-and-leave">Revoke and leave</h3>
+<pre><code class="language-bash">source-coop member revoke my-org alice            # also withdraws an open invitation
+source-coop member leave my-org                   # end your own membership
+</code></pre>
+<p><code>revoke</code> asks you to confirm. For your own membership, you must also type the organization or product name.</p>
+<p><code>leave</code> always asks you to type the name, because only an owner or maintainer can add you again.</p>
 <p>Without a terminal, <code>revoke</code> and <code>leave</code> need <code>--yes</code>.</p>
-<p>With <code>--json</code>, these commands print the memberships as the API gives them: <code>membership_id</code>, <code>account_id</code>, <code>membership_account_id</code>, <code>product_id</code> (for a product), <code>role</code>, <code>state</code> and <code>state_changed</code>. <code>invite --json</code> prints an array of the new memberships.</p>
-<p><code>create</code> and <code>delete</code> are other names for <code>invite</code> and <code>revoke</code>.</p>
-<figure class="demo" data-demo="members"><noscript><img src="../demos/members.svg" alt="member list, invite, edit and revoke"></noscript><figcaption><code>member list</code>, <code>invite</code>, <code>edit</code> and <code>revoke</code></figcaption></figure>
-<p><code>member list -i</code> uses the same keys as <code>product list -i</code>. On a member's screen:</p>
-<ul>
-<li><code>e</code> changes the role.</li>
-<li><code>d</code> revokes the membership. For an invitation, <code>d</code> withdraws it, and <code>e</code> is not available.</li>
-<li><code>b</code> opens their profile.</li>
-</ul>
-<figure class="demo" data-demo="member-browse"><noscript><img src="../demos/member-browse.svg" alt="member list -i: open a member and change their role"></noscript><figcaption><code>member list -i</code>: open a member and change their role</figcaption></figure>
+<figure class="demo" data-demo="member-revoke"><noscript><img src="../demos/member-revoke.svg" alt="member revoke an invitation, then member leave with the name typed wrong"></noscript><figcaption><code>member revoke</code> an invitation, then <code>member leave</code> with the name typed wrong</figcaption></figure>
 <h3 id="your-invitations">Your invitations</h3>
 <pre><code class="language-bash">source-coop invitation list                       # invitations that wait for your answer
 source-coop invitation list -i                    # open one, then accept (a) or reject (r) it

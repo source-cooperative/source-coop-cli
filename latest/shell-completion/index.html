@@ -76,6 +76,7 @@ source-coop completions fish | source           # ~/.config/fish/config.fish
 <li><code>source-coop product view my-org/&lt;TAB&gt;</code> shows the products of <code>my-org</code>. Before the <code>/</code>, it shows the accounts that you are a member of.</li>
 <li><code>source-coop service-account view my&lt;TAB&gt;</code> shows full service account IDs, such as <code>my-org--nightly-sync</code>. It does not complete the ID of a new service account for <code>create</code>.</li>
 </ul>
+<figure class="demo" data-demo="completion"><noscript><img src="../demos/completion.svg" alt="Shell completion: TAB lists products and service accounts from the API"></noscript><figcaption>Shell completion: TAB lists products and service accounts from the API</figcaption></figure>
 <p>How completion works:</p>
 <ul>
 <li><strong>It always matches the installed version.</strong> On each TAB, the script runs <code>source-coop</code> with <code>SOURCE_COOP_COMPLETE</code> set.</li>

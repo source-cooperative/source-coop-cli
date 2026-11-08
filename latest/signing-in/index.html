@@ -99,15 +99,7 @@
 <h3 id="see-your-sign-in-status">See your sign-in status</h3>
 <pre><code class="language-bash">source-coop auth status
 </code></pre>
-<pre><code>Environment    https://data.source.coop
-Login          logged in
-Account        Demo User (demo-user)
-Profile        https://source.coop/demo-user
-Refresh token  renewed 2026-10-13T14:00:00Z (3 hours ago); expires 2026-11-12 (in 29 days)
-ID token       expires 2026-10-13T18:00:00Z (in 1 hour)
-Access token   for https://source.coop, expires 2026-10-13T18:00:00Z (in 1 hour)
-Credentials    _default: expire 2026-10-13T18:30:00Z (in 1 hour)
-</code></pre>
+<figure class="demo" data-demo="auth-status"><noscript><img src="../demos/auth-status.svg" alt="auth status, then --json"></noscript><figcaption><code>auth status</code>, then <code>--json</code></figcaption></figure>
 <p><code>auth status</code> shows:</p>
 <ul>
 <li>If you are signed in, and the account. The CLI found the account when you signed in. A session from an older version does not have it, and <code>auth status</code> tells you to sign in again.</li>
@@ -140,6 +132,7 @@ source-coop auth logout --json   # {&quot;proxy_url&quot;: …, &quot;role_arn&q
 <p>It uses <code>--proxy-url</code> (<code>SOURCE_PROXY_URL</code>) and <code>--role-arn</code> (<code>SOURCE_ROLE_ARN</code>), as <code>creds</code> does.</p>
 <p>The keyring cannot list its entries, so the credentials of other roles stay. You can use them until they expire, but the CLI cannot renew them without the session. To remove them now, run <code>auth logout --role-arn &lt;role&gt;</code> for each role.</p>
 <p><code>auth logout</code> does not revoke tokens at the identity provider.</p>
+<figure class="demo" data-demo="auth-logout"><noscript><img src="../demos/auth-logout.svg" alt="auth logout --json, then auth status and creds signed out"></noscript><figcaption><code>auth logout --json</code>, then <code>auth status</code> and <code>creds</code> signed out</figcaption></figure>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../install/" rel="prev"><span>Previous</span>Install</a><a class="pager-next" href="../reading-data-with-aws-tools/" rel="next"><span>Next</span>Reading data with AWS tools</a></nav>
   </main>

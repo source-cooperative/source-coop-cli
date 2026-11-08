@@ -80,7 +80,7 @@ source-coop service-account sign-in remove my-org--nightly-sync -i   # select a 
 </ul>
 <p>The CLI asks GitHub how the repository's tokens name it, as the web UI does. Some repositories use IDs (<code>owner@123/repo@456</code>), which never match <code>owner/repo</code>. For a private repository, set <code>GH_TOKEN</code> (or <code>GITHUB_TOKEN</code>). If GitHub does not answer, the CLI tells you how to find the name.</p>
 <p>At a terminal, without these flags, <code>sign-in add</code> asks for the repository and the runs to trust. Then it shows the condition and asks you to confirm.</p>
-<figure class="demo" data-demo="service-account/sign-in"><noscript><img src="../demos/service-account/sign-in.svg" alt="sign-in add with prompts and from flags, sign-in remove -i, sign-in revoke-key"></noscript><figcaption><code>sign-in add</code> with prompts and from flags, <code>sign-in remove -i</code>, <code>sign-in revoke-key</code></figcaption></figure>
+<figure class="demo" data-demo="service-account-sign-in"><noscript><img src="../demos/service-account-sign-in.svg" alt="sign-in add with prompts and from flags, sign-in remove -i, sign-in revoke-key"></noscript><figcaption><code>sign-in add</code> with prompts and from flags, <code>sign-in remove -i</code>, <code>sign-in revoke-key</code></figcaption></figure>
 <p><strong>API keys</strong> are for places without GitHub's tokens, such as a cron job on a cluster.</p>
 <ul>
 <li>Each key has a label that tells where it is used. Use it to find the key to revoke.</li>
@@ -100,7 +100,7 @@ source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3      
 </ul>
 <p><code>view</code> lists each key by its label and its last six characters, such as <code>key:a1B2c3</code>. <code>sign-in edit</code> and <code>sign-in remove</code> use this name. <code>view</code> also shows when the key was last used and when it expires. It shows revoked and expired keys dimmed. You cannot restore a revoked key.</p>
 <p>At a terminal, without flags, <code>sign-in add</code> asks if you want a workflow or a key. <code>sign-in edit -i</code> and <code>sign-in remove -i</code> let you select one.</p>
-<figure class="demo" data-demo="service-account/keys"><noscript><img src="../demos/service-account/keys.svg" alt="API keys: sign-in add --key --out, sign-in edit -i, and revoking one with sign-in remove"></noscript><figcaption>API keys: <code>sign-in add --key --out</code>, <code>sign-in edit -i</code>, and revoking one with <code>sign-in remove</code></figcaption></figure>
+<figure class="demo" data-demo="service-account-keys"><noscript><img src="../demos/service-account-keys.svg" alt="sign-in add --key --out, sign-in edit -i and sign-in remove: issue an API key, give it a new expiry, then revoke it"></noscript><figcaption><code>sign-in add --key --out</code>, <code>sign-in edit -i</code> and <code>sign-in remove</code>: issue an API key, give it a new expiry, then revoke it</figcaption></figure>
 <p>If a key leaks, anyone with the key can revoke it, without signing in. The command reads the key from stdin, so the key is not in your shell history:</p>
 <pre><code class="language-bash">source-coop service-account sign-in revoke-key &lt; leaked-key-file
 </code></pre>
@@ -111,7 +111,7 @@ source-coop service-account sign-in remove my-org--nightly-sync key:a1B2c3      
 source-coop service-account usage my-org--nightly-sync --key   # the AWS_* variables for a key in a file
 </code></pre>
 <p>At a terminal, without <code>--subject</code> or <code>--key</code>, <code>usage</code> asks which sign-in to show.</p>
-<figure class="demo" data-demo="service-account/usage"><noscript><img src="../demos/service-account/usage.svg" alt="service-account usage: pick a sign-in for its workflow, then --key"></noscript><figcaption><code>service-account usage</code>: pick a sign-in for its workflow, then <code>--key</code></figcaption></figure>
+<figure class="demo" data-demo="service-account-usage"><noscript><img src="../demos/service-account-usage.svg" alt="service-account usage: pick a sign-in for its workflow, then --key"></noscript><figcaption><code>service-account usage</code>: pick a sign-in for its workflow, then <code>--key</code></figcaption></figure>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../managing-service-accounts/" rel="prev"><span>Previous</span>Managing service accounts</a><a class="pager-next" href="../prompts/" rel="next"><span>Next</span>Prompts</a></nav>
   </main>

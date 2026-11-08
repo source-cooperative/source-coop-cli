@@ -84,6 +84,7 @@ endpoint_url = https://data.source.coop
 </li>
 </ol>
 <p>When the credentials expire, <code>source-coop creds</code> gets new ones with the session. Run <code>source-coop auth login</code> again only if this fails, for example because the refresh token expired or was revoked.</p>
+<figure class="demo" data-demo="aws"><noscript><img src="../demos/aws.svg" alt="aws s3 ls through credentialprocess, then creds --format env"></noscript><figcaption><code>aws s3 ls</code> through <code>credential_process</code>, then <code>creds --format env</code></figcaption></figure>
 <h3 id="output-formats">Output formats</h3>
 <p><code>creds</code> and <code>auth login</code> print credentials in one of three formats. Select one with <code>--format</code>:</p>
 <p><strong>credential-process</strong> (default): JSON for AWS <code>credential_process</code>.</p>

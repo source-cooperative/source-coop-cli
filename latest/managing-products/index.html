@@ -83,6 +83,8 @@ source-coop product view my-org/my-product -i # its screen, with shortcuts; with
 </ul>
 <p>On a terminal, <code>list</code> shows the products in your pager and gets more pages as you read. In other cases, it stops at <code>--limit</code>. To continue from there, give <code>--cursor</code> the cursor that the last list printed.</p>
 <figure class="demo" data-demo="product-list"><noscript><img src="../demos/product-list.svg" alt="product list: a table, a search, then --json"></noscript><figcaption><code>product list</code>: a table, a search, then <code>--json</code></figcaption></figure>
+<p><code>list -i</code> and <code>view -i</code> show products full screen. <a href="../browsing-with--i/">Browsing with <code>-i</code></a> lists the keys.</p>
+<figure class="demo" data-demo="product-browse"><noscript><img src="../demos/product-browse.svg" alt="product list -i: open a product, go back, filter with /"></noscript><figcaption><code>product list -i</code>: open a product, go back, filter with <code>/</code></figcaption></figure>
 <h3 id="create">Create</h3>
 <pre><code class="language-bash">source-coop product create                    # asks for all values
 source-coop product create my-org/my-product  # asks for the other values
