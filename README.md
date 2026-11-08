@@ -680,14 +680,23 @@ To edit or delete, you must open the record first. Thus a wrong key in a list ch
 
 ## Shell completion
 
-Add one of these lines to your shell's startup file:
+Add the line for your shell to its startup file:
 
 ```text
-eval "$(source-coop completions bash)"          # ~/.bashrc
-eval "$(source-coop completions zsh)"           # ~/.zshrc, after compinit
-source-coop completions fish | source           # ~/.config/fish/config.fish
-eval (source-coop completions elvish | slurp)   # ~/.config/elvish/rc.elv
-source-coop completions powershell | Out-String | Invoke-Expression   # $PROFILE
+# bash: ~/.bashrc
+eval "$(source-coop completions bash)"
+
+# zsh: ~/.zshrc, after compinit
+eval "$(source-coop completions zsh)"
+
+# fish: ~/.config/fish/config.fish
+source-coop completions fish | source
+
+# elvish: ~/.config/elvish/rc.elv
+eval (source-coop completions elvish | slurp)
+
+# PowerShell: $PROFILE
+source-coop completions powershell | Out-String | Invoke-Expression
 ```
 
 TAB then completes commands, flags, flag values and record names:
