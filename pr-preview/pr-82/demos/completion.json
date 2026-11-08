@@ -1,50 +1,50 @@
 {
- "duration": 23.447,
+ "duration": 23.039,
  "steps": [
   {
-   "time": 0.76,
+   "time": 0.755,
    "label": "$ eval \"$(source-coop completions bash)\""
   },
   {
-   "time": 3.297,
+   "time": 3.16,
    "label": "$ · \"source-coop product view demo-org/\" Tab×2 \"cl\" Tab Enter"
   },
   {
-   "time": 12.243,
+   "time": 11.995,
    "label": "$ · \"source-coop service-account view demo\" Tab Tab×2 \u0003"
   }
  ],
  "keys": [
   {
-   "time": 6.647,
+   "time": 6.416,
    "key": "Tab"
   },
   {
-   "time": 7.05,
+   "time": 6.819,
    "key": "Tab"
   },
   {
-   "time": 10.075,
+   "time": 9.831,
    "key": "Tab"
   },
   {
-   "time": 12.183,
+   "time": 11.94,
    "key": "Enter"
   },
   {
-   "time": 16.787,
+   "time": 16.391,
    "key": "Tab"
   },
   {
-   "time": 18.007,
+   "time": 17.598,
    "key": "Tab"
   },
   {
-   "time": 18.416,
+   "time": 18.0,
    "key": "Tab"
   },
   {
-   "time": 20.947,
+   "time": 20.539,
    "key": "\u0003"
   }
  ]

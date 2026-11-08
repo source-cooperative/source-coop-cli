@@ -1,24 +1,24 @@
 {
- "duration": 33.79,
+ "duration": 33.899,
  "steps": [
   {
-   "time": 0.752,
+   "time": 0.754,
    "label": "$ source-coop product view demo-org/missing; echo \"exit $?\""
   },
   {
-   "time": 5.939,
+   "time": 5.994,
    "label": "$ source-coop product view demo-org/missing --json; echo \"exit $?\""
   },
   {
-   "time": 11.518,
+   "time": 11.584,
    "label": "$ source-coop product create demo-org/climate-grid -t Copy --json < /dev/null; echo \"exit $?\""
   },
   {
-   "time": 18.402,
+   "time": 18.463,
    "label": "$ source-coop product delete demo-org/demo-data < /dev/null; echo \"exit $?\""
   },
   {
-   "time": 24.382,
+   "time": 24.469,
    "label": "$ echo '{\"title\": \"Buoy archive\", \"visibility\": \"public\"}' | source-coop product create demo-org/buoys -F - --data-connection demo-s3"
   }
  ],
