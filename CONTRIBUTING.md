@@ -2,7 +2,28 @@
 
 How to work on this repository (conventions, tests, demos, PR descriptions) is in [AGENTS.md](AGENTS.md), for people and coding agents alike. The user guide is [README.md](README.md).
 
-This file holds setup for whoever runs the sign-in server the CLI uses.
+This file holds the team's own workflows: staging builds to test, and setup for whoever runs the sign-in server the CLI uses.
+
+## Staging builds
+
+To let the team try a branch against source.coop's staging environment without building it, run the *Staging build* workflow (Actions › Staging build › Run workflow) with the branch, tag or commit to build:
+
+```bash
+gh workflow run "Staging build" -f ref=my-branch
+```
+
+It builds `source-coop-staging` for macOS (Apple silicon and Intel) and Linux (x86_64 and arm64), with `--features staging`: it signs in to `auth.staging.source.coop` and calls `staging.source.coop` and `data.staging.source.coop` by default. Each run replaces the binaries on the [`staging` pre-release](https://github.com/source-cooperative/source-coop-cli/releases/tag/staging), whose notes name the branch and commit. To install it, or update to the latest staging build:
+
+```bash
+curl -LsSf https://github.com/source-cooperative/source-coop-cli/releases/download/staging/install.sh | sh
+```
+
+- **It sits beside the production CLI.** It installs as `source-coop-staging` in `~/.local/bin` (set `SOURCE_COOP_STAGING_DIR` for elsewhere), and keeps its own login: run `source-coop-staging auth login` once.
+- **On macOS, each new build asks once for your password** to read its login from the keychain. Choose **Always Allow**.
+- **TAB completion** is set up for `source-coop` only, not `source-coop-staging`.
+- **It's for testing.** The `staging` pre-release is never marked latest, so the release installers and Homebrew keep installing the real release, and neither the *Release* nor the *Docs* workflow runs for it.
+
+On a PR that changes the workflow or `staging/install.sh`, *Staging build* only builds, without publishing.
 
 ## OIDC provider setup
 
