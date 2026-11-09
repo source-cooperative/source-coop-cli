@@ -18,7 +18,7 @@ description: Manage Source Cooperative (source.coop) with the source-coop CLI â€
 
 ## Data
 
-A product's files are at `s3://ACCOUNT/PRODUCT/` on the data proxy, `https://data.source.coop`, which any S3 tool can use as its endpoint. Public data needs no sign-in: pass `--no-sign-request` to the AWS CLI. For credentials to private data or for uploads, see the credential commands in `source-coop --help` (`creds`, and `exec` where installed).
+A product's files are at `s3://ACCOUNT/PRODUCT/` on the data proxy, `https://data.source.coop`. Public data needs no sign-in. Each tool's settings (AWS CLI, DuckDB, GDAL, Python) are at <https://docs.source.coop/data-proxy>; fetch it rather than guessing. For credentials to private data or for uploads, see the credential commands in `source-coop --help` (`creds`, and `exec` where installed).
 
 ## Other tools
 
