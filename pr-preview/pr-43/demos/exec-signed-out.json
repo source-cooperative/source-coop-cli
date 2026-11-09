@@ -1,0 +1,18 @@
+{
+ "duration": 22.863,
+ "steps": [
+  {
+   "time": 0.752,
+   "label": "$ source-coop exec -- aws s3 ls s3://partner-org/ocean-buoys/"
+  },
+  {
+   "time": 7.231,
+   "label": "$ source-coop exec -- aws --no-sign-request s3 ls s3://partner-org/ocean-buoys/"
+  },
+  {
+   "time": 14.67,
+   "label": "$ source-coop exec -- aws --no-sign-request s3 ls s3://demo-org/landsat-mirror/; echo \"exit $?\""
+  }
+ ],
+ "keys": []
+}
