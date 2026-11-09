@@ -250,7 +250,7 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 When the credentials expire, `source-coop creds` gets new ones with the session. Run `source-coop auth login` again only if this fails, for example because the refresh token expired or was revoked.
 
-![`aws s3 ls` through `credential_process`, then `creds --format env`](docs/demos/aws.svg)
+![`aws s3 ls` through `credential_process`, then with `creds --format env`](docs/demos/aws.svg)
 
 ### Output formats
 
@@ -262,11 +262,22 @@ When the credentials expire, `source-coop creds` gets new ones with the session.
 source-coop creds
 ```
 
-**env**: shell `export` statements. They set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` in your shell.
+**env**: shell `export` statements. They set `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN` in your shell, and point S3 and STS at the data proxy (`--proxy-url`), so the AWS CLI and SDKs need no `--endpoint-url`:
 
 ```bash
 eval $(source-coop creds --format env)
+aws s3 ls s3://ACCOUNT/PRODUCT/
 ```
+
+After the credentials, it prints:
+
+```bash
+export AWS_REGION=us-west-2
+export AWS_ENDPOINT_URL_S3=https://data.source.coop
+export AWS_ENDPOINT_URL_STS=https://data.source.coop/.sts
+```
+
+Only S3 and STS go to the proxy; other AWS services keep their usual endpoints. The region is there because some SDKs won't run without one: the proxy accepts any. The AWS CLI v2 (2.13 or later), boto3 (1.28 or later), s3fs, obstore and polars read `AWS_ENDPOINT_URL_S3`. GDAL and DuckDB don't, so give them the endpoint their own way.
 
 **aws-credentials**: an INI profile for `~/.aws/credentials`. `--profile` sets the section name.
 

@@ -79,7 +79,9 @@ def aws(s):
     s.run("cat ~/.aws/config"); s.prompt(); s.pause(2)
     s.run(f"aws s3 ls s3://{ORG}/demo-data/ --profile source-coop"); s.prompt(); s.pause(1.5)
     s.run(f"aws s3 ls s3://{ORG}/demo-data/readings/ --profile source-coop --human-readable"); s.prompt(); s.pause(1.5)
-    s.run("source-coop creds --format env")
+    s.run("source-coop creds --format env"); s.prompt(); s.pause(3)
+    s.run("eval $(source-coop creds --format env)"); s.prompt()
+    s.run(f"aws s3 ls s3://{ORG}/demo-data/")   # no --profile or --endpoint-url
 
 
 def prompts(s):
@@ -396,7 +398,7 @@ DEMOS = {
     "auth-status": ("`auth status`, then `--json`", auth_status),
     "auth-token": ("`auth token`: the session's access token, for `curl`", auth_token),
     "auth-logout": ("`auth logout --json`, then `auth status` and `creds` signed out", auth_logout),
-    "aws": ("`aws s3 ls` through `credential_process`, then `creds --format env`", aws),
+    "aws": ("`aws s3 ls` through `credential_process`, then with `creds --format env`", aws),
     "prompts": ("Prompts: a refused ID asked again, a draft kept after a failure, then Esc", prompts),
     "completion": ("Shell completion: TAB lists products and service accounts from the API", completion),
     "account-list": ("`account list`, `view`, then `list --json`", account_list),
