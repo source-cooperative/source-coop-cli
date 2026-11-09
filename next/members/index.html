@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Managing members · source-coop CLI</title>
+<title>Members · source-coop CLI</title>
 <meta name="docs-version" content="next">
 <meta name="docs-base" content="/">
-<meta name="docs-page" content="managing-members/">
+<meta name="docs-page" content="members/">
 <meta name="docs-repo" content="https://github.com/source-cooperative/source-coop-cli">
 <script>
   // The theme before the first paint: this tab's choice, or the system's.
@@ -58,12 +58,12 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/" aria-current="page">Managing members</a><ul><li><a href="#list-and-view-1">List and view</a></li><li><a href="#invite">Invite</a></li><li><a href="#edit-1">Edit</a></li><li><a href="#revoke-and-leave">Revoke and leave</a></li><li><a href="#your-invitations">Your invitations</a></li></ul></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../products/">Products</a></li><li><a href="../members/" aria-current="page">Members</a><ul><li><a href="#list-and-view-1">List and view</a></li><li><a href="#invite">Invite</a></li><li><a href="#edit-1">Edit</a></li><li><a href="#revoke-and-leave">Revoke and leave</a></li></ul></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
     </details>
   </nav>
   <main id="main">
-<h1 id="managing-members">Managing members</h1>
-<p><code>source-coop member</code> manages the members of an organization (<code>ACCOUNT</code>) or a product (<code>ACCOUNT/PRODUCT</code>). <code>source-coop invitation</code> answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.</p>
+<h1 id="members">Members</h1>
+<p><code>source-coop member</code> manages the members of an organization (<code>ACCOUNT</code>) or a product (<code>ACCOUNT/PRODUCT</code>). <a href="../invitations/"><code>source-coop invitation</code></a> answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.</p>
 <p><strong>Roles</strong>, from most to least access: <code>owners</code>, <code>maintainers</code>, <code>write_data</code>, <code>read_data</code>.</p>
 <ul>
 <li>Only owners can make a member an owner, or change or revoke an owner.</li>
@@ -143,26 +143,8 @@
 <p><code>leave</code> always asks you to type the name, because only an owner or maintainer can add you again.</p>
 <p>Without a terminal, <code>revoke</code> and <code>leave</code> need <code>--yes</code>.</p>
 <figure class="demo" data-demo="member-revoke"><noscript><img src="../demos/member-revoke.svg" alt="member revoke an invitation, then member leave with the name typed wrong"></noscript><figcaption><code>member revoke</code> an invitation, then <code>member leave</code> with the name typed wrong</figcaption></figure>
-<h3 id="your-invitations">Your invitations</h3>
-<pre><code class="language-bash"><span class="c1"># invitations that wait for your answer</span>
-<span class="nf">source-coop</span><span class="w"> </span>invitation<span class="w"> </span>list
 
-<span class="c1"># open one, then accept (a) or reject (r) it</span>
-<span class="nf">source-coop</span><span class="w"> </span>invitation<span class="w"> </span>list<span class="w"> </span><span class="na">-i</span>
-
-<span class="c1"># accept an invitation to a product</span>
-<span class="nf">source-coop</span><span class="w"> </span>invitation<span class="w"> </span>accept<span class="w"> </span>my-org/my-data
-
-<span class="c1"># reject an invitation to an organization</span>
-<span class="nf">source-coop</span><span class="w"> </span>invitation<span class="w"> </span>reject<span class="w"> </span>my-org
-
-<span class="c1"># select an invitation</span>
-<span class="nf">source-coop</span><span class="w"> </span>invitation<span class="w"> </span>accept<span class="w"> </span><span class="na">-i</span>
-</code></pre>
-<p>When you accept, you become a member with the role of the invitation. With <code>--json</code>, the command prints the membership after the change.</p>
-<figure class="demo" data-demo="invitations"><noscript><img src="../demos/invitations.svg" alt="invitation list -i: accept one, then reject another"></noscript><figcaption><code>invitation list -i</code>: accept one, then reject another</figcaption></figure>
-
-    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../managing-products/" rel="prev"><span>Previous</span>Managing products</a><a class="pager-next" href="../managing-service-accounts/" rel="next"><span>Next</span>Managing service accounts</a></nav>
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../products/" rel="prev"><span>Previous</span>Products</a><a class="pager-next" href="../invitations/" rel="next"><span>Next</span>Invitations</a></nav>
   </main>
 </div>
 <footer class="bottom">
