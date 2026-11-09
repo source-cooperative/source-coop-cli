@@ -1,0 +1,30 @@
+{
+ "duration": 34.428,
+ "steps": [
+  {
+   "time": 0.761,
+   "label": "$ cat ~/.aws/config"
+  },
+  {
+   "time": 4.589,
+   "label": "$ aws s3 ls s3://demo-org/demo-data/ --profile source-coop"
+  },
+  {
+   "time": 12.642,
+   "label": "$ aws s3 ls s3://demo-org/demo-data/readings/ --profile source-coop --human-readable"
+  },
+  {
+   "time": 21.718,
+   "label": "$ source-coop creds --format env"
+  },
+  {
+   "time": 26.212,
+   "label": "$ eval $(source-coop creds --format env)"
+  },
+  {
+   "time": 29.304,
+   "label": "$ aws s3 ls s3://demo-org/demo-data/"
+  }
+ ],
+ "keys": []
+}
