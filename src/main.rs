@@ -411,7 +411,8 @@ struct ServiceAccountArgs {
 enum OutputFormat {
     /// AWS credential_process JSON format
     CredentialProcess,
-    /// Shell export statements
+    /// Shell export statements: the credentials, AWS_REGION, and the
+    /// --proxy-url as the S3 and STS endpoints
     Env,
     /// AWS credentials file (INI) profile
     AwsCredentials,
@@ -950,7 +951,7 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
         eprintln!("Skipping credential cache (--no-cache)");
         match args.output.format {
             OutputFormat::CredentialProcess => output::print_credential_process(&creds),
-            OutputFormat::Env => output::print_env(&creds),
+            OutputFormat::Env => output::print_env(&creds, &args.env.proxy_url),
             OutputFormat::AwsCredentials => {
                 output::print_aws_credentials(&creds, &args.output.profile)
             }
@@ -1050,7 +1051,7 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 
     match args.output.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
-        OutputFormat::Env => output::print_env(&entry.creds),
+        OutputFormat::Env => output::print_env(&entry.creds, &args.env.proxy_url),
         OutputFormat::AwsCredentials => {
             output::print_aws_credentials(&entry.creds, &args.output.profile)
         }

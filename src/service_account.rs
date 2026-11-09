@@ -2759,14 +2759,12 @@ fn github_workflow(proxy: &str, id: &str, subject: &str) -> String {
 /// What a stock AWS SDK or the AWS CLI needs to sign in with an API key saved
 /// to a file: the web UI's `apiKeyEnvironment`.
 fn api_key_environment(proxy: &str, id: &str) -> String {
-    [
-        "export AWS_REGION=us-west-2".to_string(),
-        format!("export AWS_ENDPOINT_URL_S3={proxy}"),
-        format!("export AWS_ENDPOINT_URL_STS={proxy}/.sts"),
+    let mut lines = crate::output::endpoint_env(proxy).to_vec();
+    lines.extend([
         format!("export AWS_ROLE_ARN=arn:aws:iam::{id}:role/FullAccess"),
         "export AWS_WEB_IDENTITY_TOKEN_FILE=/path/to/the/saved/key".into(),
-    ]
-    .join("\n")
+    ]);
+    lines.join("\n")
 }
 
 #[cfg(test)]
