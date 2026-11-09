@@ -52,7 +52,7 @@ def signed_in(s):
 def tour(s):
     s.run(f"source-coop product list {ORG} --format table"); s.prompt(); s.pause(1.5)
     s.run(f"source-coop product view {ORG}/demo-data"); s.prompt(); s.pause(2)
-    s.run(f"source-coop product view {ORG}/demo-data --json | jq -c '{{product_id, title, visibility}}'")
+    s.run(f"source-coop product view {ORG}/demo-data --json | jq -c '{{product_id, title, s3_uri}}'")
 
 
 def auth_status(s):
@@ -175,7 +175,7 @@ def product_create(s):
     s.see("Visibility"); s.pause(1); s.key(DOWN); s.enter()
     s.see("Create this product"); s.pause(3.5); s.enter()
     s.prompt()
-    s.run(f"source-coop product view {ORG}/sea-ice-extent --json | jq -c '{{product_id, title, visibility}}'")
+    s.run(f"source-coop product view {ORG}/sea-ice-extent --json | jq -c '{{product_id, title, s3_uri}}'")
 
 
 def product_edit(s):

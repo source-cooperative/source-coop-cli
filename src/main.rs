@@ -492,7 +492,11 @@ async fn run() {
             let result = match args.site.connect(verbose).await {
                 Ok((client, mut tty)) => {
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
-                    product::run(args.command, &client, &args.site.api_url, prompter).await
+                    let site = product::Site {
+                        web: &args.site.api_url,
+                        proxy: &args.site.proxy_url,
+                    };
+                    product::run(args.command, &client, site, prompter).await
                 }
                 Err(e) => Err(e),
             };
