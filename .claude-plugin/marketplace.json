@@ -1,0 +1,15 @@
+{
+  "name": "source-cooperative",
+  "description": "Agent skills for Source Cooperative (source.coop)",
+  "owner": {
+    "name": "Source Cooperative",
+    "url": "https://source.coop"
+  },
+  "plugins": [
+    {
+      "name": "source-coop",
+      "source": "./",
+      "description": "Teaches agents when and how to use the source-coop CLI to manage source.coop and reach its data"
+    }
+  ]
+}

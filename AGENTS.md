@@ -24,6 +24,7 @@ Agents learn the CLI from `--help`, which always matches the installed version, 
 - **Extra help text goes through `style::help`** (`style::examples` for examples), so its headings look like clap's. `help_headings_are_styled_like_clap_s` checks this.
 - **`FOR_SCRIPTS` in `src/main.rs`** (the end of `source-coop --help`) sums up `--json`, prompts and exit codes. Keep it in step with the README and the JSON rules below.
 - **No separate agent guide.** Help is the reference and the README is the guide. A skill or `llms.txt` should say when to use the CLI and point to `--help`, not copy flags. This file is for contributors: agents that only use the CLI never see it.
+- **The agent skill, `skills/source-coop/SKILL.md`, stays in step** with `FOR_SCRIPTS` and how the CLI behaves: `--json`, exit codes, signing in, `-i`, `--yes`, `-F -`. Change it in the same commit as a change to any of those. `.claude-plugin/` publishes it as a Claude Code plugin; `claude plugin validate .` checks it.
 
 ## Commands
 

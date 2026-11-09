@@ -1,0 +1,12 @@
+{
+  "name": "source-coop",
+  "description": "Teaches agents when and how to use the source-coop CLI to manage source.coop and reach its data",
+  "author": {
+    "name": "Source Cooperative",
+    "url": "https://source.coop"
+  },
+  "homepage": "https://cli.source.coop/",
+  "repository": "https://github.com/source-cooperative/source-coop-cli",
+  "license": "Apache-2.0",
+  "keywords": ["source-cooperative", "source.coop", "s3", "data"]
+}
