@@ -462,7 +462,7 @@ source-coop product view my-org/my-product -i
 
 On a terminal, `list` shows the products in your pager and gets more pages as you read. In other cases, it stops at `--limit`. To continue from there, give `--cursor` the cursor that the last list printed.
 
-`view` and the details format show the product's `S3` path: where to read its data with S3 tools such as the AWS CLI, through the data proxy. With `--json`, each product also has `s3_uri` and `s3_endpoint`, the proxy (`--proxy-url`, `https://data.source.coop` by default) to send requests to. Use those, not a mirror's `prefix`, which is where the proxy keeps the data in its storage. Public data can be read without signing in:
+`view` and the details format show the product's `S3` path and the data proxy to read it through, such as `s3://demo-org/demo-data/ on https://data.source.coop`. An S3 tool needs both: the path alone sends requests to AWS. With `--json`, each product also has `s3_uri` and `s3_endpoint`, the proxy (`--proxy-url`, `https://data.source.coop` by default) to send requests to. Use those, not a mirror's `prefix`, which is where the proxy keeps the data in its storage. Public data can be read without signing in:
 
 ```bash
 p=$(source-coop product view my-org/my-product --json)

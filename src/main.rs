@@ -341,7 +341,8 @@ struct Site {
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
-    /// Data proxy URL: selects the environment whose login session to use
+    /// Data proxy URL: selects the environment whose login session to use,
+    /// and is the `s3_endpoint` that product `--json` gives
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 }

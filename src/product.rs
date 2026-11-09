@@ -398,7 +398,7 @@ async fn list(args: ListArgs, client: &Client, site: Site<'_>) -> Result<(), Str
     drop(pager);
     if args.json {
         print_json(&Value::Array(
-            items.iter().map(|p| with_s3(p, site)).collect(),
+            items.into_iter().map(|p| with_s3(p, site)).collect(),
         ));
     } else if count == 0 {
         eprintln!("No products found.");
@@ -777,7 +777,7 @@ async fn view(
     }
     let product: Value = client.get(product_url(client, &p)).await?;
     if args.json {
-        print_json(&with_s3(&product, site));
+        print_json(&with_s3(product, site));
     } else {
         print_product(&product, site);
     }
@@ -1506,7 +1506,7 @@ fn insert_some(body: &mut Map<String, Value>, key: &str, value: Option<String>) 
 /// stdout for a script: `url=$(source-coop product create ...)`.
 fn report(product: &Value, as_json: bool, verb: &str, site: Site<'_>) {
     if as_json {
-        print_json(&with_s3(product, site));
+        print_json(&with_s3(product.clone(), site));
     } else {
         let name = name(product);
         eprintln!("{verb} {name}");
@@ -1538,9 +1538,8 @@ fn s3_uri(product: &Value) -> String {
 
 /// The product as `--json` prints it: the API's record, plus `s3_uri` and
 /// the `s3_endpoint` to read it on, so scripts needn't put them together.
-fn with_s3(product: &Value, site: Site<'_>) -> Value {
-    let uri = s3_uri(product);
-    let mut product = product.clone();
+fn with_s3(mut product: Value, site: Site<'_>) -> Value {
+    let uri = s3_uri(&product);
     if let Some(fields) = product.as_object_mut() {
         fields.insert("s3_uri".into(), uri.into());
         let endpoint = site.proxy.trim_end_matches('/');
@@ -1669,7 +1668,16 @@ fn product_lines_at(
                 &format!("{}/{name}", site.web.trim_end_matches('/')),
             )),
         ),
-        ("S3", Some(s3_uri(p))),
+        // With its endpoint: a bare s3:// path pasted into an AWS tool goes to
+        // AWS itself, to a bucket named after the account.
+        (
+            "S3",
+            Some(format!(
+                "{} on {}",
+                s3_uri(p),
+                site.proxy.trim_end_matches('/')
+            )),
+        ),
     ]
     .into_iter()
     .filter_map(|(label, value)| value.filter(|v| !v.is_empty()).map(|v| (label, v)))
@@ -2069,7 +2077,7 @@ mod tests {
                 "Created     2024-12-13T20:32:55Z (1 year ago)",
                 "Updated     2026-10-13T20:00:00Z (16 hours ago)",
                 "URL         https://source.coop/acct/p",
-                "S3          s3://acct/p/",
+                "S3          s3://acct/p/ on https://data.source.coop",
                 "",
                 "Line one",
                 "Line two",
@@ -2232,7 +2240,7 @@ mod tests {
         let mut expected = p.clone();
         expected["s3_uri"] = json!("s3://acct/p/");
         expected["s3_endpoint"] = json!("https://data.staging.source.coop");
-        assert_eq!(with_s3(&p, staging), expected);
+        assert_eq!(with_s3(p, staging), expected);
     }
 
     #[tokio::test]
