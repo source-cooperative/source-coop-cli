@@ -254,7 +254,7 @@ When the credentials expire, `source-coop creds` gets new ones with the session.
 
 ### Output formats
 
-`creds` and `auth login` print credentials in one of three formats. Select one with `--format`:
+`creds` and `auth login` print credentials in one of four formats. Select one with `--format`:
 
 **credential-process** (default): JSON for AWS `credential_process`.
 
@@ -284,6 +284,15 @@ aws_session_token = ...
 
 > [!TIP]
 > These credentials are temporary. When they expire, run the command again. Each run adds a new section, and AWS uses the last one, so remove old sections occasionally. We recommend `credential_process` in `~/.aws/config` instead.
+
+**gdal-env**: shell `export` statements for [GDAL](https://gdal.org)'s `/vsis3/` (`gdalinfo`, `ogrinfo`, and tools built on GDAL, such as rasterio). GDAL ignores `AWS_ENDPOINT_URL`, so besides the credentials they set `AWS_S3_ENDPOINT` to the proxy (from `--proxy-url`), `AWS_VIRTUAL_HOSTING=FALSE` for its path-style URLs, `AWS_HTTPS` and `AWS_REGION`. Then read `/vsis3/ACCOUNT/PRODUCT/...`:
+
+```bash
+eval "$(source-coop creds --format gdal-env)"
+gdalinfo /vsis3/my-account/my-product/image.tif
+```
+
+They last as long as the shell, and the credentials in them expire like the others: when they do, run it again.
 
 ### Multiple roles
 
@@ -1159,7 +1168,7 @@ endpoint_url = https://data.staging.source.coop
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `197e20e7-...` | OAuth2 client ID |
 | `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS. Also selects the environment of the session. |
 | `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
-| `--format` | | `credential-process` | Output format: `credential-process`, `env` or `aws-credentials` |
+| `--format` | | `credential-process` | Output format: `credential-process`, `env`, `aws-credentials` or `gdal-env` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, for example `3600`, `90s`, `5m`, `12h`, `1d` (a number alone is seconds) |
 | `--scope` | | `openid offline_access` | OAuth2 scopes. `offline_access` lets `creds` renew credentials. |
