@@ -5,7 +5,7 @@
 The command line for [Source Cooperative](https://source.coop). Use it to:
 
 - **Get data credentials.** Sign in through your browser once. AWS tools then get temporary S3 credentials for the Source Cooperative data proxy, and the CLI renews them when they expire.
-- **Manage source.coop.** List, view, create, edit and delete organizations, products, members and service accounts. The source.coop API applies the same rules as the web UI.
+- **Manage source.coop.** List, view, create, edit and delete products, members and service accounts, and create and edit organizations. The source.coop API applies the same rules as the web UI.
 
 All commands work the same way:
 
@@ -297,7 +297,7 @@ source-coop account view my-org
 source-coop account view my-org -w
 ```
 
-`list` shows one row for each account: its ID, its type (`individual` or `organization`) and its name. When piped, the rows are tab-separated, with no header. `list` and `view` show only some of an account's fields. `--json` has all of them, such as its flags.
+`list` shows one row for each account: its ID, its type (`individual` or `organization`) and its name. On a terminal, it shows them in your pager (`--no-pager` prints directly). When piped, the rows are tab-separated, with no header. A disabled organization is left out, with a note, unless you are one of its owners or maintainers: source.coop doesn't show it to its other members. `list` and `view` show only some of an account's fields. `--json` has all of them, such as its flags.
 
 ![`account list`, `view`, then `list --json`](docs/demos/account-list.svg)
 

@@ -4,10 +4,10 @@
 //! are `service-account create`'s. The API never deletes a person or an
 //! organization, so there's no `delete`: `edit --disable` turns one off.
 
-use crate::api::{ApiError, Client};
+use crate::api::Client;
 use crate::draft::Draft;
-use crate::product::{read_fields, str_field, NEEDS_TERMINAL};
-use crate::prompt::{Action, Place, Prompter};
+use crate::product::{one_line, read_fields, str_field, Pager, NEEDS_TERMINAL};
+use crate::prompt::{send_until_accepted, Action, Place, Prompter, Question};
 use clap::{Args, Subcommand};
 use clap_complete::engine::ArgValueCompleter;
 use reqwest::Method;
@@ -35,6 +35,7 @@ pub enum AccountCommand {
         after_help = crate::style::examples(&[
             "source-coop account edit my-org --bio \"Open climate data\" --website example.org --json",
             "source-coop account edit my-org --disable --json",
+            "echo '{\"location\": \"Lisbon\"}' | source-coop account edit my-org -F - --json",
         ])
     )]
     Edit(EditArgs),
@@ -61,6 +62,11 @@ pub struct ListArgs {
     /// Pick an account from the list, then view, open or edit it
     #[arg(long, short = 'i', conflicts_with = "json")]
     interactive: bool,
+
+    /// Print straight to the terminal instead of through $SOURCE_PAGER,
+    /// $PAGER or `less -FRX`
+    #[arg(long)]
+    no_pager: bool,
 }
 
 #[derive(Args)]
@@ -209,8 +215,8 @@ pub async fn run(
 }
 
 /// Your own account, then each account you're a member of, as `/whoami`
-/// tells them; the same as completion offers.
-async fn yours(client: &Client) -> Result<Vec<String>, String> {
+/// tells them; completion offers the same.
+pub(crate) async fn yours(client: &Client) -> Result<Vec<String>, String> {
     let me: Value = client.get(client.url(&["whoami"])).await?;
     let own = me.pointer("/account/account_id").and_then(Value::as_str);
     let orgs = me
@@ -229,13 +235,22 @@ async fn yours(client: &Client) -> Result<Vec<String>, String> {
     Ok(all)
 }
 
-/// Each of your accounts' records, in `yours`' order.
+/// Each of your accounts' records, in `yours`' order. An account the API
+/// doesn't show you is left out, with a note: `/whoami` still lists your
+/// membership of a disabled organization, which only its owners and
+/// maintainers can read (404 for everyone else).
 /// ponytail: one request per account, in turn. People belong to a handful;
 /// fetch them together if someone's list gets slow.
 async fn your_records(client: &Client) -> Result<Vec<Value>, String> {
     let mut records = vec![];
     for id in yours(client).await? {
-        records.push(client.get(account_url(client, &id)).await?);
+        match client.get(account_url(client, &id)).await {
+            Ok(a) => records.push(a),
+            Err(e) if e.status == Some(reqwest::StatusCode::NOT_FOUND) => {
+                eprintln!("Left out {id}: source.coop doesn't show it to you. It may be disabled.")
+            }
+            Err(e) => return Err(e.into()),
+        }
     }
     Ok(records)
 }
@@ -260,23 +275,25 @@ async fn list(args: ListArgs, client: &Client) -> Result<(), String> {
             ]
         })
         .collect();
-    let terminal = std::io::stdout().is_terminal();
-    if !terminal {
+    if !std::io::stdout().is_terminal() {
         // Piped: tab-separated with no header, for `cut` and `awk`.
         for r in rows {
             println!("{}", r.join("\t"));
         }
         return Ok(());
     }
-    // ponytail: no pager. It's one row per account you belong to; page it
-    // as `product list` does if that ever runs past a screen.
     let color = crate::style::wanted(true);
     let width = |i: usize| rows.iter().map(|r| r[i].len()).max().unwrap_or(0).max(4);
     let (w0, w1) = (width(0), width(1));
-    println!("{:<w0$}  {:<w1$}  NAME", "ID", "TYPE");
+    let mut lines = vec![format!("{:<w0$}  {:<w1$}  NAME", "ID", "TYPE")];
     for [id, kind, name] in rows {
         let id = crate::style::id(color, &format!("{id:<w0$}"));
-        println!("{id}  {kind:<w1$}  {name}");
+        lines.push(format!("{id}  {kind:<w1$}  {name}"));
+    }
+    match (!args.no_pager).then(Pager::spawn).flatten() {
+        // A pager quit before the end has nothing left to show.
+        Some(mut pager) => drop(pager.write(&lines)),
+        None => lines.iter().for_each(|l| println!("{l}")),
     }
     Ok(())
 }
@@ -484,9 +501,13 @@ fn ask_create(
                     let key = format!("account-create/{id}");
                     if draft.as_ref().map(|(k, _)| k) != Some(&key) {
                         let saved = Draft::for_key(&key)?;
+                        // Only what the draft fills in counts as given: an
+                        // answer typed before going back to change the ID is
+                        // still asked.
+                        let before: Vec<String> = body.keys().cloned().collect();
                         saved.resume(ask, body)?;
                         for k in body.keys() {
-                            if !given.contains(k) {
+                            if !before.contains(k) && !given.contains(k) {
                                 given.push(k.clone());
                             }
                         }
@@ -585,15 +606,21 @@ async fn create(
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let mut body = args.fields.body()?;
+    // The ID argument wins over one in --from-file (a saved draft holds it).
+    let named = args.account.or_else(|| {
+        body.get("account_id")
+            .and_then(Value::as_str)
+            .map(String::from)
+    });
     let (id, draft) = match prompter.as_deref_mut() {
         Some(ask) => {
             // Before the first question, so nobody fills in a form only to
             // be refused.
             client.check_signed_in().await?;
-            let (id, draft) = ask_create(ask, args.account, &mut body)?;
+            let (id, draft) = ask_create(ask, named, &mut body)?;
             (id, Some(draft))
         }
-        None => match args.account {
+        None => match named {
             Some(id) => (id, None),
             None => return Err("Name the organization to create: its ID.".into()),
         },
@@ -601,7 +628,7 @@ async fn create(
     body.insert("account_id".into(), json!(id));
 
     let url = client.url(&["accounts"]);
-    let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter).await;
+    let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter, question).await;
     let created = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
         None => {
@@ -656,7 +683,7 @@ async fn edit(
         draft = Some(saved);
     }
 
-    let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await;
+    let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter, question).await;
     let account = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
         None => {
@@ -800,59 +827,17 @@ fn prompt_edits(
 
 const EDIT_HINT: &str = "↑/↓ move · Enter edit · s save · Esc cancel";
 
-/// The fields a person can be asked for again when the API rejects them.
-const REASKABLE: [&str; 5] = ["account_id", "name", "bio", "location", "email"];
-
-/// Send `body`, and when the API rejects some of its fields and someone is
-/// there to answer, show why and ask for just those fields again, keeping
-/// every other answer. The API stays the only judge of what's acceptable.
-async fn send_until_accepted(
-    client: &Client,
-    method: Method,
-    url: url::Url,
-    body: &mut Map<String, Value>,
-    mut prompter: Option<&mut dyn Prompter>,
-) -> Result<Value, String> {
-    loop {
-        match client
-            .request::<Value>(method.clone(), url.clone(), Some(&*body))
-            .await
-        {
-            Ok(account) => return Ok(account),
-            Err(e) => match prompter.as_deref_mut() {
-                Some(ask) if reaskable(&e) => {
-                    eprintln!("{e}");
-                    for field in e.field_errors.keys() {
-                        let current = str_field_map(body, field);
-                        let answer = match field.as_str() {
-                            "account_id" => ask.input("Organization ID", &current, false)?,
-                            "bio" => ask.long_text("Bio", &current)?,
-                            f => ask.input(label_of(f), &current, f != "name")?,
-                        };
-                        body.insert(field.clone(), json!(answer));
-                    }
-                }
-                _ => return Err(e.into()),
-            },
-        }
-    }
-}
-
-/// A 400 or 409 naming only fields a person can answer again: a taken ID is
-/// a 409 on `account_id`.
-fn reaskable(e: &ApiError) -> bool {
-    matches!(e.status.map(|s| s.as_u16()), Some(400 | 409))
-        && !e.field_errors.is_empty()
-        && e.field_errors
-            .keys()
-            .all(|f| REASKABLE.contains(&f.as_str()))
-}
-
-fn label_of(key: &str) -> &'static str {
-    LABELS
-        .iter()
-        .find(|(k, _)| *k == key)
-        .map_or("Value", |(_, l)| l)
+/// How `create` and `edit` ask again for a field the API rejected; a taken
+/// ID is a 409 on `account_id`.
+fn question(field: &str) -> Option<Question> {
+    Some(match field {
+        "account_id" => Question::Line("Organization ID", false),
+        "name" => Question::Line("Name", false),
+        "bio" => Question::Long("Bio"),
+        "location" => Question::Line("Location", true),
+        "email" => Question::Line("Email", true),
+        _ => return None,
+    })
 }
 
 /// The account a command was given; `run` fills it in for `-i`.
@@ -881,15 +866,6 @@ fn str_field_map(body: &Map<String, Value>, key: &str) -> String {
         .and_then(Value::as_str)
         .unwrap_or_default()
         .to_string()
-}
-
-/// `text`'s first line, marked "…" when there's more, or "(none)".
-fn one_line(text: &str) -> String {
-    match text.lines().next() {
-        None => "(none)".into(),
-        Some(first) if text.trim_end() != first => format!("{first} …"),
-        Some(first) => first.into(),
-    }
 }
 
 /// The account as JSON, or a line on stderr for the person and its page on
@@ -1088,6 +1064,65 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn create_asks_the_name_again_after_going_back_to_change_the_id() {
+        let server = api_server().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts"))
+            .and(body_json(
+                json!({"account_id": "other-org", "name": "Other Org"}),
+            ))
+            .respond_with(ResponseTemplate::new(201).set_body_json(org("other-org")))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let mut ask = Script::new([
+            Text("new-org"),
+            Default,
+            Back,
+            Back,
+            Text("other-org"),
+            Text("Other Org"),
+            Text(""),
+            Yes(true),
+        ]);
+        create(create_args(None), &client(&server), SITE, Some(&mut ask))
+            .await
+            .unwrap();
+        assert_eq!(
+            ask.asked,
+            [
+                "Organization ID []",
+                "Name [New Org]",
+                "Bio (back)",
+                "Name (back)",
+                "Organization ID [new-org]",
+                "Name [New Org]",
+                "Bio (long) []",
+                "Create this organization? {Organization  other-org | Name          Other Org} [true]",
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn create_takes_the_id_from_the_file_without_a_terminal() {
+        let server = api_server().await;
+        Mock::given(method("POST"))
+            .and(path("/api/v1/accounts"))
+            .and(body_json(json!({"account_id": "filed-org", "name": "F"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(org("filed-org")))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let file = std::env::temp_dir().join(format!("account-create-{}.json", std::process::id()));
+        std::fs::write(&file, r#"{"account_id": "filed-org", "name": "F"}"#).unwrap();
+        let mut args = create_args(None);
+        args.fields.from_file = Some(file.to_string_lossy().into());
+        let result = create(args, &client(&server), SITE, None).await;
+        let _ = std::fs::remove_file(&file);
+        result.unwrap();
+    }
+
+    #[tokio::test]
     async fn create_checks_sign_in_before_asking_anything() {
         let server = MockServer::start().await;
         Mock::given(method("GET"))
@@ -1162,6 +1197,28 @@ mod tests {
         let server = api_server().await;
         // An invitation not yet accepted isn't one of yours.
         assert_eq!(yours(&client(&server)).await.unwrap(), ["acct", "org"]);
+    }
+
+    #[tokio::test]
+    async fn an_account_the_api_hides_is_left_out_not_fatal() {
+        let server = api_server().await;
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/acct"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(org("acct")))
+            .mount(&server)
+            .await;
+        // A disabled organization, to a member who isn't an owner or
+        // maintainer.
+        Mock::given(method("GET"))
+            .and(path("/api/v1/accounts/org"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(json!({
+                "type": "https://source.coop/api/problems/not_found", "title": "Not found",
+                "status": 404, "detail": "No account org"})))
+            .mount(&server)
+            .await;
+        let records = your_records(&client(&server)).await.unwrap();
+        let ids: Vec<&str> = records.iter().map(|a| str_field(a, "account_id")).collect();
+        assert_eq!(ids, ["acct"]);
     }
 
     #[tokio::test]
@@ -1256,6 +1313,7 @@ mod tests {
         let cmd = AccountCommand::List(ListArgs {
             json: false,
             interactive: true,
+            no_pager: false,
         });
         run(cmd, &client(&server), SITE, Some(&mut ask))
             .await

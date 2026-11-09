@@ -8,7 +8,7 @@
 use crate::api::{ApiError, Client, Page};
 use crate::draft::Draft;
 use crate::product::{read_fields, str_field, ProductRef, NEEDS_TERMINAL};
-use crate::prompt::{Action, Place, Prompter};
+use crate::prompt::{send_until_accepted, Action, Place, Prompter, Question};
 use clap::{Args, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCompleter;
 use reqwest::{Method, StatusCode};
@@ -1782,6 +1782,7 @@ async fn create(
         url,
         &mut body,
         prompter.as_deref_mut(),
+        question,
     )
     .await;
     let mut created = match &draft {
@@ -1818,48 +1819,12 @@ async fn create(
     Ok(())
 }
 
-/// The fields a person can be asked for again when the API rejects them.
-const REASKABLE: [&str; 2] = ["name", "local_id"];
-
-/// Send `body`, and when the API rejects only fields a person can answer
-/// again and someone is there, show why and ask for just those. The API
-/// stays the only judge.
-async fn send_until_accepted(
-    client: &Client,
-    method: Method,
-    url: url::Url,
-    body: &mut Map<String, Value>,
-    mut prompter: Option<&mut (dyn Prompter + '_)>,
-) -> Result<Value, String> {
-    loop {
-        let e = match client
-            .request::<Value>(method.clone(), url.clone(), Some(&*body))
-            .await
-        {
-            Ok(v) => return Ok(v),
-            Err(e) => e,
-        };
-        let reaskable = e.status == Some(StatusCode::BAD_REQUEST)
-            && !e.field_errors.is_empty()
-            && e.field_errors
-                .keys()
-                .all(|f| REASKABLE.contains(&f.as_str()));
-        match prompter.as_deref_mut() {
-            Some(ask) if reaskable => {
-                eprintln!("{e}");
-                for field in e.field_errors.keys() {
-                    let label = if field == "name" { "Name" } else { "ID" };
-                    let was = body
-                        .get(field)
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string();
-                    let answer = ask.input(label, &was, false)?;
-                    body.insert(field.clone(), json!(answer.trim()));
-                }
-            }
-            _ => return Err(e.into()),
-        }
+/// How `create` and `edit` ask again for a field the API rejected.
+fn question(field: &str) -> Option<Question> {
+    match field {
+        "name" => Some(Question::Line("Name", false)),
+        "local_id" => Some(Question::Line("ID", false)),
+        _ => None,
     }
 }
 
@@ -1924,7 +1889,7 @@ async fn edit(
     let sent = async {
         if !fields.is_empty() {
             let url = ctx.client.url(&["accounts", &id]);
-            send_until_accepted(ctx.client, Method::PATCH, url, &mut fields, prompter).await?;
+            send_until_accepted(ctx.client, Method::PATCH, url, &mut fields, prompter, question).await?;
         }
         let changes = reach.iter().flat_map(|r| r.as_object()).flatten();
         let mut existing = None;

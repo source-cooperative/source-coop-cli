@@ -37,7 +37,7 @@ Agents learn the CLI from `--help`, which always matches the installed version, 
 
 - **Precedence:** flags win over `-F/--from-file PATH` (`-` for stdin), which wins over prompts.
 - **Prompt only when someone is there to answer:** `prompt::tty()` returns None without a terminal on stdin and stderr, or with `SOURCE_PROMPT_DISABLED` set. Then send what was given and let the API say what's missing. `delete` needs `--yes`.
-- **The API is the only judge.** Don't validate locally. Show its field errors and ask again for just those fields (`send_until_accepted` / `reask` in `src/product.rs`). The one exception mirrors a server rule only to choose what to offer (`creatable_accounts`).
+- **The API is the only judge.** Don't validate locally. Show its field errors and ask again for just those fields (`prompt::send_until_accepted`: give it a `Question` for each field a person can answer again). The one exception mirrors a server rule only to choose what to offer (`creatable_accounts`).
 - **Defaults match the web UI's form**, for example a title made from the ID, and only the data connections and visibilities that are actually allowed.
 
 ## Prompts and interactive flows
