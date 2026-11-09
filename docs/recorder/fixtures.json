@@ -464,6 +464,24 @@
       "key": "demo-data/readings/2026-09.parquet",
       "size": 50331648,
       "last_modified": "2026-09-14T08:30:00Z"
+    },
+    {
+      "bucket": "partner-org",
+      "key": "ocean-buoys/README.md",
+      "size": 3072,
+      "last_modified": "2026-08-02T10:00:00Z"
+    },
+    {
+      "bucket": "partner-org",
+      "key": "ocean-buoys/buoys.parquet",
+      "size": 7340032,
+      "last_modified": "2026-08-02T10:00:00Z"
+    },
+    {
+      "bucket": "partner-org",
+      "key": "ocean-buoys/observations/2026.parquet",
+      "size": 94371840,
+      "last_modified": "2026-10-01T10:00:00Z"
     }
   ]
 }

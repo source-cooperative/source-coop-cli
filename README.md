@@ -4,7 +4,7 @@
 
 The command line for [Source Cooperative](https://source.coop). Use it to:
 
-- **Get data credentials.** Sign in through your browser once. AWS tools then get temporary S3 credentials for the Source Cooperative data proxy, and the CLI renews them when they expire.
+- **Get data credentials.** Sign in through your browser once. AWS tools then get temporary S3 credentials for the Source Cooperative data proxy, and the CLI renews them when they expire. `exec` runs any S3 tool against the proxy, signed in or not.
 - **Manage source.coop.** List, view, create, edit and delete products, members and service accounts, and create and edit organizations. The source.coop API applies the same rules as the web UI.
 
 All commands work the same way:
@@ -31,6 +31,9 @@ source-coop product create
 
 # after you add the AWS profile (below)
 aws s3 ls s3://my-org/my-data --profile source-coop
+
+# or with no profile at all
+source-coop exec -- aws s3 ls s3://my-org/my-data/
 ```
 
 `source-coop --help` lists the commands. `source-coop <command> --help` lists the flags of a command, with examples.
@@ -285,6 +288,50 @@ aws_session_token = ...
 > [!TIP]
 > These credentials are temporary. When they expire, run the command again. Each run adds a new section, and AWS uses the last one, so remove old sections occasionally. We recommend `credential_process` in `~/.aws/config` instead.
 
+### Run a tool with `exec`
+
+`exec` runs a command with the data proxy as its S3 endpoint and your credentials in its environment, as `aws-vault exec` does for AWS. It needs no profile, and works for tools that can't use one: GDAL (QGIS, rasterio, geopandas), Rust's `object_store` (obstore, Polars) and s5cmd.
+
+```bash
+source-coop exec -- aws s3 ls s3://my-org/my-data/
+source-coop exec -- aws s3 cp s3://my-org/my-data/data.parquet .
+source-coop exec -- s5cmd cp 's3://my-org/my-data/*.parquet' ./local/
+source-coop exec -- gdalinfo /vsis3/my-org/my-data/image.tif
+source-coop exec -- python script.py
+```
+
+Everything after `--` is the command, flags included. The command's exit code is passed on.
+
+![`exec`: the AWS CLI and s5cmd with your credentials and the proxy, no profile](docs/demos/exec.svg)
+
+The command gets:
+
+- **Credentials:** `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN` and `AWS_CREDENTIAL_EXPIRATION`.
+- **The proxy as its S3 endpoint**, under each tool's name for it: `AWS_ENDPOINT_URL_S3` (the AWS CLI v2.13+ and SDKs), `S3_ENDPOINT_URL` (s5cmd), `AWS_ENDPOINT` (`object_store`, with `AWS_ALLOW_HTTP` for a plain-HTTP proxy), and `AWS_S3_ENDPOINT`, `AWS_HTTPS` and `AWS_VIRTUAL_HOSTING=FALSE` (GDAL's `/vsis3/`). Only S3 goes to the proxy: calls a script makes to other AWS services keep their own endpoints.
+- **A region**, `AWS_REGION` and `AWS_DEFAULT_REGION` set to `us-west-2`, only if neither is set already, as signing needs one.
+
+`AWS_PROFILE`, `AWS_DEFAULT_PROFILE` and `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` are removed, so a profile can't lend other credentials or send these anywhere but the proxy. `--role-arn` and `--proxy-url` (or `SOURCE_ROLE_ARN` and `SOURCE_PROXY_URL`) select the role and environment, as for `creds`.
+
+The credentials are fetched once, when the command starts. Cached ones are used if they have at least 15 minutes left. Otherwise `exec` gets new ones. A command still running when they expire (an hour after they're fetched, unless you signed in with `--duration`) must be run again. For long jobs, use the [`credential_process` profile](#reading-data-with-aws-tools), which renews them.
+
+**Not signed in,** `exec` still runs the command, unsigned, so it can read public products. It says so on stderr, and:
+
+- tells GDAL and `object_store` not to sign (`AWS_NO_SIGN_REQUEST=YES`, `AWS_SKIP_SIGNATURE=true`);
+- hides every other AWS key from the command, because the proxy refuses keys it doesn't know, even for public data: it removes `AWS_ACCESS_KEY_ID` and the other credential variables, points `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` at an empty file, and sets `AWS_EC2_METADATA_DISABLED=true`.
+
+The AWS CLI and s5cmd sign every request unless given `--no-sign-request`, and without credentials they stop with `Unable to locate credentials` or `NoCredentialProviders`. `exec` suggests the flag when it's missing:
+
+```bash
+source-coop exec -- aws --no-sign-request s3 ls s3://cholmes/admin-boundaries/
+source-coop exec -- s5cmd --no-sign-request ls s3://cholmes/admin-boundaries/
+```
+
+A product that isn't public is refused with `AccessDenied`, as it is to anyone not signed in.
+
+![`exec` signed out: unsigned, a public product listed, a restricted one refused](docs/demos/exec-signed-out.svg)
+
+If you are signed in but the session can't be renewed (the refresh token expired or was revoked), `exec` stops with the error instead of running unsigned. Run `source-coop auth login` again, or `source-coop auth logout` to read public data unsigned.
+
 ### Multiple roles
 
 > [!WARNING]
@@ -334,6 +381,8 @@ The data proxy accepts a write when all of these are true. Otherwise it answers 
 - **Your role writes.** The default role does. `ReadOnly` does not.
 
 Name the object, or end the path with `/`. `aws s3 cp data.parquet s3://my-org/my-data` has no object key, and the proxy refuses it with `Missing object key`.
+
+`exec` writes too, signed in: `source-coop exec -- aws s3 sync ./output s3://my-org/my-data/output/`.
 
 To upload from a GitHub Actions workflow or a script, sign in as a [service account](#service-accounts) with write access to the product (see [Access to products](#access-to-products)). `service-account usage` prints a workflow that signs in (see [Use a service account](#use-a-service-account)). Replace its last step, `aws s3 ls`, with your `aws s3 sync`.
 
@@ -1019,7 +1068,7 @@ With `--json`:
 - Field names are the API's. Times are RFC 3339.
 - New fields can be added. Fields are not renamed or removed.
 
-These commands do not accept `--json`, because their output is already for machines: `creds` (`--format`), `auth token` (a token), `api` (the API's response), `completions` (a shell script) and `service-account usage` (a workflow or shell exports). `auth login` does not accept it either, because it uses the browser. Use `auth status --json` after it.
+These commands do not accept `--json`, because their output is already for machines: `creds` (`--format`), `auth token` (a token), `api` (the API's response), `completions` (a shell script), `service-account usage` (a workflow or shell exports) and `exec` (its command's output, and its command's exit code). `auth login` does not accept it either, because it uses the browser. Use `auth status --json` after it.
 
 With `--json`, an error is also JSON, on stderr. If the error came from the API, it contains the data of the API's [RFC 9457](https://www.rfc-editor.org/rfc/rfc9457) problem:
 
@@ -1062,7 +1111,7 @@ curl -H "Authorization: Bearer $(source-coop auth token)" https://source.coop/ap
 
 ![`auth token`: the session's access token, for `curl`](docs/demos/auth-token.svg)
 
-To send a request through the CLI, see [Any API request](#any-api-request).
+To send a request through the CLI, see [Any API request](#any-api-request). To read or write data, run the S3 tool through [`exec`](#run-a-tool-with-exec): `source-coop exec -- aws s3 ls s3://ACCOUNT/PRODUCT/`.
 
 ## Any API request
 
@@ -1109,7 +1158,7 @@ The CLI has no configuration file. Flags and environment variables set all value
 | `SOURCE_PROXY_URL` | `--proxy-url` | `https://data.source.coop` | The environment: the data proxy, and the session and credentials to use |
 | `SOURCE_API_URL` | `--api-url` | `https://source.coop` | The source.coop site whose API (`/api/v1`) commands use |
 | `SOURCE_TOKEN` | | | A bearer token for the API, used instead of the session's |
-| `SOURCE_ROLE_ARN` | `--role-arn` | `_default` | The role for `creds`, `auth login`, `status` and `logout` |
+| `SOURCE_ROLE_ARN` | `--role-arn` | `_default` | The role for `creds`, `exec`, `auth login`, `status` and `logout` |
 | `SOURCE_OIDC_ISSUER` | `--issuer` | `https://auth.source.coop` | Where `auth login` signs in |
 | `SOURCE_OIDC_CLIENT_ID` | `--client-id` | source.coop's | The OAuth2 client for `auth login` |
 | `SOURCE_API_AUDIENCE` | `--audience` | `https://source.coop` | The audience of the API access token that `auth login` requests |
@@ -1203,7 +1252,9 @@ The session is in `source-coop/session.json`. Other environments use the same la
 
 **`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
 
-**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again.
+**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` or `exec` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again.
+
+**`Unable to locate credentials` or `NoCredentialProviders` under `exec`.** You are not signed in, so `exec` runs the command unsigned, and the AWS CLI and s5cmd then need `--no-sign-request`. Add it to read public data, or run `source-coop auth login`. See [Run a tool with `exec`](#run-a-tool-with-exec).
 
 **macOS asks for your keychain password.** macOS asks the first time a new build reads the `source-coop-cli` keychain items, for example after an upgrade. Select **Always Allow** so that it does not ask again until the next upgrade.
 
