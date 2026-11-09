@@ -462,6 +462,15 @@ source-coop product view my-org/my-product -i
 
 On a terminal, `list` shows the products in your pager and gets more pages as you read. In other cases, it stops at `--limit`. To continue from there, give `--cursor` the cursor that the last list printed.
 
+`view` and the details format show the product's `S3` path and the data proxy to read it through, such as `s3://demo-org/demo-data/ on https://data.source.coop`. An S3 tool needs both: the path alone sends requests to AWS. With `--json`, each product also has `s3_uri` and `s3_endpoint`, the proxy (`--proxy-url`, `https://data.source.coop` by default) to send requests to. Use those, not a mirror's `prefix`, which is where the proxy keeps the data in its storage. Public data can be read without signing in:
+
+```bash
+p=$(source-coop product view my-org/my-product --json)
+aws s3 ls "$(jq -r .s3_uri <<<"$p")" --endpoint-url "$(jq -r .s3_endpoint <<<"$p")" --no-sign-request
+```
+
+To read restricted data or to write, see [Reading data with AWS tools](#reading-data-with-aws-tools).
+
 ![`product list`: a table, a search, then `--json`](docs/demos/product-list.svg)
 
 `list -i` and `view -i` show products full screen. [Browsing with `-i`](#browsing-with--i) lists the keys.
@@ -1020,7 +1029,7 @@ Commands that change data print the record after the change. `service-account ed
 With `--json`:
 
 - stdout contains one JSON document and nothing else. Notes and progress go to stderr.
-- Field names are the API's. Times are RFC 3339.
+- Field names are the API's. Times are RFC 3339. A few fields are added to spare scripts work, such as a product's `s3_uri` and `s3_endpoint`.
 - New fields can be added. Fields are not renamed or removed.
 
 These commands do not accept `--json`, because their output is already for machines: `creds` (`--format`), `auth token` (a token), `api` (the API's response), `completions` (a shell script) and `service-account usage` (a workflow or shell exports). `auth login` does not accept it either, because it uses the browser. Use `auth status --json` after it.

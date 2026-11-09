@@ -115,7 +115,8 @@ pub struct ListArgs {
     #[arg(long, value_enum, default_value_t = ListFormat::Details)]
     format: ListFormat,
 
-    /// Print the products as JSON
+    /// Print the products as JSON, each with `s3_uri` and `s3_endpoint`: where
+    /// to read its data with S3 tools
     #[arg(long)]
     json: bool,
 
@@ -153,7 +154,8 @@ pub struct ViewArgs {
     #[arg(long, short = 'w')]
     web: bool,
 
-    /// Print the product as JSON
+    /// Print the product as JSON, with `s3_uri` and `s3_endpoint`: where to
+    /// read its data with S3 tools
     #[arg(long)]
     json: bool,
 }
@@ -291,10 +293,18 @@ impl ProductRef {
     }
 }
 
+/// Where products are found: the site, for their pages, and the S3 data
+/// proxy (`--proxy-url`), whose `s3://ACCOUNT/PRODUCT/` holds their data.
+#[derive(Clone, Copy)]
+pub struct Site<'a> {
+    pub web: &'a str,
+    pub proxy: &'a str,
+}
+
 pub async fn run(
     cmd: ProductCommand,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     match cmd {
@@ -342,7 +352,7 @@ fn named(product: &Option<ProductRef>) -> Result<ProductRef, String> {
         .ok_or_else(|| "Name the product as ACCOUNT/PRODUCT, or pass -i to pick it.".into())
 }
 
-async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String> {
+async fn list(args: ListArgs, client: &Client, site: Site<'_>) -> Result<(), String> {
     let url = args.filters.url(client);
 
     // On a terminal, stream pages into a pager as they come: a full pipe holds
@@ -387,7 +397,9 @@ async fn list(args: ListArgs, client: &Client, site: &str) -> Result<(), String>
     let paged = pager.is_some();
     drop(pager);
     if args.json {
-        print_json(&Value::Array(items));
+        print_json(&Value::Array(
+            items.into_iter().map(|p| with_s3(p, site)).collect(),
+        ));
     } else if count == 0 {
         eprintln!("No products found.");
     } else if !paged {
@@ -478,7 +490,7 @@ fn visibility_label(color: bool, visibility: &str) -> String {
 async fn browse_products(
     url: url::Url,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     ask: &mut dyn Prompter,
     choosing: bool,
 ) -> Result<Option<ProductRef>, String> {
@@ -592,7 +604,7 @@ enum After {
 async fn product_screen(
     product: &mut Value,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     ask: &mut dyn Prompter,
 ) -> Result<(After, Option<String>), String> {
     let color = crate::style::wanted(std::io::stdout().is_terminal());
@@ -629,14 +641,14 @@ async fn act(
     key: char,
     product: &mut Value,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     ask: &mut dyn Prompter,
 ) -> Result<(After, Option<String>), String> {
     let p: ProductRef = name(product).parse()?;
     let told = |e: String| Some(crate::prompt::describe(&e));
     let notice = match key {
         'b' => {
-            let url = p.web_url(site);
+            let url = p.web_url(site.web);
             match open::that(&url) {
                 Ok(()) => Some(format!("Opened {url} in your browser.")),
                 Err(e) => Some(format!("Couldn't open a browser: {e}")),
@@ -741,7 +753,7 @@ impl Drop for Pager {
 async fn view(
     args: ViewArgs,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     if args.interactive {
@@ -759,13 +771,13 @@ async fn view(
     }
     let p = named(&args.product)?;
     if args.web {
-        let url = p.web_url(site);
+        let url = p.web_url(site.web);
         eprintln!("Opening {url} in your browser.");
         return open::that(&url).map_err(|e| format!("Couldn't open a browser: {e}"));
     }
     let product: Value = client.get(product_url(client, &p)).await?;
     if args.json {
-        print_json(&product);
+        print_json(&with_s3(product, site));
     } else {
         print_product(&product, site);
     }
@@ -1092,7 +1104,7 @@ async fn ask_create(
 async fn create(
     args: CreateArgs,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let mut body = read_fields(args.fields.from_file.as_deref())?;
@@ -1131,7 +1143,7 @@ async fn create(
             created
         }
     };
-    report(&created, args.json, "Created", site);
+    report(created, args.json, "Created", site);
     Ok(())
 }
 
@@ -1229,7 +1241,7 @@ pub(crate) fn title_from_id(id: &str) -> String {
 async fn edit(
     args: EditArgs,
     client: &Client,
-    site: &str,
+    site: Site<'_>,
     mut prompter: Option<&mut dyn Prompter>,
 ) -> Result<(), String> {
     let target = named(&args.product)?;
@@ -1280,7 +1292,7 @@ async fn edit(
             product
         }
     };
-    report(&product, args.json, "Edited", site);
+    report(product, args.json, "Edited", site);
     Ok(())
 }
 
@@ -1492,13 +1504,13 @@ fn insert_some(body: &mut Map<String, Value>, key: &str, value: Option<String>) 
 
 /// The product as JSON, or a line on stderr for the person and its URL on
 /// stdout for a script: `url=$(source-coop product create ...)`.
-fn report(product: &Value, as_json: bool, verb: &str, site: &str) {
+fn report(product: Value, as_json: bool, verb: &str, site: Site<'_>) {
     if as_json {
-        print_json(product);
+        print_json(&with_s3(product, site));
     } else {
-        let name = name(product);
+        let name = name(&product);
         eprintln!("{verb} {name}");
-        println!("{}/{name}", site.trim_end_matches('/'));
+        println!("{}/{name}", site.web.trim_end_matches('/'));
     }
 }
 
@@ -1518,7 +1530,25 @@ fn print_json(v: &Value) {
     crate::output::json(v);
 }
 
-fn print_product(p: &Value, site: &str) {
+/// Where to read the product's data through the S3 proxy. Its mirrors'
+/// `prefix` is where the proxy keeps it, not a path to read.
+fn s3_uri(product: &Value) -> String {
+    format!("s3://{}/", name(product))
+}
+
+/// The product as `--json` prints it: the API's record, plus `s3_uri` and
+/// the `s3_endpoint` to read it on, so scripts needn't put them together.
+fn with_s3(mut product: Value, site: Site<'_>) -> Value {
+    let uri = s3_uri(&product);
+    if let Some(fields) = product.as_object_mut() {
+        fields.insert("s3_uri".into(), uri.into());
+        let endpoint = site.proxy.trim_end_matches('/');
+        fields.insert("s3_endpoint".into(), endpoint.into());
+    }
+    product
+}
+
+fn print_product(p: &Value, site: Site<'_>) {
     let color = crate::style::wanted(std::io::stdout().is_terminal());
     for line in product_lines(p, site, color) {
         println!("{line}");
@@ -1528,14 +1558,14 @@ fn print_product(p: &Value, site: &str) {
 /// The title, then one `Label  value` row per field, then the description.
 /// `color` adds ANSI styling: bold title, dim labels, and the visibility and
 /// flags in green, yellow or red.
-fn product_lines(p: &Value, site: &str, color: bool) -> Vec<String> {
+fn product_lines(p: &Value, site: Site<'_>, color: bool) -> Vec<String> {
     product_lines_at(p, site, color, chrono::Utc::now())
 }
 
 /// `product_lines` with relative dates counted from `now`.
 fn product_lines_at(
     p: &Value,
-    site: &str,
+    site: Site<'_>,
     color: bool,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Vec<String> {
@@ -1635,7 +1665,17 @@ fn product_lines_at(
             "URL",
             Some(paint(
                 "4",
-                &format!("{}/{name}", site.trim_end_matches('/')),
+                &format!("{}/{name}", site.web.trim_end_matches('/')),
+            )),
+        ),
+        // With its endpoint: a bare s3:// path pasted into an AWS tool goes to
+        // AWS itself, to a bucket named after the account.
+        (
+            "S3",
+            Some(format!(
+                "{} on {}",
+                s3_uri(p),
+                site.proxy.trim_end_matches('/')
             )),
         ),
     ]
@@ -1671,13 +1711,13 @@ struct Layout<'a> {
     /// Writing to a terminal (or a pager on one) rather than a pipe
     terminal: bool,
     color: bool,
-    site: &'a str,
+    site: Site<'a>,
     widths: Option<[usize; 2]>,
     started: bool,
 }
 
 impl<'a> Layout<'a> {
-    fn new(format: ListFormat, terminal: bool, site: &'a str) -> Self {
+    fn new(format: ListFormat, terminal: bool, site: Site<'a>) -> Self {
         Layout {
             format,
             terminal,
@@ -1765,7 +1805,10 @@ mod tests {
     };
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
-    const SITE: &str = "https://source.coop";
+    const SITE: Site = Site {
+        web: "https://source.coop",
+        proxy: "https://data.source.coop",
+    };
 
     fn product(account: &str, id: &str) -> Value {
         json!({"account_id": account, "product_id": id, "title": format!("{id} title"),
@@ -2011,7 +2054,15 @@ mod tests {
         });
         let now = "2026-10-14T12:00:00Z".parse().unwrap();
         assert_eq!(
-            product_lines_at(&p, "https://source.coop/", false, now),
+            product_lines_at(
+                &p,
+                Site {
+                    web: "https://source.coop/",
+                    ..SITE
+                },
+                false,
+                now
+            ),
             [
                 "A product",
                 "",
@@ -2026,12 +2077,13 @@ mod tests {
                 "Created     2024-12-13T20:32:55Z (1 year ago)",
                 "Updated     2026-10-13T20:00:00Z (16 hours ago)",
                 "URL         https://source.coop/acct/p",
+                "S3          s3://acct/p/ on https://data.source.coop",
                 "",
                 "Line one",
                 "Line two",
             ]
         );
-        let colored = product_lines_at(&p, "https://source.coop", true, now);
+        let colored = product_lines_at(&p, SITE, true, now);
         assert_eq!(colored[0], "\x1b[1mA product\x1b[0m");
         assert!(colored[3].contains("\x1b[32mpublic\x1b[0m"));
         assert!(
@@ -2042,7 +2094,7 @@ mod tests {
         // A bare product says what it lacks rather than leaving rows out.
         let bare = json!({"account_id": "a", "product_id": "b", "title": "B"});
         // (Labels pad to the widest present, so compare words.)
-        let words: Vec<String> = product_lines_at(&bare, "https://source.coop", false, now)
+        let words: Vec<String> = product_lines_at(&bare, SITE, false, now)
             .iter()
             .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
             .collect();
@@ -2060,7 +2112,7 @@ mod tests {
     fn table_lines_up_on_a_terminal_and_tabs_when_piped() {
         let items = [product("a", "one"), product("longer", "two")];
         let terminal = |color| {
-            let mut layout = Layout::new(ListFormat::Table, true, "");
+            let mut layout = Layout::new(ListFormat::Table, true, SITE);
             layout.color = color;
             layout.page(&items)
         };
@@ -2081,14 +2133,14 @@ mod tests {
             "\x1b[90ma/one     \x1b[0m  public      one title"
         );
         assert_eq!(
-            Layout::new(ListFormat::Table, false, "").page(&items),
+            Layout::new(ListFormat::Table, false, SITE).page(&items),
             ["a/one\tpublic\tone title", "longer/two\tpublic\ttwo title"]
         );
     }
 
     #[test]
     fn details_rule_off_products_across_pages() {
-        let mut layout = Layout::new(ListFormat::Details, false, "https://source.coop");
+        let mut layout = Layout::new(ListFormat::Details, false, SITE);
         let first = layout.page(&[product("a", "one")]);
         assert_eq!(first[0], "one title");
         assert!(first.contains(&"URL         https://source.coop/a/one".to_string()));
@@ -2172,7 +2224,23 @@ mod tests {
             format: ListFormat::Table,
             no_pager: false,
         };
-        list(args, &client, "https://source.coop").await.unwrap();
+        list(args, &client, SITE).await.unwrap();
+    }
+
+    #[test]
+    fn json_adds_where_to_read_the_data_through_the_proxy() {
+        let p = json!({
+            "account_id": "acct", "product_id": "p", "title": "A product",
+            "metadata": {"mirrors": {"m": {"connection_id": "c", "prefix": "backend/acct/p/"}}}
+        });
+        let staging = Site {
+            proxy: "https://data.staging.source.coop/",
+            ..SITE
+        };
+        let mut expected = p.clone();
+        expected["s3_uri"] = json!("s3://acct/p/");
+        expected["s3_endpoint"] = json!("https://data.staging.source.coop");
+        assert_eq!(with_s3(p, staging), expected);
     }
 
     #[tokio::test]
@@ -2846,7 +2914,7 @@ mod tests {
             Browse(1, Action::Back), // quit
         ]);
         let url = filters.url(&client);
-        browse_products(url, &client, "https://source.coop", &mut ask, false)
+        browse_products(url, &client, SITE, &mut ask, false)
             .await
             .unwrap();
 
@@ -2954,14 +3022,9 @@ mod tests {
         args.product = None;
         args.interactive = true;
         args.fields.title = Some("New".into());
-        run(
-            ProductCommand::Edit(args),
-            &client,
-            "https://source.coop",
-            Some(&mut ask),
-        )
-        .await
-        .unwrap();
+        run(ProductCommand::Edit(args), &client, SITE, Some(&mut ask))
+            .await
+            .unwrap();
         assert_eq!(
             ask.asked,
             ["Products [acct/a  a title  public] of acct/a  a title  public | acct/prod  prod title  public (keys )"]

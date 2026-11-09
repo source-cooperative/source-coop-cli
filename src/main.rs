@@ -341,7 +341,8 @@ struct Site {
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
-    /// Data proxy URL: selects the environment whose login session to use
+    /// Data proxy URL: selects the environment whose login session to use,
+    /// and is the `s3_endpoint` that product `--json` gives
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 }
@@ -492,7 +493,11 @@ async fn run() {
             let result = match args.site.connect(verbose).await {
                 Ok((client, mut tty)) => {
                     let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
-                    product::run(args.command, &client, &args.site.api_url, prompter).await
+                    let site = product::Site {
+                        web: &args.site.api_url,
+                        proxy: &args.site.proxy_url,
+                    };
+                    product::run(args.command, &client, site, prompter).await
                 }
                 Err(e) => Err(e),
             };
