@@ -1,0 +1,35 @@
+{
+ "duration": 16.998,
+ "steps": [
+  {
+   "time": 0.759,
+   "label": "$ source-coop member revoke demo-org linus-demo"
+  },
+  {
+   "time": 3.633,
+   "label": "Withdraw linus-demo's invitation? · y"
+  },
+  {
+   "time": 7.314,
+   "label": "$ source-coop member leave demo-org"
+  },
+  {
+   "time": 9.568,
+   "label": "Type the name to confirm · \"demo-or\" Enter"
+  },
+  {
+   "time": 13.238,
+   "label": "$ echo \"exit $?\""
+  }
+ ],
+ "keys": [
+  {
+   "time": 5.549,
+   "key": "y"
+  },
+  {
+   "time": 12.479,
+   "key": "Enter"
+  }
+ ]
+}

@@ -1,0 +1,19 @@
+{
+ "duration": 11.583,
+ "steps": [
+  {
+   "time": 0.76,
+   "label": "$ curl -s -H \"Authorization: Bearer $(source-coop auth token)\" \\"
+  },
+  {
+   "time": 4.532,
+   "label": "\"  $SOURCE_API_URL/api/v1/whoami | jq -c '.account | {account_id, name}'\" Enter"
+  }
+ ],
+ "keys": [
+  {
+   "time": 8.988,
+   "key": "Enter"
+  }
+ ]
+}
