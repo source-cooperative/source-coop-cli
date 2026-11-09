@@ -84,7 +84,7 @@
 <p>With <code>--json</code>:</p>
 <ul>
 <li>stdout contains one JSON document and nothing else. Notes and progress go to stderr.</li>
-<li>Field names are the API's. Times are RFC 3339.</li>
+<li>Field names are the API's. Times are RFC 3339. A few fields are added to spare scripts work, such as a product's <code>s3_uri</code> and <code>s3_endpoint</code>.</li>
 <li>New fields can be added. Fields are not renamed or removed.</li>
 </ul>
 <p>These commands do not accept <code>--json</code>, because their output is already for machines: <code>creds</code> (<code>--format</code>), <code>auth token</code> (a token), <code>api</code> (the API's response), <code>completions</code> (a shell script) and <code>service-account usage</code> (a workflow or shell exports). <code>auth login</code> does not accept it either, because it uses the browser. Use <code>auth status --json</code> after it.</p>
