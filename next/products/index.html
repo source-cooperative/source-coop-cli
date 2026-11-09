@@ -58,13 +58,13 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../products/" aria-current="page">Products</a><ul><li><a href="#list-and-view">List and view</a></li><li><a href="#create">Create</a></li><li><a href="#edit">Edit</a></li><li><a href="#delete">Delete</a></li></ul></li><li><a href="../members/">Members</a></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/">Accounts</a></li><li><a href="../products/" aria-current="page">Products</a><ul><li><a href="#list-and-view-1">List and view</a></li><li><a href="#create">Create</a></li><li><a href="#edit-1">Edit</a></li><li><a href="#delete">Delete</a></li></ul></li><li><a href="../members/">Members</a></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
     </details>
   </nav>
   <main id="main">
 <h1 id="products">Products</h1>
 <p><code>source-coop product</code> lists, views, creates, edits and deletes products through the source.coop API (<code>/api/v1</code>). The CLI does not check values itself. It shows the API's errors for each field. A product's name is <code>ACCOUNT/PRODUCT</code>.</p>
-<h3 id="list-and-view">List and view</h3>
+<h3 id="list-and-view-1">List and view</h3>
 <pre><code class="language-bash"><span class="c1"># public products</span>
 <span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>list
 
@@ -129,7 +129,7 @@
 <p>You cannot change a product's data connection after you create it. For how to go back, the review, and drafts, see <a href="../prompts/">Prompts</a>.</p>
 <p><code>create</code> prints the product's URL on stdout and its message on stderr. Thus <code>url=$(source-coop product create ...)</code> works.</p>
 <figure class="demo" data-demo="product-create"><noscript><img src="../demos/product-create.svg" alt="product create with prompts: ↑ goes back a question, then the review"></noscript><figcaption><code>product create</code> with prompts: ↑ goes back a question, then the review</figcaption></figure>
-<h3 id="edit">Edit</h3>
+<h3 id="edit-1">Edit</h3>
 <pre><code class="language-bash"><span class="c1"># a form of its fields</span>
 <span class="nf">source-coop</span><span class="w"> </span>product<span class="w"> </span>edit<span class="w"> </span>my-org/my-product
 
@@ -177,7 +177,7 @@
 <p>Without a terminal, <code>delete</code> needs <code>--yes</code>.</p>
 <figure class="demo" data-demo="product-delete"><noscript><img src="../demos/product-delete.svg" alt="product delete: the name typed wrong, then right, then --yes"></noscript><figcaption><code>product delete</code>: the name typed wrong, then right, then <code>--yes</code></figcaption></figure>
 
-    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../uploading-data-with-aws-tools/" rel="prev"><span>Previous</span>Uploading data with AWS tools</a><a class="pager-next" href="../members/" rel="next"><span>Next</span>Members</a></nav>
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../accounts/" rel="prev"><span>Previous</span>Accounts</a><a class="pager-next" href="../members/" rel="next"><span>Next</span>Members</a></nav>
   </main>
 </div>
 <footer class="bottom">

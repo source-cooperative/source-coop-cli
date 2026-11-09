@@ -58,7 +58,7 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../products/">Products</a></li><li><a href="../members/" aria-current="page">Members</a><ul><li><a href="#list-and-view-1">List and view</a></li><li><a href="#invite">Invite</a></li><li><a href="#edit-1">Edit</a></li><li><a href="#revoke-and-leave">Revoke and leave</a></li></ul></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/">Accounts</a></li><li><a href="../products/">Products</a></li><li><a href="../members/" aria-current="page">Members</a><ul><li><a href="#list-and-view-2">List and view</a></li><li><a href="#invite">Invite</a></li><li><a href="#edit-2">Edit</a></li><li><a href="#revoke-and-leave">Revoke and leave</a></li></ul></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
     </details>
   </nav>
   <main id="main">
@@ -79,7 +79,7 @@
 </ul>
 <p>With <code>--json</code>, these commands print the memberships as the API gives them: <code>membership_id</code>, <code>account_id</code>, <code>membership_account_id</code>, <code>product_id</code> (for a product), <code>role</code>, <code>state</code> and <code>state_changed</code>. <code>invite --json</code> prints an array of the new memberships.</p>
 <p><code>create</code> and <code>delete</code> are other names for <code>invite</code> and <code>revoke</code>.</p>
-<h3 id="list-and-view-1">List and view</h3>
+<h3 id="list-and-view-2">List and view</h3>
 <pre><code class="language-bash"><span class="c1"># members and open invitations</span>
 <span class="nf">source-coop</span><span class="w"> </span>member<span class="w"> </span>list<span class="w"> </span>my-org
 
@@ -123,7 +123,7 @@
 <li>If you invite a service account of the product's owner, it becomes a member at once. Its role must be <code>read_data</code> or <code>write_data</code>.</li>
 </ul>
 <figure class="demo" data-demo="member-invite"><noscript><img src="../demos/member-invite.svg" alt="member invite with prompts, then from flags with --json"></noscript><figcaption><code>member invite</code> with prompts, then from flags with <code>--json</code></figcaption></figure>
-<h3 id="edit-1">Edit</h3>
+<h3 id="edit-2">Edit</h3>
 <pre><code class="language-bash"><span class="c1"># give a member another role</span>
 <span class="nf">source-coop</span><span class="w"> </span>member<span class="w"> </span>edit<span class="w"> </span>my-org<span class="w"> </span>alice<span class="w"> </span><span class="na">--role</span><span class="w"> </span>owners
 
