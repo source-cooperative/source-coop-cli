@@ -226,6 +226,10 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 ## Reading data with AWS tools
 
+Each product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy, `https://data.source.coop`. Public data needs no sign-in. [Access Data](https://docs.source.coop/data-proxy) on docs.source.coop shows how to read it, anonymously or signed in, with the AWS CLI, DuckDB, GDAL and Python.
+
+This section covers the credentials the CLI gives AWS tools, for restricted data and for [writes](#uploading-data-with-aws-tools).
+
 ### AWS `credential_process`
 
 1. Sign in once:
@@ -1061,6 +1065,10 @@ All commands use the same exit codes:
 
 ![Without a terminal: errors, `--json`, exit codes and `-F -`](docs/demos/scripting.svg)
 
+### Read data
+
+A product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy (`--proxy-url`, `https://data.source.coop` by default). Public data needs no sign-in; [Access Data](https://docs.source.coop/data-proxy) shows each tool's settings. Restricted data and writes need the credentials from `creds` (see [Reading data with AWS tools](#reading-data-with-aws-tools)).
+
 ### Use the API without signing in
 
 If `SOURCE_TOKEN` is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without `auth login`.
@@ -1119,7 +1127,7 @@ The CLI has no configuration file. Flags and environment variables set all value
 
 | Env var | Flag | Default | Sets |
 |---------|------|---------|------|
-| `SOURCE_PROXY_URL` | `--proxy-url` | `https://data.source.coop` | The environment: the data proxy, and the session and credentials to use |
+| `SOURCE_PROXY_URL` | `--proxy-url` | `https://data.source.coop` | The environment: the data proxy (the S3 endpoint for AWS tools), and the session and credentials to use |
 | `SOURCE_API_URL` | `--api-url` | `https://source.coop` | The source.coop site whose API (`/api/v1`) commands use |
 | `SOURCE_TOKEN` | | | A bearer token for the API, used instead of the session's |
 | `SOURCE_ROLE_ARN` | `--role-arn` | `_default` | The role for `creds`, `auth login`, `status` and `logout` |
@@ -1170,7 +1178,7 @@ endpoint_url = https://data.staging.source.coop
 |------|---------|---------|-------------|
 | `--issuer` | `SOURCE_OIDC_ISSUER` | `https://auth.source.coop` | OIDC issuer URL |
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `197e20e7-...` | OAuth2 client ID |
-| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS. Also selects the environment of the session. |
+| `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | The data proxy: the S3 endpoint for AWS tools, and the URL for STS. Also selects the environment of the session. |
 | `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
 | `--format` | | `credential-process` | Output format: `credential-process`, `env` or `aws-credentials` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
@@ -1216,7 +1224,7 @@ The session is in `source-coop/session.json`. Other environments use the same la
 
 **`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
 
-**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again.
+**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again. The message also says that public data needs no credentials (see [Access Data](https://docs.source.coop/data-proxy)).
 
 **macOS asks for your keychain password.** macOS asks the first time a new build reads the `source-coop-cli` keychain items, for example after an upgrade. Select **Always Allow** so that it does not ask again until the next upgrade.
 
