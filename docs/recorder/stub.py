@@ -67,6 +67,28 @@ def with_account(p):
     return dict(p, account={k: a[k] for k in PUBLIC if k in a})
 
 
+PROFILE = ("bio", "location", "ror_id", "orcid")
+
+
+def edit_account(a, body):
+    """Apply an UpdateAccount body as the API stores it: profile fields in
+    `metadata_public` (an empty string clears one), websites as its domains,
+    an organization's email as an unverified address."""
+    for k, v in body.items():
+        if k in PROFILE:
+            if v:
+                a["metadata_public"][k] = v
+            else:
+                a["metadata_public"].pop(k, None)
+        elif k == "websites":
+            a["metadata_public"]["domains"] = [{"domain": w, "status": "unverified", "created_at": now()} for w in v]
+        elif k == "email":
+            a["emails"] = [{"address": v, "verified": False, "is_primary": True, "added_at": now()}] if v else []
+        else:
+            a[k] = v
+    a["updated_at"] = now()
+
+
 def find_product(account, product):
     return next((p for p in products if (p["account_id"], p["product_id"]) == (account, product)), None)
 
@@ -158,12 +180,27 @@ def handle(method, path, q, body):
         if "expires_at" in body:
             k["expires_at"] = body["expires_at"]
         return 200, k
+    if path == "/accounts" and method == "POST":
+        if body.get("account_id") in accounts:
+            return error(409, "conflict", "An account already holds this ID",
+                         {"account_id": "An account already holds this ID"})
+        a = {"account_id": body.get("account_id"), "type": "organization", "name": body.get("name", ""),
+             "disabled": False, "flags": [], "emails": [], "metadata_public": {},
+             "created_at": now(), "updated_at": now()}
+        edit_account(a, {k: v for k, v in body.items() if k not in ("account_id", "owner_account_id")})
+        accounts[a["account_id"]] = a
+        # Its owner is you, as a member with the `owners` role.
+        m = {"membership_id": str(uuid.uuid4()), "account_id": me, "membership_account_id": a["account_id"],
+             "role": "owners", "state": "member", "state_changed": now()}
+        memberships.append(m)
+        data["whoami"]["memberships"].append(m)
+        return 201, a
     if r := re.fullmatch(r"/accounts/([^/]+)", path):
         a = accounts.get(r[1])
         if not a:
             return error(404, "not_found", f"No account {r[1]}")
         if method == "PATCH":
-            a.update(body, updated_at=now())
+            edit_account(a, body)
         if method == "DELETE":
             del accounts[r[1]]
         return 200, a

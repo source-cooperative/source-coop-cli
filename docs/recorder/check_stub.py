@@ -48,6 +48,10 @@ def requests(fx):
         ("POST", f"/products/{product['account_id']}", {"product_id": "Not An ID"}),  # a 400 problem
         ("GET", "/data-connections", None),
         ("GET", f"/accounts/{service['account_id']}", None),
+        ("GET", f"/accounts/{owner}", None),
+        ("PATCH", f"/accounts/{owner}", {"bio": "Edited", "websites": ["example.org"]}),
+        ("POST", "/accounts", {"account_id": "new-demo-org", "name": "New Demo Org"}),
+        ("POST", "/accounts", {"account_id": owner, "name": "Taken"}),  # a 409 problem
         ("GET", f"/accounts/{owner}/service-accounts", None),
         ("GET", f"/accounts/{service['account_id']}/trusts", None),
         ("GET", f"/accounts/{service['account_id']}/keys", None),

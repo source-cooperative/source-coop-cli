@@ -8,6 +8,72 @@ use crate::picker::Line;
 use dialoguer::{theme::ColorfulTheme, Confirm, Editor, Select};
 use std::io::IsTerminal;
 
+/// How to ask again for a field the API rejected.
+pub enum Question {
+    /// A line of text, trimmed; `true` when it may be left empty.
+    Line(&'static str, bool),
+    /// Text that may run to paragraphs.
+    Long(&'static str),
+    /// One of these.
+    Choice(&'static str, Vec<String>),
+}
+
+/// Send `body`, and when the API rejects some of its fields (400, or 409 for
+/// a taken ID) and someone is there to answer, show why and ask for just
+/// those fields again, keeping every other answer. `question` says how to ask
+/// for each field that can be asked again: an error naming any other is
+/// returned as it is. The API stays the only judge of what's acceptable.
+pub async fn send_until_accepted(
+    client: &crate::api::Client,
+    method: reqwest::Method,
+    url: url::Url,
+    body: &mut serde_json::Map<String, serde_json::Value>,
+    mut prompter: Option<&mut (dyn Prompter + '_)>,
+    question: impl Fn(&str) -> Option<Question>,
+) -> Result<serde_json::Value, String> {
+    loop {
+        let e = match client
+            .request::<serde_json::Value>(method.clone(), url.clone(), Some(&*body))
+            .await
+        {
+            Ok(v) => return Ok(v),
+            Err(e) => e,
+        };
+        let questions: Option<Vec<(String, Question)>> = e
+            .field_errors
+            .keys()
+            .map(|f| question(f).map(|q| (f.clone(), q)))
+            .collect();
+        let rejected = matches!(e.status.map(|s| s.as_u16()), Some(400 | 409));
+        let (Some(ask), Some(questions), true) = (prompter.as_deref_mut(), questions, rejected)
+        else {
+            return Err(e.into());
+        };
+        if questions.is_empty() {
+            return Err(e.into());
+        }
+        eprintln!("{e}");
+        for (field, q) in questions {
+            let was = body
+                .get(&field)
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default()
+                .to_string();
+            let answer = match q {
+                Question::Line(label, allow_empty) => {
+                    ask.input(label, &was, allow_empty)?.trim().to_string()
+                }
+                Question::Long(label) => ask.long_text(label, &was)?,
+                Question::Choice(label, options) => {
+                    let at = options.iter().position(|o| *o == was).unwrap_or(0);
+                    options[ask.select(label, &options, at)?].clone()
+                }
+            };
+            body.insert(field, serde_json::Value::String(answer));
+        }
+    }
+}
+
 /// What someone did in a `browse` list or at a `keypress`.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Action {
@@ -528,6 +594,60 @@ pub mod scripted {
 #[cfg(test)]
 mod tests {
     use super::scripted::{Answer::*, Script};
+
+    /// A taken ID (409) is asked for again, trimmed; an error on a field
+    /// with no question is the command's error.
+    #[tokio::test]
+    async fn send_until_accepted_asks_again_only_for_what_it_can() {
+        use serde_json::json;
+        use wiremock::matchers::{body_json, method};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        let problem = |field: &str| {
+            json!({"type": "https://source.coop/api/problems/conflict", "title": "Conflict",
+                   "status": 409, "detail": "Taken", "errors": [{"pointer": format!("#/{field}"), "detail": "taken"}]})
+        };
+        Mock::given(method("POST"))
+            .and(body_json(json!({"id": "taken"})))
+            .respond_with(ResponseTemplate::new(409).set_body_json(problem("id")))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(body_json(json!({"id": "free"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(json!({"id": "free"})))
+            .mount(&server)
+            .await;
+        let client = crate::api::Client::new(&server.uri(), Some("t".into()), false).unwrap();
+        let url = client.url(&["things"]);
+        let question = |f: &str| (f == "id").then_some(Question::Line("ID", false));
+
+        let mut body = json!({"id": "taken"}).as_object().unwrap().clone();
+        let mut ask = Script::new([Text(" free ")]);
+        let sent = send_until_accepted(
+            &client,
+            reqwest::Method::POST,
+            url.clone(),
+            &mut body,
+            Some(&mut ask),
+            question,
+        )
+        .await;
+        assert_eq!(sent.unwrap(), json!({"id": "free"}));
+        assert_eq!(ask.asked, ["ID [taken]"]);
+
+        // Without a terminal, the first refusal is the answer.
+        let mut body = json!({"id": "taken"}).as_object().unwrap().clone();
+        let err = send_until_accepted(
+            &client,
+            reqwest::Method::POST,
+            url,
+            &mut body,
+            None,
+            question,
+        )
+        .await;
+        assert!(err.unwrap_err().contains("Taken"));
+    }
     use super::*;
 
     #[test]

@@ -1,9 +1,9 @@
 //! `source-coop product`: list, view, create, edit and delete products through
 //! `/api/v1/products`.
 
-use crate::api::{ApiError, Client, Page};
+use crate::api::{Client, Page};
 use crate::draft::Draft;
-use crate::prompt::{Action, Place, Prompter};
+use crate::prompt::{send_until_accepted, Action, Place, Prompter, Question};
 use clap::{Args, Subcommand, ValueEnum};
 use clap_complete::engine::ArgValueCompleter;
 use reqwest::Method;
@@ -1120,7 +1120,7 @@ async fn create(
     let key = format!("product-create/{product}");
 
     let url = client.url(&["products", &product.account_id]);
-    let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter).await;
+    let sent = send_until_accepted(client, Method::POST, url, &mut body, prompter, question).await;
     let created = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
         None => {
@@ -1135,77 +1135,17 @@ async fn create(
     Ok(())
 }
 
-/// The fields a person can be asked for again when the API rejects them.
-const REASKABLE: [&str; 5] = [
-    "product_id",
-    "title",
-    "description",
-    "visibility",
-    "data_connection_id",
-];
-
-/// Send `body`, and when the API rejects some of its fields and someone is
-/// there to answer, show why and ask for just those fields again, keeping
-/// every other answer. The API stays the only judge of what's acceptable.
-async fn send_until_accepted(
-    client: &Client,
-    method: Method,
-    url: url::Url,
-    body: &mut Map<String, Value>,
-    mut prompter: Option<&mut dyn Prompter>,
-) -> Result<Value, String> {
-    loop {
-        match client
-            .request::<Value>(method.clone(), url.clone(), Some(&*body))
-            .await
-        {
-            Ok(product) => return Ok(product),
-            Err(e) => match prompter.as_deref_mut() {
-                Some(ask) if reaskable(&e) => {
-                    eprintln!("{e}");
-                    reask(ask, &e, body)?;
-                }
-                _ => return Err(e.into()),
-            },
-        }
-    }
-}
-
-/// A 400 naming only fields a person can answer again.
-fn reaskable(e: &ApiError) -> bool {
-    e.status == Some(reqwest::StatusCode::BAD_REQUEST)
-        && !e.field_errors.is_empty()
-        && e.field_errors
-            .keys()
-            .all(|f| REASKABLE.contains(&f.as_str()))
-}
-
-fn reask(
-    ask: &mut dyn Prompter,
-    e: &ApiError,
-    body: &mut Map<String, Value>,
-) -> Result<(), String> {
-    for field in e.field_errors.keys() {
-        let current = body
-            .get(field)
-            .and_then(Value::as_str)
-            .unwrap_or("")
-            .to_string();
-        let answer = match field.as_str() {
-            "product_id" => ask.input("Product ID", &current, false)?,
-            "title" => ask.input("Title", &current, false)?,
-            "description" => ask.long_text("Description", &current)?,
-            "visibility" => {
-                let options: Vec<String> = VISIBILITIES.iter().map(|v| v.to_string()).collect();
-                let default = options.iter().position(|v| *v == current).unwrap_or(0);
-                options[ask.select("Visibility", &options, default)?].clone()
-            }
-            "data_connection_id" => ask.input("Data connection ID", &current, false)?,
-            _ => unreachable!("reaskable() checked every field"),
-        };
-        body.insert(field.clone(), json!(answer));
-    }
-    Ok(())
+/// How `create` and `edit` ask again for a field the API rejected.
+fn question(field: &str) -> Option<Question> {
+    let all = || VISIBILITIES.iter().map(|v| v.to_string()).collect();
+    Some(match field {
+        "product_id" => Question::Line("Product ID", false),
+        "title" => Question::Line("Title", false),
+        "description" => Question::Long("Description"),
+        "visibility" => Question::Choice("Visibility", all()),
+        "data_connection_id" => Question::Line("Data connection ID", false),
+        _ => return None,
+    })
 }
 
 /// The data connections a product of `account_id` could be stored on, as the
@@ -1273,7 +1213,7 @@ fn connection_label(c: &Value) -> String {
 }
 
 /// `my-new-product` → `My New Product`.
-fn title_from_id(id: &str) -> String {
+pub(crate) fn title_from_id(id: &str) -> String {
     id.split(['-', '_'])
         .filter(|w| !w.is_empty())
         .map(|w| {
@@ -1329,7 +1269,7 @@ async fn edit(
         draft = Some(saved);
     }
 
-    let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter).await;
+    let sent = send_until_accepted(client, Method::PATCH, url, &mut body, prompter, question).await;
     let product = match &draft {
         Some(draft) => draft.finish(sent, &body)?,
         None => {
@@ -1482,7 +1422,7 @@ fn prompt_edits(
 const EDIT_HINT: &str = "↑/↓ move · Enter edit · s save · Esc cancel";
 
 /// `text`'s first line, marked "…" when there's more, or "(none)".
-fn one_line(text: &str) -> String {
+pub(crate) fn one_line(text: &str) -> String {
     match text.lines().next() {
         None => "(none)".into(),
         Some(first) if text.trim_end() != first => format!("{first} …"),

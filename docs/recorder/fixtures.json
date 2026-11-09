@@ -6,7 +6,8 @@
       "type": "individual",
       "name": "Demo User",
       "flags": [
-        "create_repositories"
+        "create_repositories",
+        "create_organizations"
       ],
       "disabled": false,
       "created_at": "2025-01-02T09:00:00Z",
@@ -31,7 +32,8 @@
       "type": "individual",
       "name": "Demo User",
       "flags": [
-        "create_repositories"
+        "create_repositories",
+        "create_organizations"
       ],
       "disabled": false,
       "created_at": "2025-01-02T09:00:00Z",
@@ -49,7 +51,25 @@
       ],
       "created_at": "2025-01-02T09:00:00Z",
       "updated_at": "2025-01-02T09:00:00Z",
-      "metadata_public": {}
+      "metadata_public": {
+        "bio": "Made-up open data, for demos of the source.coop CLI.",
+        "location": "Nowhere in particular",
+        "domains": [
+          {
+            "domain": "demo-org.example",
+            "status": "verified",
+            "created_at": "2025-01-02T09:00:00Z"
+          }
+        ]
+      },
+      "emails": [
+        {
+          "address": "data@demo-org.example",
+          "verified": true,
+          "is_primary": true,
+          "added_at": "2025-01-02T09:00:00Z"
+        }
+      ]
     },
     {
       "account_id": "demo-org--nightly-sync",

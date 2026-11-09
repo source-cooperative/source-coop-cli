@@ -91,6 +91,11 @@ pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
     })
 }
 
+/// An organization to create, whose ID is new: nothing to offer.
+pub fn new_account(_: &OsStr) -> Vec<CompletionCandidate> {
+    vec![]
+}
+
 /// An organization you belong to (`ACCOUNT`), or one of its products
 /// (`ACCOUNT/PRODUCT`).
 pub fn scope(current: &OsStr) -> Vec<CompletionCandidate> {
@@ -282,22 +287,7 @@ async fn new_products(client: &Client, current: &str) -> Result<Vec<String>, Str
 
 /// Your own account, then the organizations you're a member of.
 async fn accounts(client: &Client, current: &str) -> Result<Vec<String>, String> {
-    let me: Value = client.get(client.url(&["whoami"])).await?;
-    let own = me.pointer("/account/account_id").and_then(Value::as_str);
-    let orgs = me
-        .get("memberships")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter(|m| m.get("state").and_then(Value::as_str) == Some("member"))
-        .filter_map(|m| m.get("membership_account_id")?.as_str());
-    let mut all: Vec<String> = vec![];
-    for a in own.into_iter().chain(orgs) {
-        if !all.iter().any(|x| x == a) {
-            all.push(a.to_string());
-        }
-    }
-    Ok(starting_with(all, current))
+    Ok(starting_with(crate::account::yours(client).await?, current))
 }
 
 /// Before a `/`, your accounts both as they are (an organization) and as
