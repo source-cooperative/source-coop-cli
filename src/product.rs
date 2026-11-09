@@ -1143,7 +1143,7 @@ async fn create(
             created
         }
     };
-    report(&created, args.json, "Created", site);
+    report(created, args.json, "Created", site);
     Ok(())
 }
 
@@ -1292,7 +1292,7 @@ async fn edit(
             product
         }
     };
-    report(&product, args.json, "Edited", site);
+    report(product, args.json, "Edited", site);
     Ok(())
 }
 
@@ -1504,11 +1504,11 @@ fn insert_some(body: &mut Map<String, Value>, key: &str, value: Option<String>) 
 
 /// The product as JSON, or a line on stderr for the person and its URL on
 /// stdout for a script: `url=$(source-coop product create ...)`.
-fn report(product: &Value, as_json: bool, verb: &str, site: Site<'_>) {
+fn report(product: Value, as_json: bool, verb: &str, site: Site<'_>) {
     if as_json {
-        print_json(&with_s3(product.clone(), site));
+        print_json(&with_s3(product, site));
     } else {
-        let name = name(product);
+        let name = name(&product);
         eprintln!("{verb} {name}");
         println!("{}/{name}", site.web.trim_end_matches('/'));
     }
