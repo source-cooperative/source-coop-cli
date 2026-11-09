@@ -524,13 +524,22 @@ Without a terminal, `revoke` and `leave` need `--yes`.
 
 `source-coop invitation` answers the invitations that you receive. To invite someone, see [Members](#members).
 
+### List
+
 ```bash
 # invitations that wait for your answer
 source-coop invitation list
 
+# as JSON
+source-coop invitation list --json
+
 # open one, then accept (a) or reject (r) it
 source-coop invitation list -i
+```
 
+### Accept and reject
+
+```bash
 # accept an invitation to a product
 source-coop invitation accept my-org/my-data
 
