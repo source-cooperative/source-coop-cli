@@ -141,7 +141,9 @@ class Session:
         """What the recording shows in place of the run's own URLs and paths:
         production's names, so the stub's ports and the temp HOME don't
         distract. Nothing reaches production; the names are only drawn."""
-        names = {self.stub_url: "https://source.coop", self.proxy_url: "https://data.source.coop"}
+        names = {self.stub_url: "https://source.coop", self.proxy_url: "https://data.source.coop",
+                 # the proxy's bare host, as DuckDB and GDAL take it
+                 self.proxy_url.removeprefix("http://"): "data.source.coop"}
         for home in {self.home, os.path.realpath(self.home)}:
             names[home] = "~"
         return names

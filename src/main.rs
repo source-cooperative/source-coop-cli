@@ -101,7 +101,8 @@ enum Commands {
     #[command(subcommand)]
     Auth(AuthCommand),
     /// Output cached credentials as credential_process JSON, shell env vars,
-    /// or an AWS credentials-file profile, refreshing them first if expired
+    /// an AWS credentials-file profile or a DuckDB secret, refreshing them
+    /// first if expired
     Creds(CredsArgs),
     /// Print the script that sets up TAB completion of commands, flags and
     /// product names in your shell
@@ -390,6 +391,8 @@ enum OutputFormat {
     Env,
     /// AWS credentials file (INI) profile
     AwsCredentials,
+    /// DuckDB SQL creating an S3 secret for the proxy: `duckdb -cmd "$(source-coop creds --format duckdb)"`
+    Duckdb,
 }
 
 /// Report a command's error and exit with the code for its kind (see
@@ -929,6 +932,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
             OutputFormat::AwsCredentials => {
                 output::print_aws_credentials(&creds, &args.output.profile)
             }
+            OutputFormat::Duckdb => {
+                println!("{}", output::duckdb_secret(&creds, &args.env.proxy_url)?)
+            }
         }
         return Ok(());
     }
@@ -1017,6 +1023,12 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         OutputFormat::Env => output::print_env(&entry.creds),
         OutputFormat::AwsCredentials => {
             output::print_aws_credentials(&entry.creds, &args.output.profile)
+        }
+        OutputFormat::Duckdb => {
+            println!(
+                "{}",
+                output::duckdb_secret(&entry.creds, &args.env.proxy_url)?
+            )
         }
     }
     Ok(())

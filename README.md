@@ -254,7 +254,7 @@ When the credentials expire, `source-coop creds` gets new ones with the session.
 
 ### Output formats
 
-`creds` and `auth login` print credentials in one of three formats. Select one with `--format`:
+`creds` and `auth login` print credentials in one of four formats. Select one with `--format`:
 
 **credential-process** (default): JSON for AWS `credential_process`.
 
@@ -284,6 +284,28 @@ aws_session_token = ...
 
 > [!TIP]
 > These credentials are temporary. When they expire, run the command again. Each run adds a new section, and AWS uses the last one, so remove old sections occasionally. We recommend `credential_process` in `~/.aws/config` instead.
+
+**duckdb**: SQL that creates a [DuckDB](https://duckdb.org) S3 secret named `source_coop`. DuckDB ignores `AWS_ENDPOINT_URL` and `endpoint_url` in `~/.aws/config`, so the secret names the proxy itself (from `--proxy-url`), with path-style URLs. Run it when DuckDB starts, then read `s3://ACCOUNT/PRODUCT/...`:
+
+```bash
+duckdb -cmd "$(source-coop creds --format duckdb)"
+```
+
+```sql
+SELECT count(*) FROM 's3://my-account/my-product/data.parquet';
+```
+
+In Python:
+
+```python
+import subprocess, duckdb
+
+con = duckdb.connect()
+con.execute(subprocess.check_output(["source-coop", "creds", "--format", "duckdb"], text=True))
+con.sql("SELECT count(*) FROM 's3://my-account/my-product/data.parquet'").show()
+```
+
+The secret lasts as long as the DuckDB session, and the credentials in it expire like the others: when they do, run it again. Like every format, it prints the secret key on stdout, so don't save it where others can read it.
 
 ### Multiple roles
 
@@ -1159,7 +1181,7 @@ endpoint_url = https://data.staging.source.coop
 | `--client-id` | `SOURCE_OIDC_CLIENT_ID` | `197e20e7-...` | OAuth2 client ID |
 | `--proxy-url` | `SOURCE_PROXY_URL` | `https://data.source.coop` | S3 proxy URL for STS. Also selects the environment of the session. |
 | `--role-arn` | `SOURCE_ROLE_ARN` | `_default` | Role ARN to assume |
-| `--format` | | `credential-process` | Output format: `credential-process`, `env` or `aws-credentials` |
+| `--format` | | `credential-process` | Output format: `credential-process`, `env`, `aws-credentials` or `duckdb` |
 | `--profile` | | `source-coop` | Profile name for `--format aws-credentials` |
 | `--duration` | | | Session duration, for example `3600`, `90s`, `5m`, `12h`, `1d` (a number alone is seconds) |
 | `--scope` | | `openid offline_access` | OAuth2 scopes. `offline_access` lets `creds` renew credentials. |
