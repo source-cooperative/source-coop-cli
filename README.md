@@ -40,11 +40,11 @@ aws s3 ls s3://my-org/my-data --profile source-coop
 **Contents**
 
 - **Get started:** [Install](#install), [Signing in](#signing-in)
-- **Get data:** [Reading data with AWS tools](#reading-data-with-aws-tools)
-- **Manage source.coop:** [Products](#managing-products), [Members](#managing-members), [Service accounts](#managing-service-accounts), [Service account sign-ins](#service-account-sign-ins)
+- **Work with data:** [Reading data with AWS tools](#reading-data-with-aws-tools), [Uploading data with AWS tools](#uploading-data-with-aws-tools)
+- **Manage source.coop:** [Products](#products), [Members](#members), [Invitations](#invitations), [Service accounts](#service-accounts)
 - **How commands work:** [Prompts](#prompts), [Browsing with `-i`](#browsing-with--i), [Shell completion](#shell-completion)
 - **Automate:** [Scripts and AI agents](#scripts-and-ai-agents), [Any API request](#any-api-request)
-- **Reference:** [Configuration](#configuration), [Credential storage](#credential-storage)
+- **Reference:** [Configuration](#configuration), [Credential storage](#credential-storage), [Troubleshooting](#troubleshooting)
 
 ## Install
 
@@ -80,6 +80,46 @@ To see the installed version:
 ```bash
 source-coop --version
 ```
+
+### Upgrade
+
+Upgrade the way you installed:
+
+```bash
+# Homebrew
+brew upgrade source-coop
+
+# from source
+cargo install --force --git https://github.com/source-cooperative/source-coop-cli
+```
+
+With the installer script, run it again. It replaces the installed version with the latest release.
+
+The [changelog](https://github.com/source-cooperative/source-coop-cli/blob/main/CHANGELOG.md) lists what each release changes. On macOS, the first command after an upgrade that reads your session can ask for your keychain password (see [Troubleshooting](#troubleshooting)).
+
+### Uninstall
+
+1. Sign out, to remove the session and cached credentials from the OS keyring:
+
+   ```bash
+   source-coop auth logout
+   ```
+
+   This removes one environment and one role. Run it again with `--role-arn` or `--proxy-url` for each other one that you used.
+
+2. Remove the CLI:
+
+   ```bash
+   # Homebrew
+   brew uninstall source-coop
+
+   # installer script or from source
+   rm ~/.cargo/bin/source-coop
+   ```
+
+   On Windows, delete `source-coop.exe` from `%USERPROFILE%\.cargo\bin`.
+
+3. Remove the files it kept: the `source-coop` folders in the [file fallback](#file-fallback) and [drafts](#prompts) locations, if they exist.
 
 ## Signing in
 
@@ -182,7 +222,7 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 ![`auth logout --json`, then `auth status` and `creds` signed out](docs/demos/auth-logout.svg)
 
-<!-- group: Get data -->
+<!-- group: Work with data -->
 
 ## Reading data with AWS tools
 
@@ -272,9 +312,34 @@ credential_process = source-coop creds --role-arn admin-role
 endpoint_url = https://data.source.coop
 ```
 
+## Uploading data with AWS tools
+
+The profile from [Reading data with AWS tools](#reading-data-with-aws-tools) also writes:
+
+```bash
+# one file
+aws s3 cp data.parquet s3://my-org/my-data/data.parquet --profile source-coop
+
+# a folder, copying only new and changed files
+aws s3 sync ./output s3://my-org/my-data/output/ --profile source-coop
+
+# remove an object
+aws s3 rm s3://my-org/my-data/old.parquet --profile source-coop
+```
+
+The data proxy accepts a write when all of these are true. Otherwise it answers `AccessDenied`.
+
+- **You may write to the product:** you are a member of it, or of its organization, as `write_data`, `maintainers` or `owners` (see [Members](#members)).
+- **Its data connection accepts writes.** A read-only connection refuses them, whoever writes.
+- **Your role writes.** The default role does. `ReadOnly` does not.
+
+Name the object, or end the path with `/`. `aws s3 cp data.parquet s3://my-org/my-data` has no object key, and the proxy refuses it with `Missing object key`.
+
+To upload from a GitHub Actions workflow or a script, sign in as a [service account](#service-accounts) with write access to the product (see [Access to products](#access-to-products)). `service-account usage` prints a workflow that signs in (see [Use a service account](#use-a-service-account)). Replace its last step, `aws s3 ls`, with your `aws s3 sync`.
+
 <!-- group: Manage source.coop -->
 
-## Managing products
+## Products
 
 `source-coop product` lists, views, creates, edits and deletes products through the source.coop API (`/api/v1`). The CLI does not check values itself. It shows the API's errors for each field. A product's name is `ACCOUNT/PRODUCT`.
 
@@ -414,9 +479,9 @@ Without a terminal, `delete` needs `--yes`.
 
 ![`product delete`: the name typed wrong, then right, then `--yes`](docs/demos/product-delete.svg)
 
-## Managing members
+## Members
 
-`source-coop member` manages the members of an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`). `source-coop invitation` answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.
+`source-coop member` manages the members of an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`). [`source-coop invitation`](#invitations) answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.
 
 **Roles**, from most to least access: `owners`, `maintainers`, `write_data`, `read_data`.
 
@@ -520,15 +585,26 @@ Without a terminal, `revoke` and `leave` need `--yes`.
 
 ![`member revoke` an invitation, then `member leave` with the name typed wrong](docs/demos/member-revoke.svg)
 
-### Your invitations
+## Invitations
+
+`source-coop invitation` answers the invitations that you receive. To invite someone, see [Members](#members).
+
+### List
 
 ```bash
 # invitations that wait for your answer
 source-coop invitation list
 
+# as JSON
+source-coop invitation list --json
+
 # open one, then accept (a) or reject (r) it
 source-coop invitation list -i
+```
 
+### Accept and reject
+
+```bash
 # accept an invitation to a product
 source-coop invitation accept my-org/my-data
 
@@ -543,7 +619,7 @@ When you accept, you become a member with the role of the invitation. With `--js
 
 ![`invitation list -i`: accept one, then reject another](docs/demos/invitations.svg)
 
-## Managing service accounts
+## Service accounts
 
 A service account is an account for software, such as a GitHub Actions workflow or a script with an API key. It has an owner: you, or an organization that you own or maintain. source.coop must first let that account own service accounts.
 
@@ -661,7 +737,7 @@ With no flags, `edit` opens a full-screen form with **Name**, then the products 
 
 ![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account-access.svg)
 
-## Service account sign-ins
+### Sign-ins
 
 A service account signs in in one of two ways:
 
@@ -1046,3 +1122,19 @@ If there is no OS keyring (for example on servers, in containers and in CI), the
 | Windows | `%LocalAppData%\source-coop\credentials\<role>.json` |
 
 The session is in `source-coop/session.json`. Other environments use the same layout in `source-coop/env/<host>/`, or in `source-coop/env/<host>/<port>/` if the port is not the default. For example: `source-coop/env/data.staging.source.coop/session.json`.
+
+## Troubleshooting
+
+**`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
+
+**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again.
+
+**macOS asks for your keychain password.** macOS asks the first time a new build reads the `source-coop-cli` keychain items, for example after an upgrade. Select **Always Allow** so that it does not ask again until the next upgrade.
+
+**`AccessDenied` from AWS tools.** The data proxy refused the request. To read a product that is not public, or to write to any product, you must be a member with a role that allows it. Writes have more conditions, in [Uploading data](#uploading-data-with-aws-tools). Check your role with `source-coop member list ACCOUNT` (the organization) or `ACCOUNT/PRODUCT`.
+
+**Exit code 4 or 5.** A command exits with 4 when you are not signed in or not allowed, and 5 when the record does not exist. With `--json`, the error on stderr gives the HTTP `status` and, if the API sent one, a `request_id`. See [Exit codes](#exit-codes).
+
+**A GitHub workflow cannot sign in as a service account.** The trusted subject must match what GitHub puts in the workflow's token, character for character. See [Sign-ins](#sign-ins) for how the CLI finds the repository's subject.
+
+**Reporting a problem.** [Open an issue](https://github.com/source-cooperative/source-coop-cli/issues) with `source-coop --version`, the command, and the `request_id` from the error if there is one.
