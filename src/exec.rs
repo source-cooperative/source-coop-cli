@@ -20,12 +20,19 @@ pub struct Env {
 /// Removed whether signed or not. A profile could hold other credentials or
 /// an endpoint; the env vars already win, but naming one invites confusion
 /// over which applied. And tools told to ignore configured endpoints would
-/// send requests to AWS itself rather than the proxy.
+/// send requests to AWS itself rather than the proxy. A general
+/// `AWS_ENDPOINT_URL` (LocalStack, say) is read by `object_store` as its S3
+/// endpoint, and could win over the proxy's `AWS_ENDPOINT`.
 const ALWAYS_REMOVED: &[&str] = &[
     "AWS_PROFILE",
     "AWS_DEFAULT_PROFILE",
     "AWS_IGNORE_CONFIGURED_ENDPOINT_URLS",
+    "AWS_ENDPOINT_URL",
 ];
+
+/// Removed when signing: switches a user may have exported to read public
+/// buckets, which would make GDAL and `object_store` skip the credentials.
+const SKIP_SIGNING: &[&str] = &["AWS_NO_SIGN_REQUEST", "AWS_SKIP_SIGNATURE"];
 
 /// Removed when running unsigned: every other way an AWS tool finds keys.
 /// Keys the proxy doesn't know (anyone's real AWS keys) are refused even for
@@ -92,12 +99,15 @@ pub fn env(creds: Option<&Credentials>, proxy_url: &str, region_set: bool) -> En
     }
     let mut remove = ALWAYS_REMOVED.to_vec();
     match creds {
-        Some(creds) => set.extend([
-            ("AWS_ACCESS_KEY_ID", creds.access_key_id.clone()),
-            ("AWS_SECRET_ACCESS_KEY", creds.secret_access_key.clone()),
-            ("AWS_SESSION_TOKEN", creds.session_token.clone()),
-            ("AWS_CREDENTIAL_EXPIRATION", creds.expiration.clone()),
-        ]),
+        Some(creds) => {
+            remove.extend(SKIP_SIGNING);
+            set.extend([
+                ("AWS_ACCESS_KEY_ID", creds.access_key_id.clone()),
+                ("AWS_SECRET_ACCESS_KEY", creds.secret_access_key.clone()),
+                ("AWS_SESSION_TOKEN", creds.session_token.clone()),
+                ("AWS_CREDENTIAL_EXPIRATION", creds.expiration.clone()),
+            ]);
+        }
         None => {
             remove.extend(OTHER_CREDENTIALS);
             set.extend([
@@ -125,11 +135,14 @@ pub fn unsigned_hint(command: &[String]) -> Option<String> {
     if !matches!(name, "aws" | "s5cmd") || args.iter().any(|a| a == "--no-sign-request") {
         return None;
     }
-    let args: Vec<_> = args.iter().map(|a| quoted(a)).collect();
+    let words: Vec<_> = std::iter::once(program.as_str())
+        .chain(["--no-sign-request"])
+        .chain(args.iter().map(String::as_str))
+        .map(quoted)
+        .collect();
     Some(format!(
-        "{name} needs --no-sign-request to run unsigned: \
-         source-coop exec -- {program} --no-sign-request {}",
-        args.join(" ")
+        "{name} needs --no-sign-request to run unsigned: source-coop exec -- {}",
+        words.join(" ")
     ))
 }
 
@@ -211,6 +224,10 @@ mod tests {
             None,
             "only S3 goes to the proxy"
         );
+        assert!(
+            env.remove.contains(&"AWS_ENDPOINT_URL"),
+            "a general endpoint can't take object_store's S3 requests"
+        );
         assert_eq!(
             get(&env, "AWS_S3_ENDPOINT"),
             Some("data.staging.source.coop")
@@ -220,7 +237,8 @@ mod tests {
         assert_eq!(get(&env, "AWS_ALLOW_HTTP"), None);
         assert_eq!(get(&env, "AWS_REGION"), Some("us-west-2"));
         assert_eq!(get(&env, "AWS_DEFAULT_REGION"), Some("us-west-2"));
-        // Signed: nothing says to skip signing, and only profiles go.
+        // Signed: nothing says to skip signing, and switches to skip it
+        // that the user exported are removed along with profiles.
         for name in [
             "AWS_NO_SIGN_REQUEST",
             "AWS_SKIP_SIGNATURE",
@@ -228,7 +246,7 @@ mod tests {
         ] {
             assert_eq!(get(&env, name), None, "{name}");
         }
-        assert_eq!(env.remove, ALWAYS_REMOVED);
+        assert_eq!(env.remove, [ALWAYS_REMOVED, SKIP_SIGNING].concat());
     }
 
     #[test]
@@ -304,6 +322,14 @@ mod tests {
             None
         );
         assert_eq!(unsigned_hint(&cmd("gdalinfo /vsis3/acct/p/a.tif")), None);
+        let spaced = vec!["/opt/my tools/aws".to_string(), "s3".into(), "ls".into()];
+        assert_eq!(
+            unsigned_hint(&spaced).as_deref(),
+            Some(
+                "aws needs --no-sign-request to run unsigned: \
+                 source-coop exec -- '/opt/my tools/aws' --no-sign-request s3 ls"
+            )
+        );
     }
 
     #[test]

@@ -223,6 +223,9 @@ impl ApiError {
     }
 }
 
+/// The error when there's no login session, for API calls and credentials.
+pub const NOT_SIGNED_IN: &str = "Not signed in: run 'source-coop auth login'.";
+
 /// The User-Agent sent to source.coop, so the server can tell CLI traffic,
 /// and its version, from browsers and curl.
 pub const USER_AGENT: &str = concat!("source-coop-cli/", env!("CARGO_PKG_VERSION"));
@@ -347,9 +350,7 @@ impl Client {
     /// a member of.
     pub async fn check_signed_in(&self) -> Result<serde_json::Value, ApiError> {
         if self.token.is_none() {
-            return Err(ApiError::other(
-                "Not signed in: run 'source-coop auth login'.".into(),
-            ));
+            return Err(ApiError::other(NOT_SIGNED_IN.into()));
         }
         self.get(self.url(&["whoami"])).await
     }

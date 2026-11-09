@@ -1055,8 +1055,9 @@ async fn run_exec(args: ExecArgs, verbose: bool) -> Result<(), String> {
         EXEC_MIN_LIFETIME,
         verbose,
     )
-    .await;
-    let (env, notes) = exec_env(&args.command, &args.env.proxy_url, signed(creds)?);
+    .await?
+    .map(|entry| entry.creds);
+    let (env, notes) = exec_env(&args.command, &args.env.proxy_url, creds);
     for note in notes {
         eprintln!("{note}");
     }
@@ -1067,18 +1068,6 @@ async fn run_exec(args: ExecArgs, verbose: bool) -> Result<(), String> {
         );
     }
     exec::run(&args.command, env)
-}
-
-/// The credentials `exec` signs with, or None to run unsigned: only when
-/// nobody is signed in. A session that can't be renewed is an error instead,
-/// since whoever signed in means to act as themselves, and an unsigned run
-/// would turn that into a puzzling refusal of their own data.
-fn signed(creds: Result<cache::CacheEntry, String>) -> Result<Option<sts::Credentials>, String> {
-    match creds {
-        Ok(entry) => Ok(Some(entry.creds)),
-        Err(e) if e == NOT_SIGNED_IN => Ok(None),
-        Err(e) => Err(e),
-    }
 }
 
 /// The environment `exec` runs `command` in, and the notes to print first.
@@ -1118,7 +1107,8 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
         CREDS_MIN_LIFETIME,
         verbose,
     )
-    .await?;
+    .await?
+    .ok_or(api::NOT_SIGNED_IN)?;
     match args.output.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
         OutputFormat::Env => output::print_env(&entry.creds),
@@ -1131,64 +1121,61 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
 
 /// The role's credentials at `proxy_url`'s environment: the cached ones while
 /// they have `min_left` to run, otherwise new ones, minted once however many
-/// ask at a time.
+/// ask at a time. None when nobody is signed in. A session that can't be
+/// renewed is an error, not None: whoever signed in means to act as
+/// themselves, and `exec` running unsigned would turn that into a puzzling
+/// refusal of their own data.
 async fn current_creds(
     role_arn: &str,
     proxy_url: &str,
     min_left: chrono::Duration,
     verbose: bool,
-) -> Result<cache::CacheEntry, String> {
+) -> Result<Option<cache::CacheEntry>, String> {
     let env = cache::env(proxy_url)?;
     let env = env.as_deref();
     let fresh = |entry: &cache::CacheEntry| -> Result<bool, String> {
         Ok(!cache::expires_within(&entry.creds, min_left)?)
     };
     match cache::read_credentials(env, role_arn)? {
-        Some(entry) if fresh(&entry)? => return Ok(entry),
+        Some(entry) if fresh(&entry)? => return Ok(Some(entry)),
         _ => {}
     }
     // Re-check under the lock: another process may have minted already.
     let _lock = cache::lock(env, role_arn)?;
     match cache::read_credentials(env, role_arn)? {
-        Some(entry) if fresh(&entry)? => Ok(entry),
+        Some(entry) if fresh(&entry)? => Ok(Some(entry)),
         stale => mint(role_arn, proxy_url, env, stale, verbose)
             .await
-            .map_err(|e| match e.as_str() {
-                NOT_LOGGED_IN => NOT_SIGNED_IN.to_string(),
-                _ => format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'."),
+            .map_err(|e| {
+                format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'.")
             }),
     }
 }
 
-/// `mint`'s error when there's no login session to mint with.
-const NOT_LOGGED_IN: &str = "not logged in";
-
-/// `current_creds`'s error when there's no login session.
-const NOT_SIGNED_IN: &str = "Not signed in. Run 'source-coop auth login'.";
-
 /// New credentials for the role, cached before they're returned. An entry
 /// from before the session was shared refreshes with its own token; anything
 /// else exchanges the session's ID token, refreshing the session if need be.
+/// None when there's no login session to mint with.
 async fn mint(
     role_arn: &str,
     proxy_url: &str,
     env: Option<&str>,
     stale: Option<cache::CacheEntry>,
     verbose: bool,
-) -> Result<cache::CacheEntry, String> {
+) -> Result<Option<cache::CacheEntry>, String> {
     let save = |e: &cache::CacheEntry| cache::write_credentials(env, role_arn, e).map(drop);
     match stale {
         Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
-            refresh(role_arn, entry, verbose, save).await
+            refresh(role_arn, entry, verbose, save).await.map(Some)
         }
         stale => {
             let sts = stale.and_then(|e| e.sts).unwrap_or(cache::StsSettings {
                 proxy_url: proxy_url.to_string(),
                 duration: None,
             });
-            let id_token = session::token(env, session::Want::Id, verbose)
-                .await?
-                .ok_or(NOT_LOGGED_IN)?;
+            let Some(id_token) = session::token(env, session::Want::Id, verbose).await? else {
+                return Ok(None);
+            };
             let creds =
                 sts::assume_role(&sts.proxy_url, role_arn, &id_token, sts.duration, verbose)
                     .await?;
@@ -1198,7 +1185,7 @@ async fn mint(
                 refresh: None,
             };
             save(&entry)?;
-            Ok(entry)
+            Ok(Some(entry))
         }
     }
 }
@@ -1814,26 +1801,6 @@ mod tests {
         check(&Cli::command(), &mut examples, &mut broken);
         assert!(examples > 0, "found no examples to check");
         assert!(broken.is_empty(), "{}", broken.join("\n\n"));
-    }
-
-    #[test]
-    fn exec_runs_unsigned_only_when_nobody_is_signed_in() {
-        let creds = sts::Credentials {
-            access_key_id: "AKID".into(),
-            secret_access_key: "SECRET".into(),
-            session_token: "TOKEN".into(),
-            expiration: "2026-10-14T13:00:00Z".into(),
-        };
-        let entry = cache::CacheEntry {
-            creds: creds.clone(),
-            sts: None,
-            refresh: None,
-        };
-        assert_eq!(signed(Ok(entry)), Ok(Some(creds)));
-        assert_eq!(signed(Err(NOT_SIGNED_IN.into())), Ok(None));
-        // Signed in, but the session can't be renewed: an error, not unsigned.
-        let refused = "Couldn't get new credentials (invalid_grant). Run 'source-coop auth login'.";
-        assert_eq!(signed(Err(refused.into())), Err(refused.into()));
     }
 
     #[test]

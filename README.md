@@ -310,7 +310,7 @@ The command gets:
 - **The proxy as its S3 endpoint**, under each tool's name for it: `AWS_ENDPOINT_URL_S3` (the AWS CLI v2.13+ and SDKs), `S3_ENDPOINT_URL` (s5cmd), `AWS_ENDPOINT` (`object_store`, with `AWS_ALLOW_HTTP` for a plain-HTTP proxy), and `AWS_S3_ENDPOINT`, `AWS_HTTPS` and `AWS_VIRTUAL_HOSTING=FALSE` (GDAL's `/vsis3/`). Only S3 goes to the proxy: calls a script makes to other AWS services keep their own endpoints.
 - **A region**, `AWS_REGION` and `AWS_DEFAULT_REGION` set to `us-west-2`, only if neither is set already, as signing needs one.
 
-`AWS_PROFILE`, `AWS_DEFAULT_PROFILE` and `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` are removed, so a profile can't lend other credentials or send these anywhere but the proxy. `--role-arn` and `--proxy-url` (or `SOURCE_ROLE_ARN` and `SOURCE_PROXY_URL`) select the role and environment, as for `creds`.
+`AWS_PROFILE`, `AWS_DEFAULT_PROFILE`, `AWS_IGNORE_CONFIGURED_ENDPOINT_URLS` and `AWS_ENDPOINT_URL` are removed, so a profile can't lend other credentials and no other endpoint can take S3 requests away from the proxy. (`object_store` reads a general `AWS_ENDPOINT_URL` as its S3 endpoint.) Signed in, `AWS_NO_SIGN_REQUEST` and `AWS_SKIP_SIGNATURE` are removed too, so GDAL and `object_store` sign even if you exported them for public buckets. `--role-arn` and `--proxy-url` (or `SOURCE_ROLE_ARN` and `SOURCE_PROXY_URL`) select the role and environment, as for `creds`.
 
 The credentials are fetched once, when the command starts. Cached ones are used if they have at least 15 minutes left. Otherwise `exec` gets new ones. A command still running when they expire (an hour after they're fetched, unless you signed in with `--duration`) must be run again. For long jobs, use the [`credential_process` profile](#reading-data-with-aws-tools), which renews them.
 
@@ -1251,6 +1251,8 @@ The session is in `source-coop/session.json`. Other environments use the same la
 ## Troubleshooting
 
 **`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
+
+**`Not signed in: run 'source-coop auth login'.`** Nobody is signed in to this environment (`--proxy-url`). `creds` exits with code 4; AWS tools that run it through `credential_process` show the message as their own error. Sign in, or read public data without credentials (see [Access Data](https://docs.source.coop/data-proxy)). `exec` doesn't fail here: it runs the command unsigned.
 
 **`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` or `exec` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again.
 
