@@ -994,6 +994,19 @@ How completion works:
 
 `source-coop --help` ends with a summary of this section. The `--help` of each command shows its flags and examples. Thus an AI agent can learn the CLI from the CLI.
 
+### Agent skill
+
+The [`source-coop` skill](skills/source-coop/SKILL.md) tells an AI agent when to use the CLI: when you mention Source Cooperative, source.coop or data.source.coop. It sends the agent to `--help` for the commands, and has it use `--json`, ask you to sign in, and ask you before it deletes anything.
+
+In Claude Code, install it from this repository's plugin marketplace:
+
+```text
+/plugin marketplace add source-cooperative/source-coop-cli
+/plugin install source-coop@source-cooperative
+```
+
+The skill is in the open [Agent Skills](https://agentskills.io) format. For another agent that reads skills, copy the `skills/source-coop` folder to where that agent looks for them.
+
 ### Output
 
 - **Data goes to stdout. Messages go to stderr.** Thus `url=$(source-coop product create ...)` works.
