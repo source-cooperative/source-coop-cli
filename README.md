@@ -226,18 +226,9 @@ The keyring cannot list its entries, so the credentials of other roles stay. You
 
 ## Reading data with AWS tools
 
-Each product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy, `https://data.source.coop`, an S3-compatible endpoint: the bucket is the account, addressed path-style. Any S3 tool reads it, given that endpoint.
+Each product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy, `https://data.source.coop`. Public data needs no sign-in. [Access Data](https://docs.source.coop/data-proxy) on docs.source.coop shows how to read it, anonymously or signed in, with the AWS CLI, DuckDB, GDAL and Python.
 
-### Public data
-
-Public products need no sign-in and no credentials. Send unsigned requests:
-
-```bash
-aws s3 ls s3://my-org/my-data/ --endpoint-url https://data.source.coop --no-sign-request
-aws s3 cp s3://my-org/my-data/data.parquet . --endpoint-url https://data.source.coop --no-sign-request
-```
-
-Credentials are for restricted products and for [writes](#uploading-data-with-aws-tools).
+This section covers the credentials the CLI gives AWS tools, for restricted data and for [writes](#uploading-data-with-aws-tools).
 
 ### AWS `credential_process`
 
@@ -1063,7 +1054,7 @@ All commands use the same exit codes:
 
 ### Read data
 
-A product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy (`--proxy-url`, `https://data.source.coop` by default), for any S3 tool. Public data needs no sign-in: use `--no-sign-request` (see [Public data](#public-data)). Restricted data and writes need the credentials from `creds` (see [Reading data with AWS tools](#reading-data-with-aws-tools)). `source-coop creds --help` shows both.
+A product's data is at `s3://ACCOUNT/PRODUCT/` on the data proxy (`--proxy-url`, `https://data.source.coop` by default). Public data needs no sign-in; [Access Data](https://docs.source.coop/data-proxy) shows each tool's settings. Restricted data and writes need the credentials from `creds` (see [Reading data with AWS tools](#reading-data-with-aws-tools)).
 
 ### Use the API without signing in
 
@@ -1220,7 +1211,7 @@ The session is in `source-coop/session.json`. Other environments use the same la
 
 **`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
 
-**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again. If the reason is `not logged in`, the message also says that public data needs no credentials (see [Public data](#public-data)).
+**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again. If the reason is `not logged in`, the message also says that public data needs no credentials (see [Access Data](https://docs.source.coop/data-proxy)).
 
 **macOS asks for your keychain password.** macOS asks the first time a new build reads the `source-coop-cli` keychain items, for example after an upgrade. Select **Always Allow** so that it does not ask again until the next upgrade.
 

@@ -70,9 +70,8 @@ For scripts and agents:
   No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
                   give fields as flags or -F FILE (- for stdin), and --yes to delete.
   SOURCE_TOKEN    A bearer token for the API, used instead of the login session.
-  Data            Products are at s3://ACCOUNT/PRODUCT/ on the S3 endpoint {proxy},
-                  for any S3 tool. Public data needs no sign-in (aws s3 --no-sign-request);
-                  restricted data and writes need credentials. See `source-coop creds --help`.
+  Data            s3://ACCOUNT/PRODUCT/ on {proxy}; public data needs no sign-in.
+                  Credentials: `creds --help`. Tools: https://docs.source.coop/data-proxy
   api             Any API request; prints the API's JSON as is, without --json. Paths and
                   fields are in the OpenAPI spec at {api}/api/openapi.
 
@@ -153,29 +152,24 @@ Paths, fields and responses:
   A status other than success still prints it, and exits 3 when the input was
   rejected, 4 when not signed in or not allowed, 5 when not found, 1 otherwise.";
 
-/// `source-coop completions --help` after the flags.
-/// `source-coop creds --help` after the flags: where the data is, and how AWS
-/// tools read it with and without credentials.
+/// `source-coop creds --help` after the flags: the AWS profile that uses it,
+/// and where reading data is documented.
 const CREDS_HELP: &str = "\
 Examples:
   source-coop creds
   source-coop creds --format env
 
-Where the data is:
-  Each product is at s3://ACCOUNT/PRODUCT/ on the S3 endpoint {proxy}
-  (path-style; the bucket is the account). Any S3 tool works.
-
-Public data needs no sign-in or credentials:
-  aws s3 ls s3://ACCOUNT/PRODUCT/ --endpoint-url {proxy} --no-sign-request
-
-Restricted data, and writes, need credentials (after `source-coop auth login`):
-  # in ~/.aws/config
+An AWS profile that uses it (after `source-coop auth login`), in ~/.aws/config:
   [profile source-coop]
   credential_process = source-coop creds
   endpoint_url = {proxy}
 
-  aws s3 ls s3://ACCOUNT/PRODUCT/ --profile source-coop";
+  aws s3 ls s3://ACCOUNT/PRODUCT/ --profile source-coop
 
+Public data needs no credentials. Reading data anonymously and from DuckDB,
+GDAL and Python: https://docs.source.coop/data-proxy";
+
+/// `source-coop completions --help` after the flags.
 const COMPLETIONS_HELP: &str = "\
 Examples:
   source-coop completions zsh
