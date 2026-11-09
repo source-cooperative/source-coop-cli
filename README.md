@@ -86,8 +86,11 @@ source-coop --version
 Upgrade the way you installed:
 
 ```bash
-brew upgrade source-coop                                              # Homebrew
-cargo install --force --git https://github.com/source-cooperative/source-coop-cli   # from source
+# Homebrew
+brew upgrade source-coop
+
+# from source
+cargo install --force --git https://github.com/source-cooperative/source-coop-cli
 ```
 
 With the installer script, run it again. It replaces the installed version with the latest release.
@@ -107,8 +110,11 @@ The [changelog](https://github.com/source-cooperative/source-coop-cli/blob/main/
 2. Remove the CLI:
 
    ```bash
-   brew uninstall source-coop      # Homebrew
-   rm ~/.cargo/bin/source-coop     # installer script or from source (cargo uninstall source-coop-cli also works for the latter)
+   # Homebrew
+   brew uninstall source-coop
+
+   # installer script or from source
+   rm ~/.cargo/bin/source-coop
    ```
 
    On Windows, delete `source-coop.exe` from `%USERPROFILE%\.cargo\bin`.
