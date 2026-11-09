@@ -1,16 +1,16 @@
 {
- "duration": 13.88,
+ "duration": 14.566,
  "steps": [
   {
    "time": 0.757,
    "label": "$ source-coop auth logout --json | jq -c"
   },
   {
-   "time": 5.372,
+   "time": 6.045,
    "label": "$ source-coop auth status"
   },
   {
-   "time": 9.241,
+   "time": 9.935,
    "label": "$ source-coop creds; echo \"exit $?\""
   }
  ],
