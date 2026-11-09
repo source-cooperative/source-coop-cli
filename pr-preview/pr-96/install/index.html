@@ -82,8 +82,11 @@
 </code></pre>
 <h3 id="upgrade">Upgrade</h3>
 <p>Upgrade the way you installed:</p>
-<pre><code class="language-bash"><span class="nf">brew</span><span class="w"> </span>upgrade<span class="w"> </span>source-coop<span class="w">                                              </span><span class="c1"># Homebrew</span>
-<span class="nf">cargo</span><span class="w"> </span>install<span class="w"> </span><span class="na">--force</span><span class="w"> </span><span class="na">--git</span><span class="w"> </span>https://github.com/source-cooperative/source-coop-cli<span class="w">   </span><span class="c1"># from source</span>
+<pre><code class="language-bash"><span class="c1"># Homebrew</span>
+<span class="nf">brew</span><span class="w"> </span>upgrade<span class="w"> </span>source-coop
+
+<span class="c1"># from source</span>
+<span class="nf">cargo</span><span class="w"> </span>install<span class="w"> </span><span class="na">--force</span><span class="w"> </span><span class="na">--git</span><span class="w"> </span>https://github.com/source-cooperative/source-coop-cli
 </code></pre>
 <p>With the installer script, run it again. It replaces the installed version with the latest release.</p>
 <p>The <a href="https://github.com/source-cooperative/source-coop-cli/blob/main/CHANGELOG.md">changelog</a> lists what each release changes. On macOS, the first command after an upgrade that reads your session can ask for your keychain password (see <a href="../troubleshooting/">Troubleshooting</a>).</p>
@@ -97,8 +100,11 @@
 </li>
 <li>
 <p>Remove the CLI:</p>
-<pre><code class="language-bash"><span class="nf">brew</span><span class="w"> </span>uninstall<span class="w"> </span>source-coop<span class="w">      </span><span class="c1"># Homebrew</span>
-<span class="nf">rm</span><span class="w"> </span>~/.cargo/bin/source-coop<span class="w">     </span><span class="c1"># installer script or from source (cargo uninstall source-coop-cli also works for the latter)</span>
+<pre><code class="language-bash"><span class="c1"># Homebrew</span>
+<span class="nf">brew</span><span class="w"> </span>uninstall<span class="w"> </span>source-coop
+
+<span class="c1"># installer script or from source</span>
+<span class="nf">rm</span><span class="w"> </span>~/.cargo/bin/source-coop
 </code></pre>
 <p>On Windows, delete <code>source-coop.exe</code> from <code>%USERPROFILE%\.cargo\bin</code>.</p>
 </li>
