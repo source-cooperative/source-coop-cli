@@ -41,7 +41,7 @@ aws s3 ls s3://my-org/my-data --profile source-coop
 
 - **Get started:** [Install](#install), [Signing in](#signing-in)
 - **Get data:** [Reading data with AWS tools](#reading-data-with-aws-tools)
-- **Manage source.coop:** [Products](#managing-products), [Members](#managing-members), [Service accounts](#managing-service-accounts), [Service account sign-ins](#service-account-sign-ins)
+- **Manage source.coop:** [Products](#products), [Members](#members), [Invitations](#invitations), [Service accounts](#service-accounts)
 - **How commands work:** [Prompts](#prompts), [Browsing with `-i`](#browsing-with--i), [Shell completion](#shell-completion)
 - **Automate:** [Scripts and AI agents](#scripts-and-ai-agents), [Any API request](#any-api-request)
 - **Reference:** [Configuration](#configuration), [Credential storage](#credential-storage)
@@ -274,7 +274,7 @@ endpoint_url = https://data.source.coop
 
 <!-- group: Manage source.coop -->
 
-## Managing products
+## Products
 
 `source-coop product` lists, views, creates, edits and deletes products through the source.coop API (`/api/v1`). The CLI does not check values itself. It shows the API's errors for each field. A product's name is `ACCOUNT/PRODUCT`.
 
@@ -414,9 +414,9 @@ Without a terminal, `delete` needs `--yes`.
 
 ![`product delete`: the name typed wrong, then right, then `--yes`](docs/demos/product-delete.svg)
 
-## Managing members
+## Members
 
-`source-coop member` manages the members of an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`). `source-coop invitation` answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.
+`source-coop member` manages the members of an organization (`ACCOUNT`) or a product (`ACCOUNT/PRODUCT`). [`source-coop invitation`](#invitations) answers the invitations that you receive. A member's name is their account ID. You cannot invite by email.
 
 **Roles**, from most to least access: `owners`, `maintainers`, `write_data`, `read_data`.
 
@@ -520,7 +520,9 @@ Without a terminal, `revoke` and `leave` need `--yes`.
 
 ![`member revoke` an invitation, then `member leave` with the name typed wrong](docs/demos/member-revoke.svg)
 
-### Your invitations
+## Invitations
+
+`source-coop invitation` answers the invitations that you receive. To invite someone, see [Members](#members).
 
 ```bash
 # invitations that wait for your answer
@@ -543,7 +545,7 @@ When you accept, you become a member with the role of the invitation. With `--js
 
 ![`invitation list -i`: accept one, then reject another](docs/demos/invitations.svg)
 
-## Managing service accounts
+## Service accounts
 
 A service account is an account for software, such as a GitHub Actions workflow or a script with an API key. It has an owner: you, or an organization that you own or maintain. source.coop must first let that account own service accounts.
 
@@ -661,7 +663,7 @@ With no flags, `edit` opens a full-screen form with **Name**, then the products 
 
 ![`service-account edit --access`, then the edit form: take a product away, grant another](docs/demos/service-account-access.svg)
 
-## Service account sign-ins
+### Sign-ins
 
 A service account signs in in one of two ways:
 

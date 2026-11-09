@@ -140,7 +140,7 @@ Record with `docs/recorder/`: `docs/recorder/README.md` says how to write a demo
 
 A PR that changes `README.md` or `docs/` gets a preview of the docs site at `https://cli.source.coop/pr-preview/pr-N/`, where N is the PR's number. The *Docs* workflow builds it and comments the link on the PR, and the preview is removed when the PR closes. PRs from forks get a build check only.
 
-- **Call out the docs changes** in the description: say what changed and link each changed page on the preview, such as `…/pr-preview/pr-N/managing-products/#create`. A page is its `##` section's anchor; an anchor inside it follows `#`.
+- **Call out the docs changes** in the description: say what changed and link each changed page on the preview, such as `…/pr-preview/pr-N/products/#create`. A page is its `##` section's anchor; an anchor inside it follows `#`.
 - **Look at the preview before asking for review.** A broken link, a demo that doesn't load, or a page split wrongly by a new `##` heading is a bug in the PR.
 
 ### The stub server
