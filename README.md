@@ -1211,7 +1211,7 @@ The session is in `source-coop/session.json`. Other environments use the same la
 
 **`Your login has expired. Run 'source-coop auth login'.`** The session's refresh token expired or was revoked. Sign in again. `source-coop auth status` estimates when it expires.
 
-**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again. If the reason is `not logged in`, the message also says that public data needs no credentials (see [Access Data](https://docs.source.coop/data-proxy)).
+**`Couldn't get new credentials (…). Run 'source-coop auth login'.`** `creds` could not renew a role's credentials. AWS tools show this message as their own error. The reason is in the brackets. Usually the session has expired, so sign in again. The message also says that public data needs no credentials (see [Access Data](https://docs.source.coop/data-proxy)).
 
 **macOS asks for your keychain password.** macOS asks the first time a new build reads the `source-coop-cli` keychain items, for example after an upgrade. Select **Always Allow** so that it does not ask again until the next upgrade.
 

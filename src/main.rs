@@ -341,8 +341,7 @@ struct Site {
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
-    /// S3 endpoint of the data, for AWS tools; also selects the environment
-    /// whose login session to use
+    /// Data proxy URL: selects the environment whose login session to use
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 }
@@ -1020,8 +1019,16 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// Why `mint` fails when there's no login session.
-const NOT_LOGGED_IN: &str = "not logged in";
+/// What `creds` says when `mint` fails with `e`: sign in again, and that
+/// public data on `proxy_url` needs no credentials, whatever the failure
+/// (signed out, session expired or revoked, STS refused).
+fn mint_failed(e: &str, proxy_url: &str) -> String {
+    format!(
+        "Couldn't get new credentials ({e}). Run 'source-coop auth login'. \
+         Public data needs no credentials: read it with \
+         `aws s3 ... --endpoint-url {proxy_url} --no-sign-request`."
+    )
+}
 
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     let env = cache::env(&args.env.proxy_url)?;
@@ -1034,19 +1041,9 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
             let _lock = cache::lock(env, &args.role.role_arn)?;
             match cache::read_credentials(env, &args.role.role_arn)? {
                 Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-                stale => mint(&args, env, stale, verbose).await.map_err(|e| {
-                    let public = match e.as_str() {
-                        NOT_LOGGED_IN => format!(
-                            " Public data needs no credentials: read it with \
-                             `aws s3 ... --endpoint-url {} --no-sign-request`.",
-                            args.env.proxy_url
-                        ),
-                        _ => String::new(),
-                    };
-                    format!(
-                        "Couldn't get new credentials ({e}). Run 'source-coop auth login'.{public}"
-                    )
-                })?,
+                stale => mint(&args, env, stale, verbose)
+                    .await
+                    .map_err(|e| mint_failed(&e, &args.env.proxy_url))?,
             }
         }
     };
@@ -1083,7 +1080,7 @@ async fn mint(
             });
             let id_token = session::token(env, session::Want::Id, verbose)
                 .await?
-                .ok_or(NOT_LOGGED_IN)?;
+                .ok_or("not logged in")?;
             let creds = sts::assume_role(
                 &sts.proxy_url,
                 &args.role.role_arn,
@@ -1777,6 +1774,21 @@ mod tests {
             .expect(1)
             .mount(server)
             .await;
+    }
+
+    /// Whatever stops `creds` getting credentials (signed out, or a session
+    /// that expired), it says public data needs none.
+    #[test]
+    fn mint_failed_mentions_public_data() {
+        for e in [
+            "not logged in",
+            "Your login has expired. Run 'source-coop auth login'.",
+        ] {
+            assert!(mint_failed(e, "https://data.example").ends_with(
+                "Public data needs no credentials: read it with \
+                 `aws s3 ... --endpoint-url https://data.example --no-sign-request`."
+            ));
+        }
     }
 
     /// Run `refresh` with a `save` that records each saved entry's
