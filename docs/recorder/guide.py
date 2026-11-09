@@ -117,6 +117,36 @@ def completion(s):
     s.pause(2.5); s.key("\x03")   # Ctrl+C: leave the line unrun
 
 
+def account_list(s):
+    s.run("source-coop account list"); s.prompt(); s.pause(1.5)
+    s.run(f"source-coop account view {ORG}"); s.prompt(); s.pause(2.5)
+    s.run("source-coop account list --json | jq -c '.[] | {account_id, type, name}'")
+
+
+def account_create(s):
+    s.run("source-coop account create")
+    s.see("Organization ID"); s.type(ORG); s.enter()
+    s.see("Name"); s.pause(1.2)
+    s.key(UP)  # back to the ID, which keeps its answer
+    s.see("Organization ID"); s.pause(1); s.key(BACKSPACE, 3); s.type("lab"); s.enter()
+    s.see("Name"); s.pause(1); s.enter()
+    s.see("Bio"); s.type("A made-up lab, for demos."); s.enter()
+    s.see("Create this organization"); s.pause(3); s.enter()
+    s.prompt(); s.pause(1)
+    s.run(f"SOURCE_PROMPT_DISABLED=1 source-coop account create {ORG} --name 'Demo Org' --json; echo \"exit $?\"")
+
+
+def account_edit(s):
+    s.run(f"source-coop account edit {ORG}")
+    s.see("Save changes", step="The edit form"); s.pause(1.2); s.key(DOWN, 2); s.enter()   # Location
+    s.see("Location"); s.pause(0.6); s.type(", Earth"); s.enter()
+    s.see("Save changes", step="Location changed"); s.pause(1.5); s.key("s")
+    s.see("Save these changes"); s.pause(2.5); s.enter()
+    s.prompt()
+    s.run(f"source-coop account edit {ORG} --website demo-org.example --website docs.demo-org.example --json"
+          " | jq -c '{account_id, websites: [.metadata_public.domains[].domain]}'")
+
+
 def product_list(s):
     s.run(f"source-coop product list {ORG} --format table"); s.prompt(); s.pause(1.5)
     s.run("source-coop product list -q ocean"); s.prompt(); s.pause(2)
@@ -369,6 +399,9 @@ DEMOS = {
     "aws": ("`aws s3 ls` through `credential_process`, then `creds --format env`", aws),
     "prompts": ("Prompts: a refused ID asked again, a draft kept after a failure, then Esc", prompts),
     "completion": ("Shell completion: TAB lists products and service accounts from the API", completion),
+    "account-list": ("`account list`, `view`, then `list --json`", account_list),
+    "account-create": ("`account create`: prompts, going back, a review, then a taken ID", account_create),
+    "account-edit": ("`account edit`: the edit form, then flags", account_edit),
     "product-list": ("`product list`: a table, a search, then `--json`", product_list),
     "product-browse": ("`product list -i`: open a product, go back, filter with `/`", product_browse),
     "product-create": ("`product create` with prompts: ↑ goes back a question, then the review", product_create),

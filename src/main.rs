@@ -1,3 +1,4 @@
+mod account;
 mod api;
 mod api_cmd;
 mod cache;
@@ -109,6 +110,9 @@ enum Commands {
     /// Log in through the browser (now `auth login`; this name still works)
     #[command(hide = true)]
     Login(LoginArgs),
+    /// List, view and edit your account and organizations, and create
+    /// organizations
+    Account(AccountArgs),
     /// List, view, create, edit and delete products
     Product(ProductArgs),
     /// List, view, invite, edit and revoke the members of an organization or
@@ -332,6 +336,15 @@ impl Site {
 }
 
 #[derive(Parser)]
+struct AccountArgs {
+    #[command(flatten)]
+    site: Site,
+
+    #[command(subcommand)]
+    command: account::AccountCommand,
+}
+
+#[derive(Parser)]
 struct ProductArgs {
     #[command(flatten)]
     site: Site,
@@ -434,6 +447,19 @@ async fn run() {
         Commands::Auth(AuthCommand::Token(args)) => {
             if let Err(e) = run_auth_token(args, verbose).await {
                 fail(e, false);
+            }
+        }
+        Commands::Account(args) => {
+            let json = args.command.wants_json();
+            let result = match args.site.connect(verbose).await {
+                Ok((client, mut tty)) => {
+                    let prompter = tty.as_mut().map(|t| t as &mut dyn prompt::Prompter);
+                    account::run(args.command, &client, &args.site.api_url, prompter).await
+                }
+                Err(e) => Err(e),
+            };
+            if let Err(e) = result {
+                fail(e, json);
             }
         }
         Commands::Product(args) => {

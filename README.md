@@ -5,7 +5,7 @@
 The command line for [Source Cooperative](https://source.coop). Use it to:
 
 - **Get data credentials.** Sign in through your browser once. AWS tools then get temporary S3 credentials for the Source Cooperative data proxy, and the CLI renews them when they expire.
-- **Manage source.coop.** List, view, create, edit and delete products, members and service accounts. The source.coop API applies the same rules as the web UI.
+- **Manage source.coop.** List, view, create, edit and delete organizations, products, members and service accounts. The source.coop API applies the same rules as the web UI.
 
 All commands work the same way:
 
@@ -41,7 +41,7 @@ aws s3 ls s3://my-org/my-data --profile source-coop
 
 - **Get started:** [Install](#install), [Signing in](#signing-in)
 - **Get data:** [Reading data with AWS tools](#reading-data-with-aws-tools)
-- **Manage source.coop:** [Products](#managing-products), [Members](#managing-members), [Service accounts](#managing-service-accounts), [Service account sign-ins](#service-account-sign-ins)
+- **Manage source.coop:** [Accounts](#accounts), [Products](#managing-products), [Members](#managing-members), [Service accounts](#managing-service-accounts), [Service account sign-ins](#service-account-sign-ins)
 - **How commands work:** [Prompts](#prompts), [Browsing with `-i`](#browsing-with--i), [Shell completion](#shell-completion)
 - **Automate:** [Scripts and AI agents](#scripts-and-ai-agents), [Any API request](#any-api-request)
 - **Reference:** [Configuration](#configuration), [Credential storage](#credential-storage)
@@ -273,6 +273,80 @@ endpoint_url = https://data.source.coop
 ```
 
 <!-- group: Manage source.coop -->
+
+## Accounts
+
+`source-coop account` shows and changes accounts: yours, and the organizations you belong to. It also creates organizations. An account's ID is the first part of its products' names and of its page, `source.coop/ID`.
+
+### List and view
+
+```bash
+# your account, then each organization you're a member of
+source-coop account list
+
+# each one's whole record, as JSON
+source-coop account list --json
+
+# move through them full screen (see "Browsing with -i")
+source-coop account list -i
+
+# one account: its name, websites, email, bio and dates
+source-coop account view my-org
+
+# open its page in the browser
+source-coop account view my-org -w
+```
+
+`list` shows one row for each account: its ID, its type (`individual` or `organization`) and its name. When piped, the rows are tab-separated, with no header. `list` and `view` show only some of an account's fields. `--json` has all of them, such as its flags.
+
+![`account list`, `view`, then `list --json`](docs/demos/account-list.svg)
+
+### Create an organization
+
+```bash
+# prompts for the ID, name and bio, then asks you to confirm
+source-coop account create
+
+# from flags; --website can be repeated
+source-coop account create my-org --name "My Org" --bio "Open climate data" --website my-org.example
+
+# from a file or stdin; flags win
+echo '{"name": "My Org", "email": "data@my-org.example"}' | source-coop account create my-org -F - --json
+```
+
+You become the organization's owner. You can create organizations only if source.coop has given your account permission. Otherwise the API refuses with exit code 4.
+
+The name defaults to one made from the ID, as on the web: `my-org` becomes `My Org`. If the ID is taken, the CLI asks for another. Going back, drafts and the sign-in check work as for products (see [Prompts](#prompts)). `create` prints the organization's page on stdout, so `url=$(source-coop account create …)` works.
+
+People get their accounts when they sign up on the website. To create an account for software, use [`service-account create`](#managing-service-accounts).
+
+![`account create`: prompts, going back, a review, then a taken ID](docs/demos/account-create.svg)
+
+### Edit
+
+```bash
+# the edit form: name, bio and location
+source-coop account edit my-org
+
+# select the account first
+source-coop account edit -i
+
+# from flags; an empty string clears a field
+source-coop account edit my-org --bio "Open climate data" --location ""
+source-coop account edit my-org --website my-org.example --website docs.my-org.example   # replaces the websites
+source-coop account edit my-org --email data@my-org.example --ror-id 05abc1234
+source-coop account edit my-ada --orcid 0000-0002-1825-0097
+
+# turn an organization off, or back on
+source-coop account edit my-org --disable
+source-coop account edit my-org --enable
+```
+
+You can edit your own account and the organizations you own or maintain. Only owners can disable or enable an organization. A disabled account can't sign in, and nothing new can be attached to it.
+
+There is no `account delete`: source.coop never deletes people or organizations. Use `--disable`.
+
+![`account edit`: the edit form, then flags](docs/demos/account-edit.svg)
 
 ## Managing products
 
@@ -825,6 +899,7 @@ source-coop completions powershell | Out-String | Invoke-Expression
 TAB then completes commands, flags, flag values and record names:
 
 - `source-coop product view my-org/<TAB>` shows the products of `my-org`. Before the `/`, it shows the accounts that you are a member of.
+- `source-coop account view <TAB>` shows your account and the organizations that you are a member of.
 - `source-coop service-account view my<TAB>` shows full service account IDs, such as `my-org--nightly-sync`. It does not complete the ID of a new service account for `create`.
 
 ![Shell completion: TAB lists products and service accounts from the API](docs/demos/completion.svg)
@@ -855,6 +930,7 @@ How completion works:
 These commands accept `--json`:
 
 - `auth status` and `auth logout`.
+- All `account` commands.
 - `product list`, `view`, `create`, `edit` and `delete`.
 - All `member` and `invitation` commands.
 - `service-account list`, `view`, `create`, `edit` and `delete`, and `sign-in add`, `edit` and `remove`.

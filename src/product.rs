@@ -1273,7 +1273,7 @@ fn connection_label(c: &Value) -> String {
 }
 
 /// `my-new-product` → `My New Product`.
-fn title_from_id(id: &str) -> String {
+pub(crate) fn title_from_id(id: &str) -> String {
     id.split(['-', '_'])
         .filter(|w| !w.is_empty())
         .map(|w| {

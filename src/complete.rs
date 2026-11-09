@@ -91,6 +91,11 @@ pub fn account(current: &OsStr) -> Vec<CompletionCandidate> {
     })
 }
 
+/// An organization to create, whose ID is new: nothing to offer.
+pub fn new_account(_: &OsStr) -> Vec<CompletionCandidate> {
+    vec![]
+}
+
 /// An organization you belong to (`ACCOUNT`), or one of its products
 /// (`ACCOUNT/PRODUCT`).
 pub fn scope(current: &OsStr) -> Vec<CompletionCandidate> {
