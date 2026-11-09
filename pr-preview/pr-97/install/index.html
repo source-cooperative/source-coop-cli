@@ -58,7 +58,7 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/" aria-current="page">Install</a><ul><li><a href="#homebrew-macos--linux">Homebrew (macOS / Linux)</a></li><li><a href="#from-github-releases-recommended">From GitHub Releases (recommended)</a></li><li><a href="#from-source">From source</a></li></ul></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/">Accounts</a></li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/" aria-current="page">Install</a><ul><li><a href="#homebrew-macos--linux">Homebrew (macOS / Linux)</a></li><li><a href="#from-github-releases-recommended">From GitHub Releases (recommended)</a></li><li><a href="#from-source">From source</a></li><li><a href="#upgrade">Upgrade</a></li><li><a href="#uninstall">Uninstall</a></li></ul></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/">Accounts</a></li><li><a href="../products/">Products</a></li><li><a href="../members/">Members</a></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
     </details>
   </nav>
   <main id="main">
@@ -80,6 +80,38 @@
 <p>To see the installed version:</p>
 <pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span><span class="na">--version</span>
 </code></pre>
+<h3 id="upgrade">Upgrade</h3>
+<p>Upgrade the way you installed:</p>
+<pre><code class="language-bash"><span class="c1"># Homebrew</span>
+<span class="nf">brew</span><span class="w"> </span>upgrade<span class="w"> </span>source-coop
+
+<span class="c1"># from source</span>
+<span class="nf">cargo</span><span class="w"> </span>install<span class="w"> </span><span class="na">--force</span><span class="w"> </span><span class="na">--git</span><span class="w"> </span>https://github.com/source-cooperative/source-coop-cli
+</code></pre>
+<p>With the installer script, run it again. It replaces the installed version with the latest release.</p>
+<p>The <a href="https://github.com/source-cooperative/source-coop-cli/blob/main/CHANGELOG.md">changelog</a> lists what each release changes. On macOS, the first command after an upgrade that reads your session can ask for your keychain password (see <a href="../troubleshooting/">Troubleshooting</a>).</p>
+<h3 id="uninstall">Uninstall</h3>
+<ol>
+<li>
+<p>Sign out, to remove the session and cached credentials from the OS keyring:</p>
+<pre><code class="language-bash"><span class="nf">source-coop</span><span class="w"> </span>auth<span class="w"> </span><span class="nb">logout</span>
+</code></pre>
+<p>This removes one environment and one role. Run it again with <code>--role-arn</code> or <code>--proxy-url</code> for each other one that you used.</p>
+</li>
+<li>
+<p>Remove the CLI:</p>
+<pre><code class="language-bash"><span class="c1"># Homebrew</span>
+<span class="nf">brew</span><span class="w"> </span>uninstall<span class="w"> </span>source-coop
+
+<span class="c1"># installer script or from source</span>
+<span class="nf">rm</span><span class="w"> </span>~/.cargo/bin/source-coop
+</code></pre>
+<p>On Windows, delete <code>source-coop.exe</code> from <code>%USERPROFILE%\.cargo\bin</code>.</p>
+</li>
+<li>
+<p>Remove the files it kept: the <code>source-coop</code> folders in the <a href="../credential-storage/#file-fallback">file fallback</a> and <a href="../prompts/">drafts</a> locations, if they exist.</p>
+</li>
+</ol>
 
     <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../" rel="prev"><span>Previous</span>Overview</a><a class="pager-next" href="../signing-in/" rel="next"><span>Next</span>Signing in</a></nav>
   </main>

@@ -58,7 +58,7 @@
   <nav class="toc" aria-label="Guide">
     <details open>
       <summary>Contents</summary>
-      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Get data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/" aria-current="page">Accounts</a><ul><li><a href="#list-and-view">List and view</a></li><li><a href="#create-an-organization">Create an organization</a></li><li><a href="#edit">Edit</a></li></ul></li><li><a href="../managing-products/">Managing products</a></li><li><a href="../managing-members/">Managing members</a></li><li><a href="../managing-service-accounts/">Managing service accounts</a></li><li><a href="../service-account-sign-ins/">Service account sign-ins</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li></ul>
+      <ul><li class="group">Get started</li><li><a href="../">Overview</a></li><li><a href="../install/">Install</a></li><li><a href="../signing-in/">Signing in</a></li><li class="group">Work with data</li><li><a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a></li><li><a href="../uploading-data-with-aws-tools/">Uploading data with AWS tools</a></li><li class="group">Manage source.coop</li><li><a href="../accounts/" aria-current="page">Accounts</a><ul><li><a href="#list-and-view">List and view</a></li><li><a href="#create-an-organization">Create an organization</a></li><li><a href="#edit">Edit</a></li></ul></li><li><a href="../products/">Products</a></li><li><a href="../members/">Members</a></li><li><a href="../invitations/">Invitations</a></li><li><a href="../service-accounts/">Service accounts</a></li><li class="group">How commands work</li><li><a href="../prompts/">Prompts</a></li><li><a href="../browsing-with--i/">Browsing with <code>-i</code></a></li><li><a href="../shell-completion/">Shell completion</a></li><li class="group">Automate</li><li><a href="../scripts-and-ai-agents/">Scripts and AI agents</a></li><li><a href="../any-api-request/">Any API request</a></li><li class="group">Reference</li><li><a href="../configuration/">Configuration</a></li><li><a href="../credential-storage/">Credential storage</a></li><li><a href="../troubleshooting/">Troubleshooting</a></li></ul>
     </details>
   </nav>
   <main id="main">
@@ -80,7 +80,7 @@
 <span class="c1"># open its page in the browser</span>
 <span class="nf">source-coop</span><span class="w"> </span>account<span class="w"> </span>view<span class="w"> </span>my-org<span class="w"> </span><span class="na">-w</span>
 </code></pre>
-<p><code>list</code> shows one row for each account: its ID, its type (<code>individual</code> or <code>organization</code>) and its name. When piped, the rows are tab-separated, with no header. <code>list</code> and <code>view</code> show only some of an account's fields. <code>--json</code> has all of them, such as its flags.</p>
+<p><code>list</code> shows one row for each account: its ID, its type (<code>individual</code> or <code>organization</code>) and its name. On a terminal, it shows them in your pager (<code>--no-pager</code> prints directly). When piped, the rows are tab-separated, with no header. A disabled organization is left out, with a note, unless you are one of its owners or maintainers: source.coop doesn't show it to its other members. <code>list</code> and <code>view</code> show only some of an account's fields. <code>--json</code> has all of them, such as its flags.</p>
 <figure class="demo" data-demo="account-list"><noscript><img src="../demos/account-list.svg" alt="account list, view, then list --json"></noscript><figcaption><code>account list</code>, <code>view</code>, then <code>list --json</code></figcaption></figure>
 <h3 id="create-an-organization">Create an organization</h3>
 <pre><code class="language-bash"><span class="c1"># prompts for the ID, name and bio, then asks you to confirm</span>
@@ -94,7 +94,7 @@
 </code></pre>
 <p>You become the organization's owner. You can create organizations only if source.coop has given your account permission. Otherwise the API refuses with exit code 4.</p>
 <p>The name defaults to one made from the ID, as on the web: <code>my-org</code> becomes <code>My Org</code>. If the ID is taken, the CLI asks for another. Going back, drafts and the sign-in check work as for products (see <a href="../prompts/">Prompts</a>). <code>create</code> prints the organization's page on stdout, so <code>url=$(source-coop account create …)</code> works.</p>
-<p>People get their accounts when they sign up on the website. To create an account for software, use <a href="../managing-service-accounts/"><code>service-account create</code></a>.</p>
+<p>People get their accounts when they sign up on the website. To create an account for software, use <a href="../service-accounts/"><code>service-account create</code></a>.</p>
 <figure class="demo" data-demo="account-create"><noscript><img src="../demos/account-create.svg" alt="account create: prompts, going back, a review, then a taken ID"></noscript><figcaption><code>account create</code>: prompts, going back, a review, then a taken ID</figcaption></figure>
 <h3 id="edit">Edit</h3>
 <pre><code class="language-bash"><span class="c1"># the edit form: name, bio and location</span>
@@ -117,7 +117,7 @@
 <p>There is no <code>account delete</code>: source.coop never deletes people or organizations. Use <code>--disable</code>.</p>
 <figure class="demo" data-demo="account-edit"><noscript><img src="../demos/account-edit.svg" alt="account edit: the edit form, then flags"></noscript><figcaption><code>account edit</code>: the edit form, then flags</figcaption></figure>
 
-    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../reading-data-with-aws-tools/" rel="prev"><span>Previous</span>Reading data with AWS tools</a><a class="pager-next" href="../managing-products/" rel="next"><span>Next</span>Managing products</a></nav>
+    <nav class="pager" aria-label="Pages"><a class="pager-prev" href="../uploading-data-with-aws-tools/" rel="prev"><span>Previous</span>Uploading data with AWS tools</a><a class="pager-next" href="../products/" rel="next"><span>Next</span>Products</a></nav>
   </main>
 </div>
 <footer class="bottom">
