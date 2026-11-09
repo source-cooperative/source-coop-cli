@@ -1,62 +1,62 @@
 {
- "duration": 20.024,
+ "duration": 19.792,
  "steps": [
   {
-   "time": 0.754,
+   "time": 0.756,
    "label": "$ source-coop product list demo-org -i"
   },
   {
-   "time": 3.253,
+   "time": 3.092,
    "label": "The list · ↓ ↓ →"
   },
   {
-   "time": 5.736,
+   "time": 5.558,
    "label": "Landsat Mirror · ←"
   },
   {
-   "time": 8.235,
+   "time": 8.06,
    "label": "Back to the list, then filter · / \"clim\" Enter →"
   },
   {
-   "time": 13.661,
+   "time": 13.43,
    "label": "Climate Grid · ← q"
   }
  ],
  "keys": [
   {
-   "time": 4.866,
+   "time": 4.699,
    "key": "↓"
   },
   {
-   "time": 5.272,
+   "time": 5.1,
    "key": "↓"
   },
   {
-   "time": 5.677,
+   "time": 5.502,
    "key": "→"
   },
   {
-   "time": 8.178,
+   "time": 8.005,
    "key": "←"
   },
   {
-   "time": 9.448,
+   "time": 9.266,
    "key": "/"
   },
   {
-   "time": 12.183,
+   "time": 11.977,
    "key": "Enter"
   },
   {
-   "time": 13.6,
+   "time": 13.379,
    "key": "→"
   },
   {
-   "time": 16.101,
+   "time": 15.88,
    "key": "←"
   },
   {
-   "time": 17.521,
+   "time": 17.288,
    "key": "q"
   }
  ]

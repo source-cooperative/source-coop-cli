@@ -1,16 +1,16 @@
 {
- "duration": 18.794,
+ "duration": 19.005,
  "steps": [
   {
-   "time": 0.761,
+   "time": 0.756,
    "label": "$ source-coop product list demo-org --format table"
   },
   {
-   "time": 5.991,
+   "time": 6.567,
    "label": "$ source-coop product view demo-org/demo-data"
   },
   {
-   "time": 11.22,
+   "time": 11.67,
    "label": "$ source-coop product view demo-org/demo-data --json | jq -c '{product_id, title, s3_uri}'"
   }
  ],
