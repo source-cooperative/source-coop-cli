@@ -139,7 +139,7 @@
 </table></div>
 <figure class="demo" data-demo="scripting"><noscript><img src="../demos/scripting.svg" alt="Without a terminal: errors, --json, exit codes and -F -"></noscript><figcaption>Without a terminal: errors, <code>--json</code>, exit codes and <code>-F -</code></figcaption></figure>
 <h3 id="read-data">Read data</h3>
-<p>A product's data is at <code>s3://ACCOUNT/PRODUCT/</code> on the data proxy (<code>--proxy-url</code>, <code>https://data.source.coop</code> by default), for any S3 tool. Public data needs no sign-in: use <code>--no-sign-request</code> (see <a href="../reading-data-with-aws-tools/#public-data">Public data</a>). Restricted data and writes need the credentials from <code>creds</code> (see <a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a>). <code>source-coop creds --help</code> shows both.</p>
+<p>A product's data is at <code>s3://ACCOUNT/PRODUCT/</code> on the data proxy (<code>--proxy-url</code>, <code>https://data.source.coop</code> by default). Public data needs no sign-in; <a href="https://docs.source.coop/data-proxy">Access Data</a> shows each tool's settings. Restricted data and writes need the credentials from <code>creds</code> (see <a href="../reading-data-with-aws-tools/">Reading data with AWS tools</a>).</p>
 <h3 id="use-the-api-without-signing-in">Use the API without signing in</h3>
 <p>If <code>SOURCE_TOKEN</code> is set, the CLI sends it to the API instead of the session's access token. Thus a script or CI job can use the API without <code>auth login</code>.</p>
 <h3 id="use-your-session-with-other-tools">Use your session with other tools</h3>
