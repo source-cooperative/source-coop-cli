@@ -70,6 +70,9 @@ For scripts and agents:
   No prompts      Without a terminal, or with SOURCE_PROMPT_DISABLED=1, nothing is asked;
                   give fields as flags or -F FILE (- for stdin), and --yes to delete.
   SOURCE_TOKEN    A bearer token for the API, used instead of the login session.
+  Data            Products are at s3://ACCOUNT/PRODUCT/ on the S3 endpoint {proxy},
+                  for any S3 tool. Public data needs no sign-in (aws s3 --no-sign-request);
+                  restricted data and writes need credentials. See `source-coop creds --help`.
   api             Any API request; prints the API's JSON as is, without --json. Paths and
                   fields are in the OpenAPI spec at {api}/api/openapi.
 
@@ -84,7 +87,11 @@ Run `source-coop <command> --help` for each command's flags and examples.";
     name = "source-coop",
     about = "Source Cooperative CLI",
     version,
-    after_long_help = style::help(&FOR_SCRIPTS.replace("{api}", defaults::API_URL))
+    after_long_help = style::help(
+        &FOR_SCRIPTS
+            .replace("{api}", defaults::API_URL)
+            .replace("{proxy}", defaults::PROXY_URL)
+    )
 )]
 struct Cli {
     /// Enable verbose output to see HTTP requests and responses
@@ -102,6 +109,7 @@ enum Commands {
     Auth(AuthCommand),
     /// Output cached credentials as credential_process JSON, shell env vars,
     /// or an AWS credentials-file profile, refreshing them first if expired
+    #[command(after_help = style::help(&CREDS_HELP.replace("{proxy}", defaults::PROXY_URL)))]
     Creds(CredsArgs),
     /// Print the script that sets up TAB completion of commands, flags and
     /// product names in your shell
@@ -146,6 +154,28 @@ Paths, fields and responses:
   rejected, 4 when not signed in or not allowed, 5 when not found, 1 otherwise.";
 
 /// `source-coop completions --help` after the flags.
+/// `source-coop creds --help` after the flags: where the data is, and how AWS
+/// tools read it with and without credentials.
+const CREDS_HELP: &str = "\
+Examples:
+  source-coop creds
+  source-coop creds --format env
+
+Where the data is:
+  Each product is at s3://ACCOUNT/PRODUCT/ on the S3 endpoint {proxy}
+  (path-style; the bucket is the account). Any S3 tool works.
+
+Public data needs no sign-in or credentials:
+  aws s3 ls s3://ACCOUNT/PRODUCT/ --endpoint-url {proxy} --no-sign-request
+
+Restricted data, and writes, need credentials (after `source-coop auth login`):
+  # in ~/.aws/config
+  [profile source-coop]
+  credential_process = source-coop creds
+  endpoint_url = {proxy}
+
+  aws s3 ls s3://ACCOUNT/PRODUCT/ --profile source-coop";
+
 const COMPLETIONS_HELP: &str = "\
 Examples:
   source-coop completions zsh
@@ -283,7 +313,8 @@ struct CredsArgs {
 /// `--proxy-url`, for every command that works against an environment.
 #[derive(Args)]
 struct EnvArgs {
-    /// S3 proxy URL: selects the environment (login session and cached credentials)
+    /// S3 endpoint of the data, for AWS tools (s3://ACCOUNT/PRODUCT/...); also
+    /// selects the environment (login session and cached credentials)
     #[arg(long, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 }
@@ -316,7 +347,8 @@ struct Site {
     #[arg(long, global = true, env = "SOURCE_API_URL", default_value = defaults::API_URL)]
     api_url: String,
 
-    /// S3 proxy URL of the environment whose login session to use
+    /// S3 endpoint of the data, for AWS tools; also selects the environment
+    /// whose login session to use
     #[arg(long, global = true, env = "SOURCE_PROXY_URL", default_value = defaults::PROXY_URL)]
     proxy_url: String,
 }
@@ -994,6 +1026,9 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// Why `mint` fails when there's no login session.
+const NOT_LOGGED_IN: &str = "not logged in";
+
 async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     let env = cache::env(&args.env.proxy_url)?;
     let env = env.as_deref();
@@ -1006,7 +1041,17 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
             match cache::read_credentials(env, &args.role.role_arn)? {
                 Some(entry) if !cache::is_expired(&entry.creds)? => entry,
                 stale => mint(&args, env, stale, verbose).await.map_err(|e| {
-                    format!("Couldn't get new credentials ({e}). Run 'source-coop auth login'.")
+                    let public = match e.as_str() {
+                        NOT_LOGGED_IN => format!(
+                            " Public data needs no credentials: read it with \
+                             `aws s3 ... --endpoint-url {} --no-sign-request`.",
+                            args.env.proxy_url
+                        ),
+                        _ => String::new(),
+                    };
+                    format!(
+                        "Couldn't get new credentials ({e}). Run 'source-coop auth login'.{public}"
+                    )
                 })?,
             }
         }
@@ -1044,7 +1089,7 @@ async fn mint(
             });
             let id_token = session::token(env, session::Want::Id, verbose)
                 .await?
-                .ok_or("not logged in")?;
+                .ok_or(NOT_LOGGED_IN)?;
             let creds = sts::assume_role(
                 &sts.proxy_url,
                 &args.role.role_arn,
