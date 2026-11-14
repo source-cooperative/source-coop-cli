@@ -1,0 +1,18 @@
+{
+ "duration": 20.086,
+ "steps": [
+  {
+   "time": 0.763,
+   "label": "$ source-coop exec -- aws s3 ls s3://demo-org/demo-data/"
+  },
+  {
+   "time": 6.768,
+   "label": "$ source-coop exec -- s5cmd ls 's3://demo-org/demo-data/readings/*'"
+  },
+  {
+   "time": 12.938,
+   "label": "$ source-coop exec -- env | grep -E '^AWS_(ACCESS_KEY_ID|ENDPOINT_URL_S3|REGION)='"
+  }
+ ],
+ "keys": []
+}

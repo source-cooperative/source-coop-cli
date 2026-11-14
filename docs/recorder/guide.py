@@ -82,6 +82,19 @@ def aws(s):
     s.run("source-coop creds --format env")
 
 
+def exec_signed_in(s):
+    signed_in(s)
+    s.run(f"source-coop exec -- aws s3 ls s3://{ORG}/demo-data/"); s.prompt(); s.pause(1.5)
+    s.run(f"source-coop exec -- s5cmd ls 's3://{ORG}/demo-data/readings/*'"); s.prompt(); s.pause(1.5)
+    s.run("source-coop exec -- env | grep -E '^AWS_(ACCESS_KEY_ID|ENDPOINT_URL_S3|REGION)='")
+
+
+def exec_signed_out(s):
+    s.run("source-coop exec -- aws s3 ls s3://partner-org/ocean-buoys/"); s.prompt(); s.pause(3)
+    s.run("source-coop exec -- aws --no-sign-request s3 ls s3://partner-org/ocean-buoys/"); s.prompt(); s.pause(2)
+    s.run(f"source-coop exec -- aws --no-sign-request s3 ls s3://{ORG}/landsat-mirror/; echo \"exit $?\"")
+
+
 def prompts(s):
     s.run("source-coop product create")
     s.see("Account"); s.key(DOWN); s.enter()
@@ -397,6 +410,8 @@ DEMOS = {
     "auth-token": ("`auth token`: the session's access token, for `curl`", auth_token),
     "auth-logout": ("`auth logout --json`, then `auth status` and `creds` signed out", auth_logout),
     "aws": ("`aws s3 ls` through `credential_process`, then `creds --format env`", aws),
+    "exec": ("`exec`: the AWS CLI and s5cmd with your credentials and the proxy, no profile", exec_signed_in),
+    "exec-signed-out": ("`exec` signed out: unsigned, a public product listed, a restricted one refused", exec_signed_out),
     "prompts": ("Prompts: a refused ID asked again, a draft kept after a failure, then Esc", prompts),
     "completion": ("Shell completion: TAB lists products and service accounts from the API", completion),
     "account-list": ("`account list`, `view`, then `list --json`", account_list),

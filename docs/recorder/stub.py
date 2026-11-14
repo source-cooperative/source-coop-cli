@@ -6,7 +6,10 @@ when the stub stops. It answers only what the CLI asks, in the API's shapes;
 it checks nothing, so it is no substitute for the API in tests.
 
 Outside /api/v1 it is the data proxy, for `aws s3 ls`: a ListObjectsV2 of
-fixtures.json's `objects`, signatures unchecked.
+fixtures.json's `objects`, signatures unchecked. An unsigned listing of a
+product that isn't public is refused, as the proxy refuses it. /oauth2/token
+refuses to renew a session, as the sign-in server does once a refresh token
+has expired.
 
     python3 -I docs/recorder/stub.py PORT [FIXTURES]
 """
@@ -260,6 +263,18 @@ def list_objects(bucket, q):
             + tag("IsTruncated", "false") + body + "</ListBucketResult>")
 
 
+def readable_unsigned(bucket, q):
+    """Whether the proxy lists `bucket` and `prefix` for a request without a
+    signature: only inside a public product."""
+    product = q.get("prefix", "").split("/")[0]
+    return any(p["account_id"] == bucket and p["product_id"] == product and p["visibility"] == "public"
+               for p in products)
+
+
+ACCESS_DENIED = ('<?xml version="1.0" encoding="UTF-8"?>'
+                 "<Error><Code>AccessDenied</Code><Message>access denied</Message></Error>")
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
@@ -267,9 +282,24 @@ class Handler(BaseHTTPRequestHandler):
     def answer(self, method):
         url = urlparse(self.path)
         q = {k: v[0] for k, v in parse_qs(url.query).items()}
+        if url.path == "/oauth2/token":
+            # The sign-in server, refusing to renew a session: a refresh
+            # token that expired or was revoked.
+            raw = json.dumps({"error": "invalid_grant",
+                              "error_description": "The refresh token has expired."}).encode()
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+            return
         if not url.path.startswith("/api/v1"):
-            raw = list_objects(url.path.strip("/").split("/")[0], q).encode()
-            self.send_response(200)
+            bucket = url.path.strip("/").split("/")[0]
+            if self.headers.get("Authorization") or readable_unsigned(bucket, q):
+                status, raw = 200, list_objects(bucket, q).encode()
+            else:
+                status, raw = 403, ACCESS_DENIED.encode()
+            self.send_response(status)
             self.send_header("Content-Type", "application/xml")
             self.send_header("Content-Length", str(len(raw)))
             self.end_headers()

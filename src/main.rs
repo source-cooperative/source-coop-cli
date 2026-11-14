@@ -4,6 +4,7 @@ mod api_cmd;
 mod cache;
 mod complete;
 mod draft;
+mod exec;
 mod failure;
 mod member;
 mod oidc;
@@ -74,6 +75,7 @@ For scripts and agents:
                   Credentials: `creds --help`. Tools: https://docs.source.coop/data-proxy
   api             Any API request; prints the API's JSON as is, without --json. Paths and
                   fields are in the OpenAPI spec at {api}/api/openapi.
+  exec            Reads and writes data with S3 tools: `exec -- aws s3 ls s3://ACCOUNT/PRODUCT/`.
 
 Exit codes:
   0 success  1 other failure  2 bad usage  3 input rejected (fix field_errors)
@@ -134,6 +136,48 @@ enum Commands {
     /// commands don't cover
     #[command(after_help = style::help(&API_HELP.replace("{api}", defaults::API_URL)))]
     Api(ApiCommandArgs),
+    /// Run a command (the AWS CLI, s5cmd, GDAL, a script) with the data proxy
+    /// as its S3 endpoint and your credentials, or unsigned when signed out
+    #[command(after_help = style::help(EXEC_HELP))]
+    Exec(ExecArgs),
+}
+
+/// `source-coop exec --help` after the flags: examples, then what the
+/// command gets and what happens signed out.
+const EXEC_HELP: &str = "\
+Examples:
+  source-coop exec -- aws s3 ls s3://ACCOUNT/PRODUCT/
+  source-coop exec -- aws s3 cp s3://ACCOUNT/PRODUCT/data.parquet .
+  source-coop exec -- gdalinfo /vsis3/ACCOUNT/PRODUCT/image.tif
+  source-coop exec -- python script.py
+
+The command gets:
+  AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_SESSION_TOKEN, AWS_CREDENTIAL_EXPIRATION
+  The proxy as its S3 endpoint: AWS_ENDPOINT_URL_S3 (AWS CLI, SDKs), S3_ENDPOINT_URL
+  (s5cmd), AWS_ENDPOINT (object_store), AWS_S3_ENDPOINT (GDAL)
+  AWS_REGION=us-west-2, if no region is set
+Credentials are fetched once, with at least 15 minutes left. The command's exit code is
+passed on.
+
+Signed out:
+  The command runs unsigned and can read only public data. GDAL and object_store are told
+  so (AWS_NO_SIGN_REQUEST, AWS_SKIP_SIGNATURE); the AWS CLI and s5cmd need
+  --no-sign-request:
+    source-coop exec -- aws --no-sign-request s3 ls s3://ACCOUNT/PRODUCT/
+  Other AWS keys in the environment or ~/.aws are hidden from it. A session that can't be
+  renewed is an error, not an unsigned run.";
+
+#[derive(Parser)]
+struct ExecArgs {
+    #[command(flatten)]
+    role: RoleArgs,
+
+    #[command(flatten)]
+    env: EnvArgs,
+
+    /// The command to run, with its arguments, after `--`
+    #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
+    command: Vec<String>,
 }
 
 /// `source-coop api --help` after the flags: examples, then where to find
@@ -559,6 +603,11 @@ async fn run() {
                 api_cmd::run(args.request, &client).await
             };
             if let Err(e) = result.await {
+                fail(e, false);
+            }
+        }
+        Commands::Exec(args) => {
+            if let Err(e) = run_exec(args, verbose).await {
                 fail(e, false);
             }
         }
@@ -1024,35 +1073,96 @@ async fn run_login(args: LoginArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
-/// What `creds` says when `mint` fails with `e`: sign in again, and that
-/// public data on `proxy_url` needs no credentials, whatever the failure
-/// (signed out, session expired or revoked, STS refused).
-fn mint_failed(e: &str, proxy_url: &str) -> String {
+/// Run the command with the role's credentials, or unsigned when nobody is
+/// signed in, so it can still read public products. They're fetched once,
+/// so cached ones are only reused with `EXEC_MIN_LIFETIME` left; a command
+/// running past their expiry (an hour unless `login --duration` said
+/// otherwise) needs running again.
+async fn run_exec(args: ExecArgs, verbose: bool) -> Result<(), String> {
+    let creds = current_creds(
+        &args.role.role_arn,
+        &args.env.proxy_url,
+        EXEC_MIN_LIFETIME,
+        verbose,
+    )
+    .await?
+    .map(|entry| entry.creds);
+    let (env, notes) = exec_env(&args.command, &args.env.proxy_url, creds);
+    for note in notes {
+        eprintln!("{note}");
+    }
+    if verbose {
+        eprintln!(
+            "[verbose] Running {:?} against {}",
+            args.command, args.env.proxy_url
+        );
+    }
+    exec::run(&args.command, env)
+}
+
+/// Where a failure to get credentials points: public data needs none.
+fn public_data(proxy_url: &str) -> String {
     format!(
-        "Couldn't get new credentials ({e}). Run 'source-coop auth login'. \
-         Public data needs no credentials: read it with \
+        "Public data needs no credentials: read it with \
          `aws s3 ... --endpoint-url {proxy_url} --no-sign-request`."
     )
 }
 
-async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
-    let env = cache::env(&args.env.proxy_url)?;
-    let env = env.as_deref();
-    let cached = cache::read_credentials(env, &args.role.role_arn)?;
-    let entry = match cached {
-        Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-        _ => {
-            // Re-check under the lock: another process may have minted already.
-            let _lock = cache::lock(env, &args.role.role_arn)?;
-            match cache::read_credentials(env, &args.role.role_arn)? {
-                Some(entry) if !cache::is_expired(&entry.creds)? => entry,
-                stale => mint(&args, env, stale, verbose)
-                    .await
-                    .map_err(|e| mint_failed(&e, &args.env.proxy_url))?,
-            }
-        }
-    };
+/// What `creds` and `exec` say when `mint` fails with `e`: sign in again,
+/// and that public data needs no credentials, whatever the failure (session
+/// expired or revoked, STS refused).
+fn mint_failed(e: &str, proxy_url: &str) -> String {
+    format!(
+        "Couldn't get new credentials ({e}). Run 'source-coop auth login'. {}",
+        public_data(proxy_url)
+    )
+}
 
+/// The environment `exec` runs `command` in, and the notes to print first.
+fn exec_env(
+    command: &[String],
+    proxy_url: &str,
+    creds: Option<sts::Credentials>,
+) -> (exec::Env, Vec<String>) {
+    // Set but empty is unset, as signing would fail on an empty region.
+    let region_set = ["AWS_REGION", "AWS_DEFAULT_REGION"]
+        .iter()
+        .any(|v| std::env::var_os(v).is_some_and(|r| !r.is_empty()));
+    let env = exec::env(creds.as_ref(), proxy_url, region_set);
+    let mut notes = vec![];
+    if creds.is_none() {
+        notes.push(UNSIGNED_NOTE.to_string());
+        notes.extend(exec::unsigned_hint(command));
+    }
+    (env, notes)
+}
+
+/// What `exec` says before running a command unsigned.
+const UNSIGNED_NOTE: &str = "Not signed in, so running unsigned: only public data can be read.";
+
+/// How long cached credentials must still last for `exec` to hand them to a
+/// command, which can't ask for new ones as `credential_process` can.
+const EXEC_MIN_LIFETIME: chrono::Duration = chrono::Duration::minutes(15);
+
+/// How long cached credentials must still last for `creds`: its callers ask
+/// again when they run out.
+const CREDS_MIN_LIFETIME: chrono::Duration = chrono::Duration::seconds(60);
+
+async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
+    let entry = current_creds(
+        &args.role.role_arn,
+        &args.env.proxy_url,
+        CREDS_MIN_LIFETIME,
+        verbose,
+    )
+    .await?
+    .ok_or_else(|| {
+        format!(
+            "{} {}",
+            api::NOT_SIGNED_IN,
+            public_data(&args.env.proxy_url)
+        )
+    })?;
     match args.output.format {
         OutputFormat::CredentialProcess => output::print_credential_process(&entry.creds),
         OutputFormat::Env => output::print_env(&entry.creds),
@@ -1063,44 +1173,71 @@ async fn run_creds(args: CredsArgs, verbose: bool) -> Result<(), String> {
     Ok(())
 }
 
+/// The role's credentials at `proxy_url`'s environment: the cached ones while
+/// they have `min_left` to run, otherwise new ones, minted once however many
+/// ask at a time. None when nobody is signed in. A session that can't be
+/// renewed is an error, not None: whoever signed in means to act as
+/// themselves, and `exec` running unsigned would turn that into a puzzling
+/// refusal of their own data.
+async fn current_creds(
+    role_arn: &str,
+    proxy_url: &str,
+    min_left: chrono::Duration,
+    verbose: bool,
+) -> Result<Option<cache::CacheEntry>, String> {
+    let env = cache::env(proxy_url)?;
+    let env = env.as_deref();
+    let fresh = |entry: &cache::CacheEntry| -> Result<bool, String> {
+        Ok(!cache::expires_within(&entry.creds, min_left)?)
+    };
+    match cache::read_credentials(env, role_arn)? {
+        Some(entry) if fresh(&entry)? => return Ok(Some(entry)),
+        _ => {}
+    }
+    // Re-check under the lock: another process may have minted already.
+    let _lock = cache::lock(env, role_arn)?;
+    match cache::read_credentials(env, role_arn)? {
+        Some(entry) if fresh(&entry)? => Ok(Some(entry)),
+        stale => mint(role_arn, proxy_url, env, stale, verbose)
+            .await
+            .map_err(|e| mint_failed(&e, proxy_url)),
+    }
+}
+
 /// New credentials for the role, cached before they're returned. An entry
 /// from before the session was shared refreshes with its own token; anything
 /// else exchanges the session's ID token, refreshing the session if need be.
+/// None when there's no login session to mint with.
 async fn mint(
-    args: &CredsArgs,
+    role_arn: &str,
+    proxy_url: &str,
     env: Option<&str>,
     stale: Option<cache::CacheEntry>,
     verbose: bool,
-) -> Result<cache::CacheEntry, String> {
-    let save =
-        |e: &cache::CacheEntry| cache::write_credentials(env, &args.role.role_arn, e).map(drop);
+) -> Result<Option<cache::CacheEntry>, String> {
+    let save = |e: &cache::CacheEntry| cache::write_credentials(env, role_arn, e).map(drop);
     match stale {
         Some(entry) if entry.sts.is_none() && entry.refresh.is_some() => {
-            refresh(&args.role.role_arn, entry, verbose, save).await
+            refresh(role_arn, entry, verbose, save).await.map(Some)
         }
         stale => {
             let sts = stale.and_then(|e| e.sts).unwrap_or(cache::StsSettings {
-                proxy_url: args.env.proxy_url.clone(),
+                proxy_url: proxy_url.to_string(),
                 duration: None,
             });
-            let id_token = session::token(env, session::Want::Id, verbose)
-                .await?
-                .ok_or("not logged in")?;
-            let creds = sts::assume_role(
-                &sts.proxy_url,
-                &args.role.role_arn,
-                &id_token,
-                sts.duration,
-                verbose,
-            )
-            .await?;
+            let Some(id_token) = session::token(env, session::Want::Id, verbose).await? else {
+                return Ok(None);
+            };
+            let creds =
+                sts::assume_role(&sts.proxy_url, role_arn, &id_token, sts.duration, verbose)
+                    .await?;
             let entry = cache::CacheEntry {
                 creds,
                 sts: Some(sts),
                 refresh: None,
             };
             save(&entry)?;
-            Ok(entry)
+            Ok(Some(entry))
         }
     }
 }
@@ -1719,6 +1856,35 @@ mod tests {
     }
 
     #[test]
+    fn exec_says_when_it_runs_unsigned() {
+        let cmd = |s: &str| s.split(' ').map(String::from).collect::<Vec<_>>();
+        let proxy = "https://data.source.coop";
+
+        let (env, notes) = exec_env(&cmd("aws s3 ls s3://acct/p/"), proxy, None);
+        assert_eq!(
+            notes,
+            [
+                UNSIGNED_NOTE.to_string(),
+                exec::unsigned_hint(&cmd("aws s3 ls s3://acct/p/")).unwrap()
+            ]
+        );
+        assert!(env.remove.contains(&"AWS_ACCESS_KEY_ID"));
+
+        let (_, notes) = exec_env(&cmd("gdalinfo /vsis3/acct/p/a.tif"), proxy, None);
+        assert_eq!(notes, [UNSIGNED_NOTE]);
+
+        let creds = sts::Credentials {
+            access_key_id: "AKID".into(),
+            secret_access_key: "SECRET".into(),
+            session_token: "TOKEN".into(),
+            expiration: "2026-10-14T13:00:00Z".into(),
+        };
+        let (env, notes) = exec_env(&cmd("aws s3 ls s3://acct/p/"), proxy, Some(creds));
+        assert!(notes.is_empty(), "signed in, nothing to say: {notes:?}");
+        assert!(env.set.contains(&("AWS_ACCESS_KEY_ID", "AKID".into())));
+    }
+
+    #[test]
     fn every_command_is_in_the_readme() {
         let readme = include_str!("../README.md");
         let mut all = vec![];
@@ -1826,7 +1992,7 @@ mod tests {
         let entry = result.unwrap();
 
         assert_eq!(entry.creds.access_key_id, "NEWKEY");
-        assert!(!cache::is_expired(&entry.creds).unwrap());
+        assert!(!cache::expires_within(&entry.creds, chrono::Duration::seconds(60)).unwrap());
         assert_eq!(entry.refresh.unwrap().refresh_token, "new-rt");
         // Rotated token persisted first (with old creds), then the new creds.
         assert_eq!(
